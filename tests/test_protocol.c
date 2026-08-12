@@ -5,6 +5,7 @@
 #include "protocol.h"
 
 int main(void) {
+    /* Hardware-validated PS190 request/reply fixtures; this test is fully synthetic. */
     const uint8_t expected_10[] = {0x51, 0x82, 0x01, 0x10, 0xac};
     const uint8_t expected_60[] = {0x51, 0x82, 0x01, 0x60, 0xdc};
     uint8_t request[RSS_DDC_GET_VCP_REQUEST_SIZE] = {};
@@ -23,19 +24,19 @@ int main(void) {
 
     uint8_t malformed[RSS_DDC_GET_VCP_REPLY_SIZE] = {};
     memcpy(malformed, reply_10, sizeof(malformed));
-    assert(rss_ddc_parse_get_vcp_reply(malformed, sizeof(malformed) - 1, 0x10, &result) == RSS_DDC_ERROR_PROTOCOL);
+    assert(rss_ddc_parse_get_vcp_reply(malformed, sizeof(malformed) - 1, 0x10, &result) == RSS_DDC_ERROR_REPLY_LENGTH);
     malformed[0] = 0x00;
-    assert(rss_ddc_parse_get_vcp_reply(malformed, sizeof(malformed), 0x10, &result) == RSS_DDC_ERROR_PROTOCOL);
+    assert(rss_ddc_parse_get_vcp_reply(malformed, sizeof(malformed), 0x10, &result) == RSS_DDC_ERROR_REPLY_SOURCE);
     memcpy(malformed, reply_10, sizeof(malformed)); malformed[1] = 0x87;
-    assert(rss_ddc_parse_get_vcp_reply(malformed, sizeof(malformed), 0x10, &result) == RSS_DDC_ERROR_PROTOCOL);
+    assert(rss_ddc_parse_get_vcp_reply(malformed, sizeof(malformed), 0x10, &result) == RSS_DDC_ERROR_REPLY_SOURCE);
     memcpy(malformed, reply_10, sizeof(malformed)); malformed[2] = 0x03;
-    assert(rss_ddc_parse_get_vcp_reply(malformed, sizeof(malformed), 0x10, &result) == RSS_DDC_ERROR_PROTOCOL);
+    assert(rss_ddc_parse_get_vcp_reply(malformed, sizeof(malformed), 0x10, &result) == RSS_DDC_ERROR_REPLY_COMMAND);
     memcpy(malformed, reply_10, sizeof(malformed)); malformed[3] = 0x01;
-    assert(rss_ddc_parse_get_vcp_reply(malformed, sizeof(malformed), 0x10, &result) == RSS_DDC_ERROR_PROTOCOL);
+    assert(rss_ddc_parse_get_vcp_reply(malformed, sizeof(malformed), 0x10, &result) == RSS_DDC_ERROR_REPLY_STATUS);
     memcpy(malformed, reply_10, sizeof(malformed)); malformed[4] = 0x60;
-    assert(rss_ddc_parse_get_vcp_reply(malformed, sizeof(malformed), 0x10, &result) == RSS_DDC_ERROR_PROTOCOL);
+    assert(rss_ddc_parse_get_vcp_reply(malformed, sizeof(malformed), 0x10, &result) == RSS_DDC_ERROR_REPLY_VCP);
     memcpy(malformed, reply_10, sizeof(malformed)); malformed[10] ^= 0xff;
-    assert(rss_ddc_parse_get_vcp_reply(malformed, sizeof(malformed), 0x10, &result) == RSS_DDC_ERROR_PROTOCOL);
+    assert(rss_ddc_parse_get_vcp_reply(malformed, sizeof(malformed), 0x10, &result) == RSS_DDC_ERROR_REPLY_CHECKSUM);
     puts("test_protocol: passed");
     return 0;
 }

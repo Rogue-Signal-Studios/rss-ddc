@@ -11,8 +11,15 @@ const char *rss_ddc_error_string(RSSDDCError error) {
         case RSS_DDC_ERROR_UNSUPPORTED_CAPABILITY: return "unsupported capability";
         case RSS_DDC_ERROR_DISCOVERY: return "display discovery failed";
         case RSS_DDC_ERROR_SAFETY_GATE: return "provider safety correlation failed";
-        case RSS_DDC_ERROR_TRANSPORT: return "DDC transport failed";
-        case RSS_DDC_ERROR_PROTOCOL: return "invalid DDC/CI response";
+        case RSS_DDC_ERROR_SERVICE_CONSTRUCTION: return "IOAVService construction failed";
+        case RSS_DDC_ERROR_WRITE: return "DDC/CI write failed";
+        case RSS_DDC_ERROR_READ: return "DDC/CI read failed";
+        case RSS_DDC_ERROR_REPLY_LENGTH: return "DDC/CI reply has an invalid length";
+        case RSS_DDC_ERROR_REPLY_SOURCE: return "DDC/CI reply has an invalid source/framing";
+        case RSS_DDC_ERROR_REPLY_COMMAND: return "DDC/CI reply has an invalid command";
+        case RSS_DDC_ERROR_REPLY_STATUS: return "DDC/CI reply reports failure status";
+        case RSS_DDC_ERROR_REPLY_VCP: return "DDC/CI reply VCP code does not match request";
+        case RSS_DDC_ERROR_REPLY_CHECKSUM: return "DDC/CI reply checksum is invalid";
         case RSS_DDC_ERROR_SYSTEM: return "macOS system error";
     }
     return "unknown error";

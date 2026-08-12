@@ -7,13 +7,19 @@
 
 #include "macos_internal.h"
 
+/* Private CoreDisplay entry point reconstructed from Apple runtime research. Returned dictionary follows Create ownership. */
 extern CFDictionaryRef CoreDisplay_DisplayCreateInfoDictionary(CGDirectDisplayID display);
 
+/** Copies only string-valued registry fields into the fixed-size public snapshot. */
 static bool copyCFString(CFTypeRef value, char destination[RSS_DDC_TEXT_MAX]) {
     return value != NULL && CFGetTypeID(value) == CFStringGetTypeID() &&
         CFStringGetCString(value, destination, RSS_DDC_TEXT_MAX, kCFStringEncodingUTF8);
 }
 
+/**
+ * Resolves the IOKit adapter for a CoreGraphics display. The returned registry
+ * entry is retained and callers must IOObjectRelease it.
+ */
 static io_service_t adapter_for_display(CGDirectDisplayID display_id) {
     CFDictionaryRef info = CoreDisplay_DisplayCreateInfoDictionary(display_id);
     if (info == NULL) return MACH_PORT_NULL;
@@ -24,6 +30,7 @@ static io_service_t adapter_for_display(CGDirectDisplayID display_id) {
     return adapter;
 }
 
+/** Reads user-facing product metadata only; absence is non-fatal for discovery. */
 static void copy_display_name(CGDirectDisplayID display_id, RSSDDCDisplay *display) {
     snprintf(display->product_name, sizeof(display->product_name), "Unknown Display");
     io_service_t adapter = adapter_for_display(display_id);
@@ -42,6 +49,7 @@ static void copy_display_name(CGDirectDisplayID display_id, RSSDDCDisplay *displ
     IOObjectRelease(adapter);
 }
 
+/** External-only prevents selecting internal panel service proxies for DDC control. */
 static bool is_external(io_service_t entry) {
     CFTypeRef location = IORegistryEntryCreateCFProperty(entry, CFSTR("Location"), kCFAllocatorDefault, 0);
     bool external = location != NULL && CFGetTypeID(location) == CFStringGetTypeID() &&
@@ -50,6 +58,10 @@ static bool is_external(io_service_t entry) {
     return external;
 }
 
+/**
+ * Classifies a service from its immediate EPIC parent. The provider string is
+ * runtime data; no CPU-generation or registry-ID branch is used.
+ */
 static bool inspect_service(io_service_t service, RSSDDCDisplay *display) {
     io_registry_entry_t parent = MACH_PORT_NULL;
     if (IORegistryEntryGetParentEntry(service, kIOServicePlane, &parent) != KERN_SUCCESS) return false;
@@ -68,6 +80,11 @@ static bool inspect_service(io_service_t service, RSSDDCDisplay *display) {
     return provider_ok;
 }
 
+/**
+ * Enforces the hardware-validated PS190 Service identity before an IOAV user
+ * client can be created. Each predicate distinguishes Endpoint11 Service
+ * state from unrelated external device/service proxies.
+ */
 static bool is_ps190_service_identity(io_service_t service) {
     io_registry_entry_t parent = MACH_PORT_NULL;
     if (!is_external(service) || IORegistryEntryGetParentEntry(service, kIOServicePlane, &parent) != KERN_SUCCESS) {
@@ -99,7 +116,12 @@ static bool is_ps190_service_identity(io_service_t service) {
     return matches;
 }
 
-static io_service_t service_for_display(CGDirectDisplayID display_id) {
+/**
+ * Correlates a display adapter to one external DCPAVServiceProxy. Returns a
+ * retained proxy; multiple matches are rejected rather than guessed.
+ */
+static io_service_t service_for_display(CGDirectDisplayID display_id, bool *ambiguous) {
+    if (ambiguous != NULL) *ambiguous = false;
     io_service_t adapter = adapter_for_display(display_id);
     if (adapter == MACH_PORT_NULL) return MACH_PORT_NULL;
     uint64_t adapter_id = 0;
@@ -115,6 +137,7 @@ static io_service_t service_for_display(CGDirectDisplayID display_id) {
     }
     IOObjectRelease(root);
     bool frame_buffer_seen = false;
+    io_service_t match = MACH_PORT_NULL;
     io_service_t entry = MACH_PORT_NULL;
     while ((entry = IOIteratorNext(iterator)) != MACH_PORT_NULL) {
         if (IOObjectConformsTo(entry, "IOMobileFramebuffer")) {
@@ -127,15 +150,26 @@ static io_service_t service_for_display(CGDirectDisplayID display_id) {
         io_name_t name = {};
         IORegistryEntryGetName(entry, name);
         if (frame_buffer_seen && strcmp(name, "DCPAVServiceProxy") == 0 && is_external(entry)) {
-            IOObjectRelease(iterator);
-            return entry;
+            if (match != MACH_PORT_NULL) {
+                IOObjectRelease(entry);
+                IOObjectRelease(match);
+                IOObjectRelease(iterator);
+                if (ambiguous != NULL) *ambiguous = true;
+                return MACH_PORT_NULL;
+            }
+            match = entry;
+            continue;
         }
         IOObjectRelease(entry);
     }
     IOObjectRelease(iterator);
-    return MACH_PORT_NULL;
+    return match;
 }
 
+/**
+ * Finds the single active DisplayPort transport for the selected product and
+ * copies its BranchDeviceID. Ambiguity is a safety failure, not a tie-break.
+ */
 static bool active_branch_for_product(const char *product_name, char branch[RSS_DDC_TEXT_MAX]) {
     io_registry_entry_t root = IORegistryGetRootEntry(kIOMainPortDefault);
     io_iterator_t iterator = MACH_PORT_NULL;
@@ -166,12 +200,16 @@ static bool active_branch_for_product(const char *product_name, char branch[RSS_
         if (active != NULL) CFRelease(active);
         IOObjectRelease(entry);
         if (matches && !found) found = true;
-        else if (matches) return false;
+        else if (matches) {
+            IOObjectRelease(iterator);
+            return false;
+        }
     }
     IOObjectRelease(iterator);
     return found;
 }
 
+/** Confirms the active branch maps to exactly one external DCPDP device proxy. */
 static bool branch_has_unique_device_proxy(const char *branch) {
     io_registry_entry_t root = IORegistryGetRootEntry(kIOMainPortDefault);
     io_iterator_t iterator = MACH_PORT_NULL;
@@ -198,6 +236,10 @@ static bool branch_has_unique_device_proxy(const char *branch) {
     return count == 1;
 }
 
+/**
+ * Produces public display snapshots without opening IOAVService. Registry and
+ * CoreFoundation objects created here are released before the function returns.
+ */
 RSSDDCError rss_macos_discover_displays(RSSDDCDisplay *displays, size_t capacity, size_t *count) {
     if (count == NULL) return RSS_DDC_ERROR_ARGUMENT;
     CGDirectDisplayID ids[16] = {};
@@ -212,7 +254,7 @@ RSSDDCError rss_macos_discover_displays(RSSDDCDisplay *displays, size_t capacity
         display.online = true;
         display.external = !CGDisplayIsBuiltin(ids[index]);
         copy_display_name(ids[index], &display);
-        io_service_t service = service_for_display(ids[index]);
+        io_service_t service = service_for_display(ids[index], NULL);
         if (service != MACH_PORT_NULL) {
             (void)inspect_service(service, &display);
             IOObjectRelease(service);
@@ -223,6 +265,11 @@ RSSDDCError rss_macos_discover_displays(RSSDDCDisplay *displays, size_t capacity
     return RSS_DDC_OK;
 }
 
+/**
+ * Builds the private binding used by hardware operations. PS190 additionally
+ * requires active-transport/branch/device/service correlation established in
+ * prior lab validation; a failed predicate prevents IOAVService construction.
+ */
 RSSDDCError rss_macos_resolve_binding(uint32_t list_index, RSSMacOSBinding *binding) {
     if (binding == NULL || list_index == 0) return RSS_DDC_ERROR_ARGUMENT;
     *binding = (RSSMacOSBinding){0};
@@ -235,8 +282,11 @@ RSSDDCError rss_macos_resolve_binding(uint32_t list_index, RSSMacOSBinding *bind
     binding->display.online = true;
     binding->display.external = !CGDisplayIsBuiltin(display_id);
     copy_display_name(display_id, &binding->display);
-    binding->service_proxy = service_for_display(display_id);
-    if (binding->service_proxy == MACH_PORT_NULL) return RSS_DDC_ERROR_DISCOVERY;
+    bool ambiguous_service = false;
+    binding->service_proxy = service_for_display(display_id, &ambiguous_service);
+    if (binding->service_proxy == MACH_PORT_NULL) {
+        return ambiguous_service ? RSS_DDC_ERROR_SAFETY_GATE : RSS_DDC_ERROR_DISCOVERY;
+    }
     if (!inspect_service(binding->service_proxy, &binding->display)) return RSS_DDC_ERROR_DISCOVERY;
     if (binding->display.provider == RSS_DDC_PROVIDER_PS190) {
         bool branch_ok = active_branch_for_product(binding->display.product_name, binding->display.branch_device_id) &&
@@ -248,6 +298,7 @@ RSSDDCError rss_macos_resolve_binding(uint32_t list_index, RSSMacOSBinding *bind
     return RSS_DDC_OK;
 }
 
+/** Balances service_for_display's retained proxy on every success and error path. */
 void rss_macos_release_binding(RSSMacOSBinding *binding) {
     if (binding != NULL && binding->service_proxy != MACH_PORT_NULL) IOObjectRelease(binding->service_proxy);
     if (binding != NULL) *binding = (RSSMacOSBinding){0};

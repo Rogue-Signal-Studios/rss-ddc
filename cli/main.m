@@ -8,7 +8,7 @@
 #include "rss_ddc.h"
 
 static void usage(const char *program) {
-    fprintf(stderr, "Usage:\n  %s list\n  %s info <display-index>\n  %s get <display-index> <vcp>\n  %s set <display-index> <vcp> <value>\n",
+    fprintf(stderr, "Usage:\n  %s list\n  %s info <display-index>\n  %s [--verbose] get <display-index> <vcp>\n  %s set <display-index> <vcp> <value>\n",
             program, program, program, program);
 }
 
@@ -27,12 +27,25 @@ static void print_display(const RSSDDCDisplay *display) {
            display->cg_display_id);
 }
 
+/** CLI adapter for portable diagnostics; stderr preserves concise script-friendly stdout. */
+static void write_diagnostic(void *context, const char *message) {
+    (void)context;
+    fprintf(stderr, "rss-ddc: %s\n", message);
+}
+
+/** Parses only the small public CLI surface; GET is the sole hardware-facing command. */
 int main(int argc, char **argv) {
-    if (argc < 2) {
+    bool verbose = false;
+    int argument = 1;
+    if (argc > argument && strcmp(argv[argument], "--verbose") == 0) {
+        verbose = true;
+        ++argument;
+    }
+    if (argc <= argument) {
         usage(argv[0]);
         return EXIT_FAILURE;
     }
-    if (strcmp(argv[1], "list") == 0) {
+    if (strcmp(argv[argument], "list") == 0) {
         RSSDDCDisplay displays[16] = {};
         size_t count = 0;
         RSSDDCError error = rss_ddc_list_displays(displays, 16, &count);
@@ -44,11 +57,11 @@ int main(int argc, char **argv) {
         return EXIT_SUCCESS;
     }
     unsigned long display_index = 0;
-    if (argc < 3 || !parse_unsigned(argv[2], UINT32_MAX, &display_index) || display_index == 0) {
+    if (argc <= argument + 1 || !parse_unsigned(argv[argument + 1], UINT32_MAX, &display_index) || display_index == 0) {
         usage(argv[0]);
         return EXIT_FAILURE;
     }
-    if (strcmp(argv[1], "info") == 0) {
+    if (strcmp(argv[argument], "info") == 0) {
         RSSDDCDisplay display = {};
         RSSDDCError error = rss_ddc_get_display((uint32_t)display_index, &display);
         if (error != RSS_DDC_OK) {
@@ -61,23 +74,26 @@ int main(int argc, char **argv) {
         return EXIT_SUCCESS;
     }
     unsigned long vcp = 0;
-    if (argc < 4 || !parse_unsigned(argv[3], UINT8_MAX, &vcp)) {
+    if (argc <= argument + 2 || !parse_unsigned(argv[argument + 2], UINT8_MAX, &vcp)) {
         usage(argv[0]);
         return EXIT_FAILURE;
     }
-    if (strcmp(argv[1], "get") == 0) {
+    if (strcmp(argv[argument], "get") == 0) {
         RSSDDCVCPResult result = {};
-        RSSDDCError error = rss_ddc_get_vcp((uint32_t)display_index, (uint8_t)vcp, &result);
+        RSSDDCDiagnostics diagnostics = {.callback = write_diagnostic, .context = NULL};
+        RSSDDCError error = rss_ddc_get_vcp_with_diagnostics((uint32_t)display_index, (uint8_t)vcp, &result,
+                                                              verbose ? &diagnostics : NULL);
         if (error != RSS_DDC_OK) {
             fprintf(stderr, "rss-ddc: %s\n", rss_ddc_error_string(error));
             return EXIT_FAILURE;
         }
-        printf("vcp=0x%02x maximum=%u current=%u\n", result.vcp_code, result.maximum_value, result.current_value);
+        /* Normal mode is intentionally machine-friendly; verbose detail was sent to stderr. */
+        printf("%u\n", result.current_value);
         return EXIT_SUCCESS;
     }
-    if (strcmp(argv[1], "set") == 0 && argc == 5) {
+    if (strcmp(argv[argument], "set") == 0 && argc == argument + 4) {
         unsigned long value = 0;
-        if (!parse_unsigned(argv[4], UINT16_MAX, &value)) {
+        if (!parse_unsigned(argv[argument + 3], UINT16_MAX, &value)) {
             usage(argv[0]);
             return EXIT_FAILURE;
         }

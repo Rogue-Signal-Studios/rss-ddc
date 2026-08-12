@@ -11,8 +11,17 @@ enum {
     RSS_DDC_GET_VCP_REPLY_SIZE = 11,
 };
 
+/**
+ * XORs the DDC destination seed (0x6e) with raw request bytes. The caller
+ * supplies bytes before the checksum, including inline source address 0x51.
+ */
 uint8_t rss_ddc_raw_request_checksum(const uint8_t *bytes, size_t byte_count);
+/** Builds the complete five-byte raw-framed Get VCP request for the PS190 transport. */
 void rss_ddc_build_raw_get_vcp(uint8_t vcp_code, uint8_t request[RSS_DDC_GET_VCP_REQUEST_SIZE]);
+/**
+ * Strictly parses exactly one 11-byte Get VCP reply. On failure, `result`
+ * remains untouched and the returned error identifies the rejected field.
+ */
 RSSDDCError rss_ddc_parse_get_vcp_reply(const uint8_t *reply, size_t byte_count,
                                         uint8_t requested_vcp, RSSDDCVCPResult *result);
 
