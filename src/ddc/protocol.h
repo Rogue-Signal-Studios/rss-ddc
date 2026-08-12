@@ -8,6 +8,7 @@
 
 enum {
     RSS_DDC_CONVENTIONAL_GET_VCP_REQUEST_SIZE = 4,
+    RSS_DDC_CONVENTIONAL_SET_VCP_REQUEST_SIZE = 6,
     RSS_DDC_GET_VCP_REQUEST_SIZE = 5,
     RSS_DDC_GET_VCP_REPLY_SIZE = 11,
 };
@@ -20,6 +21,13 @@ uint8_t rss_ddc_request_checksum(const uint8_t *bytes, size_t byte_count);
 /** Builds a four-byte DCPDP13 payload; the IOAV data argument carries 0x51 separately. */
 void rss_ddc_build_conventional_get_vcp(
     uint8_t vcp_code, uint8_t request[RSS_DDC_CONVENTIONAL_GET_VCP_REQUEST_SIZE]);
+/**
+ * Builds the conventional six-byte Set VCP payload. The caller supplies the
+ * DDC source address (normally 0x51) as IOAV's data/subaddress argument, and
+ * therefore includes it in the checksum but not in this payload.
+ */
+void rss_ddc_build_conventional_set_vcp(
+    uint8_t vcp_code, uint16_t value, uint8_t request[RSS_DDC_CONVENTIONAL_SET_VCP_REQUEST_SIZE]);
 /** Builds the complete five-byte raw-framed Get VCP request for the PS190 transport. */
 void rss_ddc_build_raw_get_vcp(uint8_t vcp_code, uint8_t request[RSS_DDC_GET_VCP_REQUEST_SIZE]);
 /**

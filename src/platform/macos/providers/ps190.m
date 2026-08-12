@@ -18,6 +18,11 @@ extern CFTypeID IOAVServiceGetTypeID(void);
 extern IOReturn IOAVServiceReadI2C(IOAVServiceRef, uint32_t, uint32_t, void *, uint32_t);
 extern IOReturn IOAVServiceWriteI2C(IOAVServiceRef, uint32_t, uint32_t, void *, uint32_t);
 
+enum {
+    RSS_PS190_SET_WRITE_COUNT = 2,
+    RSS_PS190_SET_PREWRITE_DELAY_US = 10000,
+};
+
 /** Formats a bounded byte trace for operator diagnostics without exposing pointers. */
 static void diagnostic_bytes(const RSSDDCDiagnostics *diagnostics, const char *label,
                              const uint8_t *bytes, size_t byte_count) {
@@ -87,5 +92,52 @@ RSSDDCError rss_macos_ps190_get_vcp(RSSMacOSBinding *binding, uint8_t vcp_code, 
     snprintf(message, sizeof(message), "decoded vcp=0x%02x maximum=%u current=%u checksum=valid",
              result->vcp_code, result->maximum_value, result->current_value);
     rss_macos_diagnostic(diagnostics, message);
+    return RSS_DDC_OK;
+}
+
+/**
+ * Executes the historical PS190-capable Set VCP path recovered from m1ddc:
+ * two conventional Service writes, each preceded by 10 ms, with no response
+ * read. This is intentionally distinct from raw PS190 GET. The legacy path
+ * supplied 0x51 as the IOAV data/subaddress argument and formed the matching
+ * six-byte payload/checksum; it was the path through which input switching
+ * continued to work while conventional GET did not.
+ *
+ * The repeated write is preserved as evidence-backed transaction behavior,
+ * not presented as a retry policy. A failed call returns WRITE immediately;
+ * no response is implied or parsed after a successful Set VCP write.
+ */
+RSSDDCError rss_macos_ps190_set_vcp(RSSMacOSBinding *binding, uint8_t vcp_code, uint16_t value,
+                                     const RSSDDCDiagnostics *diagnostics) {
+    if (binding == NULL || !binding->ps190_safety_gate) return RSS_DDC_ERROR_SAFETY_GATE;
+    char message[256] = {};
+    snprintf(message, sizeof(message), "backend=AppleDCPPS190 operation=SetVCP framing=conventional requested-vcp=0x%02x requested-value=%u",
+             vcp_code, value);
+    rss_macos_diagnostic(diagnostics, message);
+
+    IOAVServiceRef service = IOAVServiceCreateWithService(kCFAllocatorDefault, binding->service_proxy);
+    if (service == NULL || CFGetTypeID(service) != IOAVServiceGetTypeID()) {
+        if (service != NULL) CFRelease(service);
+        rss_macos_diagnostic(diagnostics, "IOAVServiceCreateWithService=failed");
+        return RSS_DDC_ERROR_SERVICE_CONSTRUCTION;
+    }
+
+    uint8_t request[RSS_DDC_CONVENTIONAL_SET_VCP_REQUEST_SIZE];
+    rss_ddc_build_conventional_set_vcp(vcp_code, value, request);
+    diagnostic_bytes(diagnostics, "request", request, sizeof(request));
+    for (unsigned int write_index = 0; write_index < RSS_PS190_SET_WRITE_COUNT; ++write_index) {
+        usleep(RSS_PS190_SET_PREWRITE_DELAY_US);
+        IOReturn write_result = IOAVServiceWriteI2C(service, 0x37, 0x51, request, sizeof(request));
+        snprintf(message, sizeof(message),
+                 "write=%u/%u chip=0x37 data=0x00000051 length=6 pre-delay=10ms IOReturn=0x%08x",
+                 write_index + 1, RSS_PS190_SET_WRITE_COUNT, (unsigned int)write_result);
+        rss_macos_diagnostic(diagnostics, message);
+        if (write_result != KERN_SUCCESS) {
+            CFRelease(service);
+            return RSS_DDC_ERROR_WRITE;
+        }
+    }
+    CFRelease(service);
+    rss_macos_diagnostic(diagnostics, "response=none historical SetVCP path is write-only");
     return RSS_DDC_OK;
 }

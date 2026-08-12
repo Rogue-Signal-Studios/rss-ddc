@@ -129,10 +129,18 @@ RSSDDCError rss_ddc_get_vcp_with_diagnostics(uint32_t list_index, uint8_t vcp_co
                                               RSSDDCVCPResult *result,
                                               const RSSDDCDiagnostics *diagnostics);
 /**
- * Reserved high-level Set VCP API. Providers without separately validated SET
- * support return RSS_DDC_ERROR_UNSUPPORTED_CAPABILITY rather than guessing.
+ * Performs a provider-specific Set VCP operation after the same display and
+ * provider safety correlation used for GET. Values cover the full DDC/CI
+ * 16-bit field; provider support and monitor-level value semantics are
+ * independent and unsupported providers fail closed.
  */
 RSSDDCError rss_ddc_set_vcp(uint32_t list_index, uint8_t vcp_code, uint16_t value);
+/**
+ * Diagnostic form of Set VCP. Callback messages are transient and follow the
+ * same ownership/re-entrancy rules as Get VCP diagnostics.
+ */
+RSSDDCError rss_ddc_set_vcp_with_diagnostics(uint32_t list_index, uint8_t vcp_code, uint16_t value,
+                                              const RSSDDCDiagnostics *diagnostics);
 
 #ifdef __cplusplus
 }

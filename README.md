@@ -4,7 +4,7 @@
 
 ## Status
 
-This milestone provides real macOS display/provider discovery, strict DDC/CI Get VCP parsing, and provider-specific Service-path GET implementations. The PS190 path is hardware-validated in `rss-ddc`; the DCPDP13 path is based on prior research-fork hardware evidence and remains pending validation in this standalone project. Unsupported providers and capabilities return explicit errors rather than falling back to a guessed transport.
+This milestone provides real macOS display/provider discovery, strict DDC/CI parsing, and provider-specific Service-path operations. PS190 GET is hardware-validated in `rss-ddc`; PS190 SET and DCPDP13 GET are based on prior research-fork hardware evidence and remain pending validation in this standalone project. Unsupported providers and capabilities return explicit errors rather than falling back to a guessed transport.
 
 The project uses Apple-private macOS interfaces inside the macOS backend only. Behavior can vary by macOS release, display provider, cable/adapter topology, and monitor firmware.
 
@@ -31,7 +31,7 @@ Successful non-verbose `get` prints only the current value. `--verbose` writes t
 | --- | --- | --- |
 | `DCPDP13Service` | conventional Service-path GET implemented; standalone hardware validation pending | Get VCP |
 | `AppleDCPMCDP29XX` | classified; GET not yet enabled | none |
-| `AppleDCPPS190` | Service-path GET hardware-validated on the documented 25F84 setup | Get VCP |
+| `AppleDCPPS190` | raw GET hardware-validated; conventional SET implemented from prior evidence, validation pending | Get VCP, Set VCP |
 | unknown | safe unsupported result | none |
 
 `DCPDP13Service` and `AppleDCPPS190` deliberately use different request

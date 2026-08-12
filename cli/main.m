@@ -8,7 +8,7 @@
 #include "rss_ddc.h"
 
 static void usage(const char *program) {
-    fprintf(stderr, "Usage:\n  %s list\n  %s info <display-index>\n  %s [--verbose] get <display-index> <vcp>\n  %s set <display-index> <vcp> <value>\n",
+    fprintf(stderr, "Usage:\n  %s list\n  %s info <display-index>\n  %s [--verbose] get <display-index> <vcp>\n  %s [--verbose] set <display-index> <vcp> <value>\n",
             program, program, program, program);
 }
 
@@ -33,7 +33,7 @@ static void write_diagnostic(void *context, const char *message) {
     fprintf(stderr, "rss-ddc: %s\n", message);
 }
 
-/** Parses only the small public CLI surface; GET is the sole hardware-facing command. */
+/** Parses the small public CLI surface; hardware access is limited to explicit GET/SET commands. */
 int main(int argc, char **argv) {
     bool verbose = false;
     int argument = 1;
@@ -97,8 +97,10 @@ int main(int argc, char **argv) {
             usage(argv[0]);
             return EXIT_FAILURE;
         }
-        RSSDDCError error = rss_ddc_set_vcp((uint32_t)display_index, (uint8_t)vcp, (uint16_t)value);
-        fprintf(stderr, "rss-ddc: %s\n", rss_ddc_error_string(error));
+        RSSDDCDiagnostics diagnostics = {.callback = write_diagnostic, .context = NULL};
+        RSSDDCError error = rss_ddc_set_vcp_with_diagnostics((uint32_t)display_index, (uint8_t)vcp,
+                                                              (uint16_t)value, verbose ? &diagnostics : NULL);
+        if (error != RSS_DDC_OK) fprintf(stderr, "rss-ddc: %s\n", rss_ddc_error_string(error));
         return error == RSS_DDC_OK ? EXIT_SUCCESS : EXIT_FAILURE;
     }
     usage(argv[0]);

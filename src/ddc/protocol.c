@@ -7,6 +7,8 @@ enum {
     RSS_DDC_REPLY_SOURCE = 0x6e,
     RSS_DDC_GET_LENGTH = 0x82,
     RSS_DDC_GET_COMMAND = 0x01,
+    RSS_DDC_SET_LENGTH = 0x84,
+    RSS_DDC_SET_COMMAND = 0x03,
     RSS_DDC_REPLY_LENGTH = 0x88,
     RSS_DDC_REPLY_COMMAND = 0x02,
 };
@@ -24,6 +26,22 @@ void rss_ddc_build_conventional_get_vcp(
     request[2] = vcp_code;
     /* The 0x51 source address is passed as IOAV's subaddress, not in this payload. */
     request[3] = rss_ddc_request_checksum(request, 3);
+}
+
+void rss_ddc_build_conventional_set_vcp(
+    uint8_t vcp_code, uint16_t value, uint8_t request[RSS_DDC_CONVENTIONAL_SET_VCP_REQUEST_SIZE]) {
+    request[0] = RSS_DDC_SET_LENGTH;
+    request[1] = RSS_DDC_SET_COMMAND;
+    request[2] = vcp_code;
+    request[3] = (uint8_t)(value >> 8);
+    request[4] = (uint8_t)value;
+    /* The conventional IOAV form represents 0x51 out-of-band, but its DDC checksum is still required. */
+    const uint8_t source_address = RSS_DDC_SOURCE_ADDRESS;
+    uint8_t checksum = rss_ddc_request_checksum(&source_address, 1);
+    for (size_t index = 0; index < RSS_DDC_CONVENTIONAL_SET_VCP_REQUEST_SIZE - 1; ++index) {
+        checksum ^= request[index];
+    }
+    request[5] = checksum;
 }
 
 void rss_ddc_build_raw_get_vcp(uint8_t vcp_code, uint8_t request[RSS_DDC_GET_VCP_REQUEST_SIZE]) {

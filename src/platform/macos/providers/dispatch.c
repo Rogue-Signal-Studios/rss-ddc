@@ -20,3 +20,21 @@ RSSDDCError rss_macos_provider_get_vcp(RSSMacOSBinding *binding, uint8_t vcp_cod
     }
     return RSS_DDC_ERROR_UNSUPPORTED_PROVIDER;
 }
+
+/** SET dispatch stays provider-specific: only PS190 has evidence-supported semantics here. */
+RSSDDCError rss_macos_provider_set_vcp(RSSMacOSBinding *binding, uint8_t vcp_code, uint16_t value,
+                                        const RSSDDCDiagnostics *diagnostics) {
+    if (binding == NULL) return RSS_DDC_ERROR_ARGUMENT;
+    switch (rss_ddc_provider_backend(binding->display.provider)) {
+        case RSS_DDC_BACKEND_PS190:
+            return rss_macos_ps190_set_vcp(binding, vcp_code, value, diagnostics);
+        case RSS_DDC_BACKEND_DCPDP13:
+        case RSS_DDC_BACKEND_MCDP29XX:
+            rss_macos_diagnostic(diagnostics, "operation=SetVCP status=unsupported");
+            return RSS_DDC_ERROR_UNSUPPORTED_CAPABILITY;
+        case RSS_DDC_BACKEND_UNSUPPORTED:
+            rss_macos_diagnostic(diagnostics, "backend=unknown operation=SetVCP status=unsupported");
+            return RSS_DDC_ERROR_UNSUPPORTED_PROVIDER;
+    }
+    return RSS_DDC_ERROR_UNSUPPORTED_PROVIDER;
+}

@@ -14,6 +14,18 @@ int main(void) {
     rss_ddc_build_conventional_get_vcp(0x60, conventional);
     assert(memcmp(conventional, expected_conventional_60, sizeof(conventional)) == 0);
 
+    /* Historical PS190 SET uses the conventional IOAV representation, not raw GET framing. */
+    const uint8_t expected_set_17[] = {0x84, 0x03, 0x60, 0x00, 0x11, 0xc9};
+    const uint8_t expected_set_18[] = {0x84, 0x03, 0x60, 0x00, 0x12, 0xca};
+    uint8_t set_request[RSS_DDC_CONVENTIONAL_SET_VCP_REQUEST_SIZE] = {};
+    rss_ddc_build_conventional_set_vcp(0x60, 17, set_request);
+    assert(memcmp(set_request, expected_set_17, sizeof(set_request)) == 0);
+    rss_ddc_build_conventional_set_vcp(0x60, 18, set_request);
+    assert(memcmp(set_request, expected_set_18, sizeof(set_request)) == 0);
+    const uint8_t expected_set_maximum[] = {0x84, 0x03, 0x10, 0xff, 0xff, 0xa8};
+    rss_ddc_build_conventional_set_vcp(0x10, UINT16_MAX, set_request);
+    assert(memcmp(set_request, expected_set_maximum, sizeof(set_request)) == 0);
+
     /* Hardware-validated PS190 request/reply fixtures; this test is fully synthetic. */
     const uint8_t expected_10[] = {0x51, 0x82, 0x01, 0x10, 0xac};
     const uint8_t expected_60[] = {0x51, 0x82, 0x01, 0x60, 0xdc};

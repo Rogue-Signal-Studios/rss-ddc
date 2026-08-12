@@ -32,11 +32,15 @@ void rss_macos_release_binding(RSSMacOSBinding *binding);
 void rss_macos_diagnostic(const RSSDDCDiagnostics *diagnostics, const char *message);
 RSSDDCError rss_macos_ps190_get_vcp(RSSMacOSBinding *binding, uint8_t vcp_code, RSSDDCVCPResult *result,
                                      const RSSDDCDiagnostics *diagnostics);
+RSSDDCError rss_macos_ps190_set_vcp(RSSMacOSBinding *binding, uint8_t vcp_code, uint16_t value,
+                                     const RSSDDCDiagnostics *diagnostics);
 RSSDDCError rss_macos_dp_get_vcp(RSSMacOSBinding *binding, uint8_t vcp_code, RSSDDCVCPResult *result,
                                   const RSSDDCDiagnostics *diagnostics);
 RSSDDCError rss_macos_mcdp_get_vcp(RSSMacOSBinding *binding, uint8_t vcp_code, RSSDDCVCPResult *result,
                                     const RSSDDCDiagnostics *diagnostics);
 RSSDDCError rss_macos_provider_get_vcp(RSSMacOSBinding *binding, uint8_t vcp_code, RSSDDCVCPResult *result,
+                                        const RSSDDCDiagnostics *diagnostics);
+RSSDDCError rss_macos_provider_set_vcp(RSSMacOSBinding *binding, uint8_t vcp_code, uint16_t value,
                                         const RSSDDCDiagnostics *diagnostics);
 
 #endif
