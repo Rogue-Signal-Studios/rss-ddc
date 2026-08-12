@@ -63,6 +63,15 @@ example, an explicit list of display indices or `--all`). It is not implied by
 the presence of multiple displays. The current public API and CLI remain
 single-target by default.
 
+During development, Sumac exposed an `AppleDCPPS190` HDMI Odyssey alongside a
+`DCPDP13Service` DisplayPort LG. The original PS190 gate incorrectly required
+the literal role `DCPEXT0`, which was true only in the earlier one-display
+topology; with both displays present, the selected Odyssey and its
+`BranchDeviceID=pHDMIg` DCPDP device both used `DCPEXT1`. The gate now compares
+the selected AV Service's role with the selected branch-matched device's role.
+It does not make the mixed topology a hardware-validation claim: GET/SET must
+still be rerun by the user before multi-monitor runtime behavior is validated.
+
 The PS190 backend contains two intentionally separate transaction shapes. GET
 uses the hardware-validated raw framing and `UINT32_MAX` no-offset sentinel.
 SET preserves the hardware-validated conventional `data=0x51` write,

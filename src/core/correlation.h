@@ -36,4 +36,38 @@ typedef enum {
  */
 RSSDDCDPCorrelationResult rss_ddc_evaluate_dp_correlation(const RSSDDCDPCorrelationFacts *facts);
 
+/*
+ * PS190 binds its AV Service role to the role of the selected display's unique
+ * BranchDeviceID-matched DCPDP device. The role is deliberately a relationship
+ * rather than a fixed DCPEXT ordinal because external-display ordering varies.
+ */
+typedef struct {
+    unsigned int service_candidate_count;
+    bool service_external;
+    bool epic_parent_present;
+    RSSDDCProvider epic_provider;
+    bool epic_name_matches;
+    bool unit_zero;
+    bool ui_supported;
+    bool branch_device_role_present;
+    bool service_role_matches_branch_device;
+} RSSDDCPS190CorrelationFacts;
+
+typedef enum {
+    RSS_DDC_PS190_CORRELATION_OK = 0,
+    RSS_DDC_PS190_CORRELATION_NO_SERVICE,
+    RSS_DDC_PS190_CORRELATION_AMBIGUOUS_SERVICE,
+    RSS_DDC_PS190_CORRELATION_NOT_EXTERNAL,
+    RSS_DDC_PS190_CORRELATION_NO_EPIC_PARENT,
+    RSS_DDC_PS190_CORRELATION_PROVIDER_MISMATCH,
+    RSS_DDC_PS190_CORRELATION_EPIC_NAME_MISMATCH,
+    RSS_DDC_PS190_CORRELATION_UNIT_MISMATCH,
+    RSS_DDC_PS190_CORRELATION_UI_UNSUPPORTED,
+    RSS_DDC_PS190_CORRELATION_BRANCH_DEVICE_ROLE_MISSING,
+    RSS_DDC_PS190_CORRELATION_ROLE_MISMATCH,
+} RSSDDCPS190CorrelationResult;
+
+/** Evaluates only selected-display PS190 facts; global provider counts are intentionally absent. */
+RSSDDCPS190CorrelationResult rss_ddc_evaluate_ps190_correlation(const RSSDDCPS190CorrelationFacts *facts);
+
 #endif

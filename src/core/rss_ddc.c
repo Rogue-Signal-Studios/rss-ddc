@@ -24,7 +24,11 @@ RSSDDCError rss_ddc_get_display_with_diagnostics(uint32_t list_index, RSSDDCDisp
     RSSMacOSBinding binding = {0};
     RSSDDCError error = rss_macos_resolve_binding(list_index, &binding);
     if (error == RSS_DDC_OK) *display = binding.display;
-    else rss_macos_diagnostic(diagnostics, rss_macos_correlation_failure_string(binding.correlation_failure));
+    else {
+        rss_macos_diagnostic(diagnostics, rss_macos_correlation_failure_string(binding.correlation_failure));
+        const char *detail = rss_macos_correlation_detail_string(&binding);
+        if (detail != NULL) rss_macos_diagnostic(diagnostics, detail);
+    }
     rss_macos_release_binding(&binding);
     return error;
 }
@@ -53,6 +57,8 @@ RSSDDCError rss_ddc_get_vcp_with_diagnostics(uint32_t list_index, uint8_t vcp_co
         error = rss_macos_provider_get_vcp(&binding, vcp_code, result, diagnostics);
     } else {
         rss_macos_diagnostic(diagnostics, rss_macos_correlation_failure_string(binding.correlation_failure));
+        const char *detail = rss_macos_correlation_detail_string(&binding);
+        if (detail != NULL) rss_macos_diagnostic(diagnostics, detail);
     }
     rss_macos_release_binding(&binding);
     return error;
@@ -82,6 +88,8 @@ RSSDDCError rss_ddc_set_vcp_with_diagnostics(uint32_t list_index, uint8_t vcp_co
         error = rss_macos_provider_set_vcp(&binding, vcp_code, value, diagnostics);
     } else {
         rss_macos_diagnostic(diagnostics, rss_macos_correlation_failure_string(binding.correlation_failure));
+        const char *detail = rss_macos_correlation_detail_string(&binding);
+        if (detail != NULL) rss_macos_diagnostic(diagnostics, detail);
     }
     rss_macos_release_binding(&binding);
     return error;

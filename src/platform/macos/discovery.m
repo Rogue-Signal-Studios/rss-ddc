@@ -34,6 +34,10 @@ const char *rss_macos_correlation_failure_string(RSSMacOSCorrelationFailure fail
     return "provider correlation failed with an unrecognized predicate";
 }
 
+const char *rss_macos_correlation_detail_string(const RSSMacOSBinding *binding) {
+    return binding != NULL && binding->correlation_detail[0] != '\0' ? binding->correlation_detail : NULL;
+}
+
 /** Copies only string-valued registry fields into the fixed-size public snapshot. */
 static bool copyCFString(CFTypeRef value, char destination[RSS_DDC_TEXT_MAX]) {
     return value != NULL && CFGetTypeID(value) == CFStringGetTypeID() &&
@@ -109,19 +113,16 @@ static bool inspect_service(io_service_t service, RSSDDCDisplay *display) {
  * client can be created. Each predicate distinguishes Endpoint11 Service
  * state from unrelated external device/service proxies.
  */
-static bool is_ps190_service_identity(io_service_t service, RSSMacOSCorrelationFailure *failure) {
+static bool is_ps190_service_identity(io_service_t service, const char *device_role, RSSMacOSBinding *binding) {
     io_registry_entry_t parent = MACH_PORT_NULL;
-    if (!is_external(service)) {
-        *failure = RSS_MACOS_CORRELATION_NOT_EXTERNAL;
-        return false;
-    }
-    if (IORegistryEntryGetParentEntry(service, kIOServicePlane, &parent) != KERN_SUCCESS) {
-        *failure = RSS_MACOS_CORRELATION_UNEXPECTED_EPIC_PARENT;
-        return false;
-    }
-    CFTypeRef epic_name = IORegistryEntryCreateCFProperty(parent, CFSTR("EPICName"), kCFAllocatorDefault, 0);
-    CFTypeRef role = IORegistryEntryCreateCFProperty(parent, CFSTR("role"), kCFAllocatorDefault, 0);
-    CFTypeRef provider = IORegistryEntryCreateCFProperty(parent, CFSTR("EPICProviderClass"), kCFAllocatorDefault, 0);
+    RSSDDCPS190CorrelationFacts facts = {.service_candidate_count = 1, .service_external = is_external(service)};
+    if (IORegistryEntryGetParentEntry(service, kIOServicePlane, &parent) == KERN_SUCCESS) facts.epic_parent_present = true;
+    CFTypeRef epic_name = parent == MACH_PORT_NULL ? NULL :
+        IORegistryEntryCreateCFProperty(parent, CFSTR("EPICName"), kCFAllocatorDefault, 0);
+    CFTypeRef role = parent == MACH_PORT_NULL ? NULL :
+        IORegistryEntryCreateCFProperty(parent, CFSTR("role"), kCFAllocatorDefault, 0);
+    CFTypeRef provider = parent == MACH_PORT_NULL ? NULL :
+        IORegistryEntryCreateCFProperty(parent, CFSTR("EPICProviderClass"), kCFAllocatorDefault, 0);
     CFTypeRef unit = IORegistryEntryCreateCFProperty(service, CFSTR("Unit"), kCFAllocatorDefault, 0);
     CFTypeRef ui_supported = IORegistryEntryCreateCFProperty(service, CFSTR("IOAVServiceUserInterfaceSupported"),
                                                               kCFAllocatorDefault, 0);
@@ -129,32 +130,50 @@ static bool is_ps190_service_identity(io_service_t service, RSSMacOSCorrelationF
     char role_text[RSS_DDC_TEXT_MAX] = {};
     char provider_text[RSS_DDC_TEXT_MAX] = {};
     int64_t unit_value = -1;
-    bool matches = copyCFString(epic_name, epic_name_text) && copyCFString(role, role_text) &&
-        copyCFString(provider, provider_text) && unit != NULL && CFGetTypeID(unit) == CFNumberGetTypeID() &&
-        CFNumberGetValue(unit, kCFNumberSInt64Type, &unit_value) && ui_supported != NULL &&
-        CFGetTypeID(ui_supported) == CFBooleanGetTypeID() && CFBooleanGetValue(ui_supported) &&
-        strcmp(epic_name_text, "dcpav-service-epic") == 0 && strcmp(role_text, "DCPEXT0") == 0 &&
-        strcmp(provider_text, "AppleDCPPS190") == 0 && unit_value == 0;
-    if (!matches) {
-        if (ui_supported == NULL || CFGetTypeID(ui_supported) != CFBooleanGetTypeID() || !CFBooleanGetValue(ui_supported)) {
-            *failure = RSS_MACOS_CORRELATION_UI_UNSUPPORTED;
-        } else if (unit_value != 0) {
-            *failure = RSS_MACOS_CORRELATION_UNIT_MISMATCH;
-        } else if (strcmp(provider_text, "AppleDCPPS190") != 0) {
-            *failure = RSS_MACOS_CORRELATION_PROVIDER_MISMATCH;
-        } else if (strcmp(role_text, "DCPEXT0") != 0) {
-            *failure = RSS_MACOS_CORRELATION_ROLE_MISMATCH;
-        } else {
-            *failure = RSS_MACOS_CORRELATION_UNEXPECTED_EPIC_PARENT;
+    (void)copyCFString(epic_name, epic_name_text);
+    (void)copyCFString(role, role_text);
+    if (copyCFString(provider, provider_text)) facts.epic_provider = rss_ddc_provider_from_registry_class(provider_text);
+    facts.epic_name_matches = strcmp(epic_name_text, "dcpav-service-epic") == 0;
+    facts.unit_zero = unit != NULL && CFGetTypeID(unit) == CFNumberGetTypeID() &&
+        CFNumberGetValue(unit, kCFNumberSInt64Type, &unit_value) && unit_value == 0;
+    facts.ui_supported = ui_supported != NULL && CFGetTypeID(ui_supported) == CFBooleanGetTypeID() &&
+        CFBooleanGetValue(ui_supported);
+    facts.branch_device_role_present = device_role != NULL && device_role[0] != '\0';
+    facts.service_role_matches_branch_device = facts.branch_device_role_present && strcmp(role_text, device_role) == 0;
+    RSSDDCPS190CorrelationResult result = rss_ddc_evaluate_ps190_correlation(&facts);
+    if (result != RSS_DDC_PS190_CORRELATION_OK) {
+        switch (result) {
+            case RSS_DDC_PS190_CORRELATION_NOT_EXTERNAL: binding->correlation_failure = RSS_MACOS_CORRELATION_NOT_EXTERNAL; break;
+            case RSS_DDC_PS190_CORRELATION_NO_EPIC_PARENT:
+            case RSS_DDC_PS190_CORRELATION_EPIC_NAME_MISMATCH:
+            case RSS_DDC_PS190_CORRELATION_BRANCH_DEVICE_ROLE_MISSING:
+                binding->correlation_failure = RSS_MACOS_CORRELATION_UNEXPECTED_EPIC_PARENT;
+                break;
+            case RSS_DDC_PS190_CORRELATION_PROVIDER_MISMATCH:
+                binding->correlation_failure = RSS_MACOS_CORRELATION_PROVIDER_MISMATCH;
+                break;
+            case RSS_DDC_PS190_CORRELATION_UNIT_MISMATCH: binding->correlation_failure = RSS_MACOS_CORRELATION_UNIT_MISMATCH; break;
+            case RSS_DDC_PS190_CORRELATION_UI_UNSUPPORTED: binding->correlation_failure = RSS_MACOS_CORRELATION_UI_UNSUPPORTED; break;
+            case RSS_DDC_PS190_CORRELATION_ROLE_MISMATCH: binding->correlation_failure = RSS_MACOS_CORRELATION_ROLE_MISMATCH; break;
+            case RSS_DDC_PS190_CORRELATION_NO_SERVICE:
+            case RSS_DDC_PS190_CORRELATION_AMBIGUOUS_SERVICE:
+            case RSS_DDC_PS190_CORRELATION_OK:
+                binding->correlation_failure = RSS_MACOS_CORRELATION_UNEXPECTED_EPIC_PARENT;
+                break;
         }
+        snprintf(binding->correlation_detail, sizeof(binding->correlation_detail),
+                 "correlation candidate provider=%s role=%s location=%s unit=%lld expected-device-role=%s",
+                 provider_text[0] ? provider_text : "<missing>", role_text[0] ? role_text : "<missing>",
+                 facts.service_external ? "External" : "<not-external>", (long long)unit_value,
+                 device_role != NULL && device_role[0] != '\0' ? device_role : "<missing>");
     }
     if (ui_supported != NULL) CFRelease(ui_supported);
     if (unit != NULL) CFRelease(unit);
     if (provider != NULL) CFRelease(provider);
     if (role != NULL) CFRelease(role);
     if (epic_name != NULL) CFRelease(epic_name);
-    IOObjectRelease(parent);
-    return matches;
+    if (parent != MACH_PORT_NULL) IOObjectRelease(parent);
+    return result == RSS_DDC_PS190_CORRELATION_OK;
 }
 
 /**
@@ -307,7 +326,9 @@ static bool active_branch_for_product(const char *product_name, char branch[RSS_
 }
 
 /** Confirms the active branch maps to exactly one external DCPDP device proxy. */
-static bool branch_has_unique_device_proxy(const char *branch, RSSMacOSCorrelationFailure *failure) {
+static bool branch_has_unique_device_proxy(const char *branch, char device_role[RSS_DDC_TEXT_MAX],
+                                           RSSMacOSCorrelationFailure *failure) {
+    device_role[0] = '\0';
     io_registry_entry_t root = IORegistryGetRootEntry(kIOMainPortDefault);
     io_iterator_t iterator = MACH_PORT_NULL;
     if (root == MACH_PORT_NULL || IORegistryEntryCreateIterator(root, kIOServicePlane,
@@ -324,7 +345,16 @@ static bool branch_has_unique_device_proxy(const char *branch, RSSMacOSCorrelati
         if (strcmp(name, "DCPDPDeviceProxy") == 0 && is_external(entry)) {
             CFTypeRef value = IORegistryEntryCreateCFProperty(entry, CFSTR("BranchDeviceID"), kCFAllocatorDefault, 0);
             char candidate[RSS_DDC_TEXT_MAX] = {};
-            if (copyCFString(value, candidate) && strcmp(candidate, branch) == 0) ++count;
+            if (copyCFString(value, candidate) && strcmp(candidate, branch) == 0) {
+                ++count;
+                io_registry_entry_t parent = MACH_PORT_NULL;
+                CFTypeRef role = IORegistryEntryGetParentEntry(entry, kIOServicePlane, &parent) == KERN_SUCCESS ?
+                    IORegistryEntryCreateCFProperty(parent, CFSTR("role"), kCFAllocatorDefault, 0) : NULL;
+                bool role_ok = copyCFString(role, device_role);
+                if (role != NULL) CFRelease(role);
+                if (parent != MACH_PORT_NULL) IOObjectRelease(parent);
+                if (!role_ok) *failure = RSS_MACOS_CORRELATION_UNEXPECTED_EPIC_PARENT;
+            }
             if (value != NULL) CFRelease(value);
         }
         IOObjectRelease(entry);
@@ -332,7 +362,7 @@ static bool branch_has_unique_device_proxy(const char *branch, RSSMacOSCorrelati
     IOObjectRelease(iterator);
     if (count == 0) *failure = RSS_MACOS_CORRELATION_NO_DCPDP_DEVICE_PROXY;
     else if (count > 1) *failure = RSS_MACOS_CORRELATION_AMBIGUOUS_DCPDP_DEVICE_PROXY;
-    return count == 1;
+    return count == 1 && device_role[0] != '\0';
 }
 
 /**
@@ -404,11 +434,12 @@ RSSDDCError rss_macos_resolve_binding(uint32_t list_index, RSSMacOSBinding *bind
         }
     } else if (binding->display.provider == RSS_DDC_PROVIDER_PS190) {
         RSSMacOSCorrelationFailure branch_failure = RSS_MACOS_CORRELATION_NONE;
+        char device_role[RSS_DDC_TEXT_MAX] = {};
         bool branch_ok = active_branch_for_product(binding->display.product_name, binding->display.branch_device_id,
                                                     &branch_failure) &&
-            branch_has_unique_device_proxy(binding->display.branch_device_id, &branch_failure);
+            branch_has_unique_device_proxy(binding->display.branch_device_id, device_role, &branch_failure);
         binding->ps190_safety_gate = binding->display.external && branch_ok &&
-            is_ps190_service_identity(binding->service_proxy, &binding->correlation_failure);
+            is_ps190_service_identity(binding->service_proxy, device_role, binding);
         if (!binding->ps190_safety_gate) {
             if (!binding->display.external) binding->correlation_failure = RSS_MACOS_CORRELATION_NOT_EXTERNAL;
             else if (!branch_ok) binding->correlation_failure = branch_failure;

@@ -43,6 +43,7 @@ typedef struct {
     bool dp_safety_gate;
     bool ps190_safety_gate;
     RSSMacOSCorrelationFailure correlation_failure;
+    char correlation_detail[RSS_DDC_TEXT_MAX * 2];
 } RSSMacOSBinding;
 
 /** Enumerates CoreGraphics displays and reads registry metadata without opening a user client. */
@@ -56,6 +57,8 @@ RSSDDCError rss_macos_resolve_binding(uint32_t list_index, RSSMacOSBinding *bind
 void rss_macos_release_binding(RSSMacOSBinding *binding);
 /** Returns a static precise diagnostic for a failed partial binding. */
 const char *rss_macos_correlation_failure_string(RSSMacOSCorrelationFailure failure);
+/** Returns an optional pointer-free detail string for a partial binding. */
+const char *rss_macos_correlation_detail_string(const RSSMacOSBinding *binding);
 void rss_macos_diagnostic(const RSSDDCDiagnostics *diagnostics, const char *message);
 RSSDDCError rss_macos_ps190_get_vcp(RSSMacOSBinding *binding, uint8_t vcp_code, RSSDDCVCPResult *result,
                                      const RSSDDCDiagnostics *diagnostics);

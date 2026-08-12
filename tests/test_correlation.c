@@ -41,6 +41,31 @@ int main(void) {
     no_ui.ui_supported = false;
     assert(rss_ddc_evaluate_dp_correlation(&no_ui) == RSS_DDC_DP_CORRELATION_UI_UNSUPPORTED);
     assert(rss_ddc_evaluate_dp_correlation(NULL) == RSS_DDC_DP_CORRELATION_NO_SERVICE);
+
+    /* Mixed providers are valid when each independently selected display has one scoped path. */
+    const RSSDDCPS190CorrelationFacts ps190_on_ext1 = {
+        .service_candidate_count = 1,
+        .service_external = true,
+        .epic_parent_present = true,
+        .epic_provider = RSS_DDC_PROVIDER_PS190,
+        .epic_name_matches = true,
+        .unit_zero = true,
+        .ui_supported = true,
+        .branch_device_role_present = true,
+        .service_role_matches_branch_device = true,
+    };
+    assert(rss_ddc_evaluate_ps190_correlation(&ps190_on_ext1) == RSS_DDC_PS190_CORRELATION_OK);
+    assert(rss_ddc_evaluate_dp_correlation(&valid_dp) == RSS_DDC_DP_CORRELATION_OK);
+
+    RSSDDCPS190CorrelationFacts wrong_sibling_role = ps190_on_ext1;
+    wrong_sibling_role.service_role_matches_branch_device = false;
+    assert(rss_ddc_evaluate_ps190_correlation(&wrong_sibling_role) == RSS_DDC_PS190_CORRELATION_ROLE_MISMATCH);
+    RSSDDCPS190CorrelationFacts ambiguous_ps190 = ps190_on_ext1;
+    ambiguous_ps190.service_candidate_count = 2;
+    assert(rss_ddc_evaluate_ps190_correlation(&ambiguous_ps190) == RSS_DDC_PS190_CORRELATION_AMBIGUOUS_SERVICE);
+    RSSDDCPS190CorrelationFacts dp_for_ps190 = ps190_on_ext1;
+    dp_for_ps190.epic_provider = RSS_DDC_PROVIDER_DCPDP13;
+    assert(rss_ddc_evaluate_ps190_correlation(&dp_for_ps190) == RSS_DDC_PS190_CORRELATION_PROVIDER_MISMATCH);
     puts("test_correlation: passed");
     return 0;
 }

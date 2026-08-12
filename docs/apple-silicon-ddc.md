@@ -45,6 +45,16 @@ that `IOAVServiceUserInterfaceSupported` is true. `DCPAVServiceProxy` is the
 registry object used to construct the private Service interface; a
 `DCPDPDeviceProxy` is not substituted for it.
 
+The PS190 safety gate is intentionally more topology-specific. It scopes an
+active `BranchDeviceID` and its unique external `DCPDPDeviceProxy` to the
+selected display, then requires the selected AV Service EPIC role to equal
+that device EPIC role. It does not assume a fixed `DCPEXT` ordinal: a
+development topology with simultaneous PS190 HDMI and DP service paths placed
+the selected PS190 display on `DCPEXT1` and the DP display on `DCPEXT0`.
+Provider identity, EPIC name, external Unit 0, UI support, and scoped
+ambiguity rejection remain required. This is a correlation fix, not yet a
+mixed-topology hardware GET/SET validation claim.
+
 This distinction matters because the PS190 resolver's active-branch
 `BranchDeviceID` → unique `DCPDPDeviceProxy` relationship is a separately
 observed PS190 safety rule, not a standard-DP requirement. A live read-only
