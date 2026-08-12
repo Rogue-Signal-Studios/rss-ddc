@@ -14,7 +14,7 @@ provider dispatcher
  DP      MCDP      PS190
 ```
 
-Capabilities are independent flags: Get VCP, Set VCP, EDID read, and DPCD read. A provider receives only the capabilities that have been separately enabled. PS190 Get VCP and Set VCP, plus DCPDP13 Get VCP and Set VCP, are hardware-validated in this project. PS190 Device-path EDID is also hardware-validated on the documented topology. PS190 DPCD is enabled from prior hardware-validated research but awaits direct rss-ddc validation; DCPDP13/MCDP EDID and DPCD remain fail-closed.
+Capabilities are independent flags: Get VCP, Set VCP, EDID read, and DPCD read. A provider receives only the capabilities that have been separately enabled. PS190 Get VCP and Set VCP, plus DCPDP13 Get VCP and Set VCP, are hardware-validated in this project. PS190 Device-path EDID and read-only DPCD are also hardware-validated on the documented topology. DCPDP13/MCDP EDID and DPCD remain fail-closed.
 
 ## EDID
 
@@ -95,11 +95,13 @@ length)` ABI. IODP creation follows Create ownership and is released with
 `CFRelease`; it is never exposed from the portable API.
 
 This is an independent capability from EDID and DDC/CI. The PS190 runtime
-reproduction is pending manual validation. DCPDP13 currently has only a
-registry-only `probe-dpcd-path` diagnostic: it reports zero, one, or multiple
-same-role `dcpdp-device-epic` candidates and performs no IODP construction or
-DPCD access. A unique diagnostic candidate is not evidence that a DCPDP13
-native read works, so that provider's capability remains disabled.
+reproduced the two prior research reads exactly on the documented topology.
+DCPDP13 has a registry-only `probe-dpcd-path` diagnostic, which found one
+same-role `dcpdp-device-epic` candidate for the current LG setup. Its separate
+`validate-dpcd-path` harness performs exactly one IODP construction and, only
+on success, one fixed `0x00000`/16-byte read. It does not make DCPDP13 runtime
+support available: a unique candidate and an unrun harness are not evidence
+that a native read works, so the capability remains disabled.
 
 ## Multi-monitor targeting
 

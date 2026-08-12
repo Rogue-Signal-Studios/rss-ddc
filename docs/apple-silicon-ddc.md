@@ -66,12 +66,20 @@ Both reads returned `IOReturn = 0x00000000` with intact canaries:
 | `0x00000` / 16 | `11 0a c4 83 01 1d 01 c1 2a 4b 04 00 4f 00 84 00` |
 | `0x00200` / 8 | `41 00 77 77 01 07 00 00` |
 
-rss-ddc now reproduces only that selected-display-safe, read-only PS190 path.
-It permits one read of at most 16 bytes and performs no chunking or DPCD
-writes. This runtime implementation remains pending manual validation. The
-evidence does not establish larger transfers, boundary crossing, retries, or
-any DCPDP13/MCDP DPCD transport. DCPDP13 currently exposes only a registry
-correlation diagnostic; it does not construct `IODPDevice` or perform DPCD.
+rss-ddc reproduced both reads exactly on the Mac mini M4 Pro / macOS Tahoe
+26.5.2 build 25F84 Odyssey G75F PS190 path: each returned
+`IOReturn = 0x00000000`, the base-capability decode was revision `0x11`, HBR
+raw code `0x0a`, four lanes, enhanced framing, and downstream-port-present.
+The selected display remained isolated in the simultaneous PS190 + DCPDP13
+topology, while DCPDP13 `dpcd` correctly returned unsupported with no fallback.
+
+rss-ddc permits one PS190 read of at most 16 bytes and performs no chunking or
+DPCD writes. The evidence does not establish larger transfers, boundary
+crossing, retries, or any DCPDP13/MCDP DPCD transport. The current DCPDP13
+probe found exactly one same-role scoped `DCPDPDeviceProxy` candidate for the
+LG; `validate-dpcd-path` is a separate user-run harness that will construct it
+once and issue only `0x00000`/16 if construction succeeds. It does not enable
+DCPDP13 runtime DPCD.
 
 ## Standard DP Get VCP (`DCPDP13Service`)
 

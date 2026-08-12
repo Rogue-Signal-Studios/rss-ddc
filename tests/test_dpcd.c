@@ -1,7 +1,43 @@
 #include <assert.h>
 #include <stdio.h>
+#include <string.h>
 
 #include "dpcd.h"
+#include "validation.h"
+
+typedef struct {
+    unsigned int construct_calls;
+    unsigned int read_calls;
+    unsigned int release_calls;
+    RSSDDCError construct_result;
+    RSSDDCError read_result;
+    uint32_t address;
+    size_t length;
+} ValidationMock;
+
+static RSSDDCError mock_construct(void *opaque, void **device) {
+    ValidationMock *mock = opaque;
+    ++mock->construct_calls;
+    if (mock->construct_result != RSS_DDC_OK) return mock->construct_result;
+    *device = mock;
+    return RSS_DDC_OK;
+}
+
+static RSSDDCError mock_read(void *opaque, void *device, uint32_t address, uint8_t *bytes, size_t length) {
+    ValidationMock *mock = opaque;
+    assert(device == mock);
+    ++mock->read_calls;
+    mock->address = address;
+    mock->length = length;
+    memset(bytes, 0xa5, length);
+    return mock->read_result;
+}
+
+static void mock_release(void *opaque, void *device) {
+    ValidationMock *mock = opaque;
+    assert(device == mock);
+    ++mock->release_calls;
+}
 
 int main(void) {
     uint8_t bytes[RSS_DDC_DPCD_MAX_READ_BYTES] = {};
@@ -27,6 +63,25 @@ int main(void) {
     assert(decoded.max_link_rate_raw == 0xff && decoded.max_link_rate_name[0] == 'u');
     assert(rss_ddc_decode_dpcd_capabilities(1, capabilities, sizeof(capabilities), &decoded) == RSS_DDC_ERROR_DPCD_LENGTH);
     assert(rss_ddc_decode_dpcd_capabilities(0, capabilities, 5, &decoded) == RSS_DDC_ERROR_DPCD_LENGTH);
+
+    ValidationMock mock = {};
+    RSSDDCDPCDValidationCallbacks callbacks = {
+        .context = &mock, .construct = mock_construct, .read = mock_read, .release = mock_release,
+    };
+    assert(rss_ddc_run_dpcd_validation(0, &callbacks, bytes) == RSS_DDC_ERROR_SAFETY_GATE);
+    assert(mock.construct_calls == 0 && mock.read_calls == 0 && mock.release_calls == 0);
+    assert(rss_ddc_run_dpcd_validation(2, &callbacks, bytes) == RSS_DDC_ERROR_SAFETY_GATE);
+    assert(mock.construct_calls == 0 && mock.read_calls == 0 && mock.release_calls == 0);
+    mock.construct_result = RSS_DDC_ERROR_SERVICE_CONSTRUCTION;
+    assert(rss_ddc_run_dpcd_validation(1, &callbacks, bytes) == RSS_DDC_ERROR_SERVICE_CONSTRUCTION);
+    assert(mock.construct_calls == 1 && mock.read_calls == 0 && mock.release_calls == 0);
+    mock.construct_result = RSS_DDC_OK;
+    assert(rss_ddc_run_dpcd_validation(1, &callbacks, bytes) == RSS_DDC_OK);
+    assert(mock.construct_calls == 2 && mock.read_calls == 1 && mock.release_calls == 1);
+    assert(mock.address == 0x00000 && mock.length == RSS_DDC_DPCD_MAX_READ_BYTES);
+    mock.read_result = RSS_DDC_ERROR_DPCD_READ;
+    assert(rss_ddc_run_dpcd_validation(1, &callbacks, bytes) == RSS_DDC_ERROR_DPCD_READ);
+    assert(mock.construct_calls == 3 && mock.read_calls == 2 && mock.release_calls == 2);
     puts("test_dpcd: passed");
     return 0;
 }

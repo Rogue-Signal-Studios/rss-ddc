@@ -112,13 +112,15 @@ EDID identity is recorded for the LG sibling display.
 
 ## DPCD
 
-Prior guarded PS190 research hardware-validated the selected-display native
-path `DCPDPDeviceProxy → IODPDeviceCreateWithService → IODPDeviceReadDPCD`.
-Reads of `0x00000`/16 and `0x00200`/8 succeeded with intact canaries; the raw
-bytes are recorded in the [Apple Silicon transport notes](../apple-silicon-ddc.md).
-rss-ddc implements only those evidence-backed constraints: one read, maximum
-16 bytes, no chunking, and no writes. Its runtime reproduction remains pending
-manual validation. This is PS190-path evidence, not an Odyssey-wide or
+rss-ddc hardware validation reproduced the selected-display native path
+`DCPDPDeviceProxy → IODPDeviceCreateWithService → IODPDeviceReadDPCD` on the
+documented Mac mini M4 Pro / macOS Tahoe 26.5.2 build 25F84 PS190 topology.
+Both reads returned success: `0x00000`/16 was
+`11 0a c4 83 01 1d 01 c1 2a 4b 04 00 4f 00 84 00`; `0x00200`/8 was
+`41 00 77 77 01 07 00 00`. The base capability decode is revision `0x11`, raw
+link rate `0x0a` (HBR, 2.70 Gbps/lane), four lanes, enhanced framing, and a
+downstream port. rss-ddc permits only one read of at most 16 bytes, with no
+chunking and no writes. This is PS190-path evidence, not an Odyssey-wide or
 cross-provider DPCD claim.
 
 ## Notes

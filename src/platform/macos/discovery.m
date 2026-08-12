@@ -8,10 +8,15 @@
 
 #include "correlation.h"
 #include "dpcd.h"
+#include "validation.h"
 #include "macos_internal.h"
 
 /* Private CoreDisplay entry point reconstructed from Apple runtime research. Returned dictionary follows Create ownership. */
 extern CFDictionaryRef CoreDisplay_DisplayCreateInfoDictionary(CGDirectDisplayID display);
+typedef CFTypeRef IODPDeviceRef;
+extern IODPDeviceRef IODPDeviceCreateWithService(CFAllocatorRef, io_service_t);
+extern CFTypeID IODPDeviceGetTypeID(void);
+extern IOReturn IODPDeviceReadDPCD(IODPDeviceRef, uint32_t, void *, uint32_t);
 
 const char *rss_macos_correlation_failure_string(RSSMacOSCorrelationFailure failure) {
     switch (failure) {
@@ -435,8 +440,9 @@ static bool service_epic_role(io_service_t service, char role[RSS_DDC_TEXT_MAX])
  * the selected Service EPIC role and be a DCPDP-device endpoint. This does not
  * construct IODPDevice or issue DPCD; ties deliberately remain ambiguous.
  */
-static unsigned int dp_device_candidates_for_role(const char *role) {
+static unsigned int dp_device_candidates_for_role(const char *role, io_service_t *candidate_out) {
     if (role == NULL || role[0] == '\0') return 0;
+    if (candidate_out != NULL) *candidate_out = MACH_PORT_NULL;
     io_registry_entry_t root = IORegistryGetRootEntry(kIOMainPortDefault);
     io_iterator_t iterator = MACH_PORT_NULL;
     if (root == MACH_PORT_NULL || IORegistryEntryCreateIterator(root, kIOServicePlane,
@@ -446,6 +452,7 @@ static unsigned int dp_device_candidates_for_role(const char *role) {
     }
     IOObjectRelease(root);
     unsigned int count = 0;
+    io_service_t candidate = MACH_PORT_NULL;
     io_service_t entry = MACH_PORT_NULL;
     while ((entry = IOIteratorNext(iterator)) != MACH_PORT_NULL) {
         io_name_t name = {};
@@ -463,11 +470,20 @@ static unsigned int dp_device_candidates_for_role(const char *role) {
             if (candidate_role != NULL) CFRelease(candidate_role);
             if (epic_name != NULL) CFRelease(epic_name);
             if (parent != MACH_PORT_NULL) IOObjectRelease(parent);
-            if (matches) ++count;
+            if (matches) {
+                ++count;
+                if (count == 1) {
+                    candidate = entry;
+                    IOObjectRetain(candidate);
+                }
+            }
         }
         IOObjectRelease(entry);
     }
     IOObjectRelease(iterator);
+    if (count > 1 && candidate != MACH_PORT_NULL) { IOObjectRelease(candidate); candidate = MACH_PORT_NULL; }
+    if (candidate_out != NULL) *candidate_out = candidate;
+    else if (candidate != MACH_PORT_NULL) IOObjectRelease(candidate);
     return count;
 }
 
@@ -580,15 +596,15 @@ RSSDDCError rss_macos_probe_dpcd_path(uint32_t list_index, const RSSDDCDiagnosti
         rss_macos_release_binding(&binding);
         return RSS_DDC_ERROR_UNSUPPORTED_CAPABILITY;
     }
+    char message[256] = {};
     char role[RSS_DDC_TEXT_MAX] = {};
     if (!service_epic_role(binding.service_proxy, role)) {
         rss_macos_diagnostic(diagnostics, "operation=ProbeDPCDPath status=missing-service-role");
         rss_macos_release_binding(&binding);
         return RSS_DDC_ERROR_SAFETY_GATE;
     }
-    unsigned int candidates = dp_device_candidates_for_role(role);
+    unsigned int candidates = dp_device_candidates_for_role(role, NULL);
     RSSDDCDPCDPathStatus status = rss_ddc_dpcd_path_status_for_candidate_count(candidates);
-    char message[256] = {};
     snprintf(message, sizeof(message),
              "backend=DCPDP13Service operation=ProbeDPCDPath service-role=%s scoped-DCPDPDeviceProxy-candidates=%u IODP-construction=not-attempted",
              role, candidates);
@@ -596,4 +612,80 @@ RSSDDCError rss_macos_probe_dpcd_path(uint32_t list_index, const RSSDDCDiagnosti
     rss_macos_release_binding(&binding);
     if (status == RSS_DDC_DPCD_PATH_CANDIDATE) return RSS_DDC_OK;
     return RSS_DDC_ERROR_SAFETY_GATE;
+}
+
+typedef struct {
+    io_service_t candidate;
+    const RSSDDCDiagnostics *diagnostics;
+} DPCDValidationContext;
+
+static RSSDDCError validate_dpcd_construct(void *opaque, void **device_out) {
+    DPCDValidationContext *context = opaque;
+    IODPDeviceRef device = IODPDeviceCreateWithService(kCFAllocatorDefault, context->candidate);
+    if (device == NULL || CFGetTypeID(device) != IODPDeviceGetTypeID()) {
+        if (device != NULL) CFRelease(device);
+        rss_macos_diagnostic(context->diagnostics, "IODPDeviceCreateWithService=failed");
+        return RSS_DDC_ERROR_SERVICE_CONSTRUCTION;
+    }
+    rss_macos_diagnostic(context->diagnostics, "IODPDeviceCreateWithService=success");
+    *device_out = (void *)(uintptr_t)device;
+    return RSS_DDC_OK;
+}
+
+static RSSDDCError validate_dpcd_read(void *opaque, void *opaque_device, uint32_t address,
+                                      uint8_t *bytes, size_t length) {
+    DPCDValidationContext *context = opaque;
+    IOReturn result = IODPDeviceReadDPCD((IODPDeviceRef)(uintptr_t)opaque_device, address, bytes, (uint32_t)length);
+    char message[160] = {};
+    snprintf(message, sizeof(message), "read address=0x%05x length=%zu IOReturn=0x%08x", address, length,
+             (unsigned int)result);
+    rss_macos_diagnostic(context->diagnostics, message);
+    return result == KERN_SUCCESS ? RSS_DDC_OK : RSS_DDC_ERROR_DPCD_READ;
+}
+
+static void validate_dpcd_release(void *opaque, void *opaque_device) {
+    (void)opaque;
+    CFRelease((IODPDeviceRef)(uintptr_t)opaque_device);
+}
+
+RSSDDCError rss_macos_validate_dpcd_path(uint32_t list_index, uint8_t bytes[RSS_DDC_DPCD_MAX_READ_BYTES],
+                                         const RSSDDCDiagnostics *diagnostics) {
+    RSSMacOSBinding binding = {0};
+    RSSDDCError error = rss_macos_resolve_binding(list_index, &binding);
+    if (error != RSS_DDC_OK) {
+        rss_macos_diagnostic(diagnostics, rss_macos_correlation_failure_string(binding.correlation_failure));
+        rss_macos_release_binding(&binding);
+        return error;
+    }
+    if (binding.display.provider != RSS_DDC_PROVIDER_DCPDP13) {
+        rss_macos_diagnostic(diagnostics, "operation=ValidateDPCDPath status=unsupported-provider");
+        rss_macos_release_binding(&binding);
+        return RSS_DDC_ERROR_UNSUPPORTED_CAPABILITY;
+    }
+    char message[256] = {};
+    snprintf(message, sizeof(message), "display=%u product=%s provider=%s transport=%s", binding.display.list_index,
+             binding.display.product_name, rss_ddc_provider_string(binding.display.provider), binding.display.transport);
+    rss_macos_diagnostic(diagnostics, message);
+    char role[RSS_DDC_TEXT_MAX] = {};
+    if (!service_epic_role(binding.service_proxy, role)) {
+        rss_macos_release_binding(&binding);
+        return RSS_DDC_ERROR_SAFETY_GATE;
+    }
+    io_service_t candidate = MACH_PORT_NULL;
+    unsigned int candidates = dp_device_candidates_for_role(role, &candidate);
+    snprintf(message, sizeof(message),
+             "backend=DCPDP13Service operation=ValidateDPCDPath service-role=%s scoped-DCPDPDeviceProxy-candidates=%u",
+             role, candidates);
+    rss_macos_diagnostic(diagnostics, message);
+    DPCDValidationContext context = {.candidate = candidate, .diagnostics = diagnostics};
+    const RSSDDCDPCDValidationCallbacks callbacks = {
+        .context = &context,
+        .construct = validate_dpcd_construct,
+        .read = validate_dpcd_read,
+        .release = validate_dpcd_release,
+    };
+    error = rss_ddc_run_dpcd_validation(candidates, &callbacks, bytes);
+    if (candidate != MACH_PORT_NULL) IOObjectRelease(candidate);
+    rss_macos_release_binding(&binding);
+    return error;
 }

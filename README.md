@@ -24,13 +24,14 @@ make
 ./rss-ddc --verbose dpcd 1 0x00000 16
 ./rss-ddc --verbose dpcd 1 0x00200 8
 ./rss-ddc --verbose probe-dpcd-path 2
+./rss-ddc --verbose validate-dpcd-path 2
 ./rss-ddc --verbose get 1 0x10
 ./rss-ddc set 1 0x60 18
 ./rss-ddc set 1 0x10 50 --verify
 ./rss-ddc --verbose set 2 0x10 100 --verify --settle-ms 100 --retries 3 --retry-delay-ms 250
 ```
 
-PS190 `set` is hardware-validated only in the documented 25F84/Odyssey G75F scope. Do not assume that GET, SET, EDID, or the PS190-only DPCD research path applies to another provider, blocks 2+, or broader DPCD access.
+PS190 `set` is hardware-validated only in the documented 25F84/Odyssey G75F scope. Do not assume that GET, SET, EDID, or the documented PS190 DPCD path applies to another provider, blocks 2+, or broader DPCD access.
 
 `edid` is a read-only, independently dispatched capability. Current rss-ddc
 hardware-validates PS190 Device-path EDID blocks 0 and 1 on the documented
@@ -48,9 +49,10 @@ It performs exactly one bounded native DPCD read through the selected display's
 branch-correlated `DCPDPDeviceProxy`, `IODPDeviceCreateWithService`, and
 `IODPDeviceReadDPCD`. The maximum is 16 bytes—the largest transfer previously
 validated in research—there is no chunking, and the allowed address space is
-the 20-bit DPCD range. The rss-ddc reproduction remains pending manual
-hardware validation. DCPDP13 DPCD remains disabled; `probe-dpcd-path` is only a
-registry diagnostic and never constructs IODP objects or reads DPCD.
+the 20-bit DPCD range. This runtime path is hardware validated only on the
+documented PS190/Odyssey topology. DCPDP13 DPCD remains disabled;
+`probe-dpcd-path` is registry-only, while `validate-dpcd-path` is the separate
+fixed `0x00000`/16-byte user-run construction/read harness—not runtime support.
 
 Successful non-verbose `get` prints only the current value. `--verbose` writes the selected display/provider correlation, raw request/reply bytes, IOReturns, decoded values, and checksum status to standard error for controlled validation.
 For `info`, verbose mode emits a precise registry-correlation rejection reason
@@ -90,7 +92,7 @@ hardware-validated plain GET or plain SET provider transactions.
 | --- | --- | --- |
 | `DCPDP13Service` | conventional Service-path GET/SET and opt-in Set-and-Verify hardware-validated on the documented LG DP setup; EDID/DPCD runtime unsupported | Get VCP, Set VCP |
 | `AppleDCPMCDP29XX` | classified; GET and SET unsupported | none |
-| `AppleDCPPS190` | raw GET, conventional SET, Device-path EDID blocks 0–1, and research-backed native DPCD read path | Get VCP, Set VCP, Read EDID, Read DPCD |
+| `AppleDCPPS190` | raw GET, conventional SET, Device-path EDID blocks 0–1, and native DPCD reads hardware validated on the documented Odyssey topology | Get VCP, Set VCP, Read EDID, Read DPCD |
 | unknown | safe unsupported result | none |
 
 `DCPDP13Service` and `AppleDCPPS190` deliberately use different request
@@ -101,7 +103,7 @@ backend because the PS190 HDMI topology can also expose that class.
 ## Roadmap
 
 1. EDID — current PS190 blocks 0–1 scope complete
-2. DPCD — PS190 read-only implementation pending validation; DCPDP13 discovery next
+2. DPCD — PS190 read-only runtime hardware validated; DCPDP13 construction/read validation next
 3. MCDP
 4. More monitor catalog coverage
 5. Machine-readable profiles later

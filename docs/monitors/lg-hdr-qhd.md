@@ -65,13 +65,13 @@ is inferred from the generic `LG HDR QHD` product name.
 
 ## DPCD
 
-Runtime DPCD support is currently unsupported for `DCPDP13Service`. rss-ddc
-offers a registry-only `probe-dpcd-path` diagnostic to report whether this
-selected display has zero, one, or multiple structurally scoped
-`DCPDPDeviceProxy` candidates. It does not create an IODP object or read DPCD.
-No DPCD revision, link rate, lane count, or other capability value is inferred
-until a separately authorized user-run construction and small capability read
-succeeds.
+Runtime DPCD support remains unsupported for `DCPDP13Service`. The user-run
+registry-only probe found exactly one same-role scoped `DCPDPDeviceProxy`
+candidate for this selected `DCPEXT0` display. That is correlation evidence,
+not a construction or transport result. `validate-dpcd-path` is the separate
+user-run harness that will construct that one candidate and, only if successful,
+read `0x00000` for 16 bytes exactly once. No DPCD revision, link rate, lane
+count, or other capability value is inferred until it succeeds.
 
 For conventional DP transport details, see the
 [Apple Silicon transport notes](../apple-silicon-ddc.md). For evidence scope,
