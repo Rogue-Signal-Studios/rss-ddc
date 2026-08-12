@@ -157,9 +157,20 @@ DP adapters, Apple Silicon systems, macOS releases, or monitors.
 On a Mac Studio M2 Ultra (macOS `25F84`, three external displays), display
 index 2 (BenQ XL2730Z) reported registry class `DCPDPService` on `DCPEXT2`.
 No `AppleDCPMCDP29XX` provider was present in that tested live topology.
-`DCPDPService` remains runtime-unsupported; use `validate-dcpdpservice-dpcd`
-for a bounded read-only DPCD probe. See
-[Mac Studio topology notes](monitors/mac-studio-m2-ultra.md).
+`DCPDPService` remains runtime-unsupported. DPCD at `0x00000`/16 is hardware
+validated on that path via `validate-dcpdpservice-dpcd`. GET uses
+`validate-dcpdpservice-get` with conventional framing **inferred** from
+DCPDP13; it is not yet hardware validated. See
+[Mac Studio topology notes](monitors/mac-studio-m2-ultra.md) and
+[BenQ XL2730Z](monitors/benq-xl2730z.md).
+
+DCPDP13 GET uses `IOAVServiceCreateWithService` on the selected external
+`DCPAVServiceProxy` under `dcpav-service-epic`. The MCCS payload is
+protocol-standard; the IOAV chip/data/delay contract is DCPDP13-validated ABI
+evidence. For `DCPDPService`, the same `dcpav-service-epic` object shape exists,
+but GET success is still **unknown**. `DCPDPServiceProxy` is a sibling on
+`dcpdp-service-epic` and is not used. `DCPDPDeviceProxy` is validated for DPCD
+only, not DDC GET.
 
 Unlike this conventional DP form, PS190 GET includes `0x51` in a five-byte raw
 payload and uses `UINT32_MAX` for both IOAV calls. Both use a 50 ms delay and

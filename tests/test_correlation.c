@@ -68,6 +68,9 @@ int main(void) {
     assert(rss_ddc_evaluate_dcpdpservice_correlation(&dcpdpservice_ambiguous) ==
            RSS_DDC_DCPDP_SERVICE_CORRELATION_AMBIGUOUS_SERVICE);
 
+    assert(rss_ddc_dcpdpservice_get_validation_ready(RSS_DDC_DCPDP_SERVICE_CORRELATION_OK));
+    assert(!rss_ddc_dcpdpservice_get_validation_ready(RSS_DDC_DCPDP_SERVICE_CORRELATION_PROVIDER_MISMATCH));
+
     /* Mixed providers are valid when each independently selected display has one scoped path. */
     const RSSDDCPS190CorrelationFacts ps190_on_ext1 = {
         .service_candidate_count = 1,

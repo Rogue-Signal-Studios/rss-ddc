@@ -110,9 +110,14 @@ RSSDDCDCPDPServiceCorrelationResult rss_ddc_evaluate_dcpdpservice_correlation(
 bool rss_ddc_dcpdpservice_dpcd_validation_ready(RSSDDCDCPDPServiceCorrelationResult correlation,
                                                 unsigned int scoped_device_proxy_candidates);
 
+/** True when selected-display DCPDPService Service correlation succeeded. */
+bool rss_ddc_dcpdpservice_get_validation_ready(RSSDDCDCPDPServiceCorrelationResult correlation);
+
 enum {
     RSS_DDC_DCPDP_SERVICE_DPCD_VALIDATION_ADDRESS = 0x00000u,
     RSS_DDC_DCPDP_SERVICE_DPCD_VALIDATION_LENGTH = 16u,
+    RSS_DDC_DCPDP_SERVICE_GET_VALIDATION_VCP = 0x10u,
+    RSS_DDC_DCPDP_SERVICE_GET_VALIDATION_DELAY_US = 50000u,
 };
 
 #endif

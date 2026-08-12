@@ -20,7 +20,11 @@ No `AppleDCPMCDP29XX` provider was present in this tested live topology. This do
 
 ## DCPDPService (display 2)
 
-`DCPDPService` is a newly observed registry provider class. It is **not** the same string as `DCPDP13Service` and must not be treated as validated standard-DP transport without hardware evidence.
+`DCPDPService` is a registry provider class distinct from `DCPDP13Service`.
+rss-ddc runtime capabilities remain **disabled** (`unknown`, `0x00`) until
+evidence and promotion are kept separate from validation harnesses.
+
+See [BenQ XL2730Z](benq-xl2730z.md) for per-monitor evidence.
 
 ### Structural correlation (read-only IORegistry)
 
@@ -31,21 +35,51 @@ Selected display **BenQ XL2730Z** correlates to:
 - `IOAVServiceUserInterfaceSupported = Yes`
 - active DisplayPort transport with `BranchDeviceID = Dp1.2`
 - parallel EPIC siblings on `DCPEXT2`: `dcpdp-device-epic` (`DCPDPDevice`), `dcpdp-service-epic` (`DCPDPService`), video/audio interfaces
-- one external `DCPDPDeviceProxy` with `BranchDeviceID = Dp1.2` (same branch as the active transport)
-- one external `DCPDPServiceProxy` on the sibling service EPIC path
+- one external `DCPDPDeviceProxy` with `BranchDeviceID = Dp1.2`
+- one external `DCPDPServiceProxy` on the sibling service EPIC path (topology evidence; not used by GET/DPCD harnesses)
 
-The invariant remains **selected logical display → exactly one scoped physical/provider path**. Global first-match logic is invalid on this three-display host.
+DDC GET uses the selected **`dcpav-service-epic` / `DCPAVServiceProxy`** object via `IOAVServiceCreateWithService`. DPCD uses the separate same-role **`DCPDPDeviceProxy`** path. Do not substitute one for the other.
 
 ### Evidence status
 
 | Capability | Status |
 | --- | --- |
-| GET VCP | Unknown — no project hardware validation through `DCPDPService` |
+| DPCD read `0x00000`/16 | **Hardware validated** on this topology |
+| GET VCP `0x10` | **Validation hypothesis pending** — conventional framing inferred from DCPDP13; use `validate-dcpdpservice-get` |
 | SET VCP | Unknown |
 | EDID | Unknown |
-| DPCD | **Unvalidated** — structural same-role `DCPDPDeviceProxy → IODPDevice` path is plausible; use `validate-dcpdpservice-dpcd` |
 
-Prior research (`docs/apple-silicon-ddc.md`) observed a sibling `DCPDPServiceProxy` as topology evidence only. That mention is **research-backed**, not hardware-validated transport.
+### Hardware-validated DPCD
+
+```sh
+./rss-ddc --verbose validate-dcpdpservice-dpcd 2
+```
+
+Returned bytes:
+
+```text
+12 14 c4 01 01 00 01 c0 02 00 06 00 00 00 01 00
+```
+
+`IOReturn = 0x00000000`. Decode: revision `0x12`, HBR2 (`0x14`), 4 lanes, enhanced framing yes, downstream port no.
+
+Normal `./rss-ddc dpcd 2 ...` remains unsupported for `DCPDPService`.
+
+### GET validation (pending hardware proof)
+
+Hypothesis (**inferred** from DCPDP13 standard-DP behavior):
+
+- `IOAVServiceCreateWithService(selected DCPAVServiceProxy)`
+- write `0x37` / data `0x51` / payload `82 01 10 fd`
+- delay 50 ms
+- read 11 bytes from `0x37` / `0x51`
+- strict MCCS parser
+
+```sh
+./rss-ddc --verbose validate-dcpdpservice-get 2
+```
+
+Normal `./rss-ddc get 2 0x10` remains unsupported.
 
 ### Comparison to DCPDP13Service on this host (display 1)
 
@@ -53,29 +87,10 @@ Prior research (`docs/apple-silicon-ddc.md`) observed a sibling `DCPDPServicePro
 | --- | --- | --- |
 | Service EPIC name | `dcpav-service-epic` | `dcpav-service-epic` |
 | Service provider class | `DCPDP13Service` | `DCPDPService` |
-| Sibling service EPIC | `dcpdp-service-epic` / `DCPDP13Service` | `dcpdp-service-epic` / `DCPDPService` |
-| Device EPIC | `dcpdp-device-epic` / `DCPDPDevice` | same pattern |
-| BranchDeviceID on transport | absent | `Dp1.2` |
-| DCPDPDeviceProxy branch field | empty | `Dp1.2` |
-| rss-ddc runtime | supported | fail-closed (`unknown`) |
+| GET object | `DCPAVServiceProxy` → IOAVService | same structural object; **unvalidated for DDC** |
+| DPCD object | same-role `DCPDPDeviceProxy` → IODPDevice | same pattern; **hardware validated** |
+| rss-ddc runtime | enabled | fail-closed |
 
-Parallel EPIC layout suggests shared DisplayPort plumbing with a **different Service provider class string**. Name similarity does not justify enabling DDC/DPCD capabilities.
+## Promotion policy (not implemented)
 
-## Manual validation (DCPDPService DPCD)
-
-Run only on display 2 after confirming topology:
-
-```sh
-./rss-ddc list
-./rss-ddc --verbose validate-dcpdpservice-dpcd 2
-```
-
-Success criteria:
-
-- display 2 selected; registry class `DCPDPService`; service role `DCPEXT2`
-- exactly one scoped same-role external `DCPDPDeviceProxy`
-- `IODPDeviceCreateWithService` succeeds once
-- one read at `0x00000`, exactly 16 bytes, `IOReturn = 0x00000000`
-- plausible receiver-capability bytes (non-error decode)
-
-If validation fails, **stop**. Do not retry other addresses, scan ranges, or fall back to DCPDP13/PS190 paths.
+After GET hardware validation, a separate decision is required before enabling runtime GET/DPCD for `DCPDPService`. SET and EDID remain independently unknown.

@@ -25,6 +25,7 @@ make
 ./rss-ddc --verbose dpcd 1 0x00200 8
 ./rss-ddc --verbose probe-dpcd-path 2
 ./rss-ddc --verbose validate-dcpdpservice-dpcd 2
+./rss-ddc --verbose validate-dcpdpservice-get 2
 ./rss-ddc --verbose dpcd 2 0x00000 16
 ./rss-ddc --verbose get 1 0x10
 ./rss-ddc set 1 0x60 18
@@ -97,7 +98,7 @@ hardware-validated plain GET or plain SET provider transactions.
 | --- | --- | --- |
 | `DCPDP13Service` | conventional Service-path GET/SET and opt-in Set-and-Verify, plus native read-only DPCD, hardware-validated on the documented LG DP setup; EDID unsupported | Get VCP, Set VCP, Read DPCD |
 | `AppleDCPMCDP29XX` | classified; GET and SET unsupported | none |
-| `DCPDPService` | newly observed; runtime fail-closed; validation-only DPCD harness | none |
+| `DCPDPService` | newly observed; runtime fail-closed; DPCD hardware-validated on documented XL2730Z path; GET/DPCD validation harnesses only | none |
 | `AppleDCPPS190` | raw GET, conventional SET, Device-path EDID blocks 0–1, and native DPCD reads hardware validated on the documented Odyssey topology | Get VCP, Set VCP, Read EDID, Read DPCD |
 | unknown | safe unsupported result | none |
 

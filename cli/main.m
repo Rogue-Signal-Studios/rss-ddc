@@ -18,11 +18,12 @@ static void usage(const char *program) {
             "  %s [--verbose] dpcd <display-index> <address> <length>\n"
             "  %s [--verbose] probe-dpcd-path <display-index>\n"
             "  %s [--verbose] validate-dcpdpservice-dpcd <display-index>\n"
+            "  %s [--verbose] validate-dcpdpservice-get <display-index>\n"
             "  %s [--verbose] get <display-index> <vcp>\n"
             "  %s [--verbose] set <display-index> <vcp> <value>\n"
             "  %s [--verbose] set <display-index> <vcp> <value> --verify [--settle-ms <ms>] "
             "[--retries <count>] [--retry-delay-ms <ms>]\n",
-            program, program, program, program, program, program, program, program, program);
+            program, program, program, program, program, program, program, program, program, program);
 }
 
 static bool parse_unsigned(const char *text, unsigned long maximum, unsigned long *value) {
@@ -180,6 +181,17 @@ int main(int argc, char **argv) {
         print_dpcd_hex(0, bytes, RSS_DDC_DPCD_MAX_READ_BYTES);
         print_dpcd_decode(0, bytes, RSS_DDC_DPCD_MAX_READ_BYTES);
         printf("DCPDPService validation read completed; runtime capabilities remain disabled.\n");
+        return EXIT_SUCCESS;
+    }
+    if (strcmp(argv[argument], "validate-dcpdpservice-get") == 0) {
+        if (argc != argument + 2) { usage(argv[0]); return EXIT_FAILURE; }
+        RSSDDCVCPResult result = {};
+        RSSDDCDiagnostics diagnostics = {.callback = write_diagnostic, .context = NULL};
+        RSSDDCError error = rss_ddc_validate_dcpdpservice_get_with_diagnostics((uint32_t)display_index, &result,
+                                                                                verbose ? &diagnostics : NULL);
+        if (error != RSS_DDC_OK) { fprintf(stderr, "rss-ddc: %s\n", rss_ddc_error_string(error)); return EXIT_FAILURE; }
+        printf("%u\n", result.current_value);
+        printf("DCPDPService GET validation completed; runtime capabilities remain disabled.\n");
         return EXIT_SUCCESS;
     }
     if (strcmp(argv[argument], "dpcd") == 0) {

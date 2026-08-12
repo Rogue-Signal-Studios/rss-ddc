@@ -793,3 +793,54 @@ RSSDDCError rss_macos_validate_dcpdpservice_dpcd(uint32_t list_index, uint8_t *b
     rss_macos_release_binding(&binding);
     return error;
 }
+
+RSSDDCError rss_macos_validate_dcpdpservice_get(uint32_t list_index, RSSDDCVCPResult *result,
+                                                const RSSDDCDiagnostics *diagnostics) {
+    if (result == NULL) return RSS_DDC_ERROR_ARGUMENT;
+
+    RSSMacOSBinding binding = {0};
+    RSSDDCError error = rss_macos_resolve_binding(list_index, &binding);
+    if (error != RSS_DDC_OK) {
+        rss_macos_diagnostic(diagnostics, rss_macos_correlation_failure_string(binding.correlation_failure));
+        rss_macos_release_binding(&binding);
+        return error;
+    }
+
+    char provider_class[RSS_DDC_TEXT_MAX] = {};
+    char message[256] = {};
+    if (!service_epic_provider_class(binding.service_proxy, provider_class) ||
+        strcmp(provider_class, RSS_DDC_REGISTRY_CLASS_DCPDP_SERVICE) != 0) {
+        snprintf(message, sizeof(message),
+                 "operation=ValidateDCPDPServiceGet status=unsupported-provider registry-class=%s",
+                 provider_class[0] ? provider_class : "<missing>");
+        rss_macos_diagnostic(diagnostics, message);
+        rss_macos_release_binding(&binding);
+        return RSS_DDC_ERROR_UNSUPPORTED_PROVIDER;
+    }
+    if (!is_dcpdpservice_service_identity(binding.service_proxy, &binding.correlation_failure)) {
+        rss_macos_diagnostic(diagnostics, rss_macos_correlation_failure_string(binding.correlation_failure));
+        rss_macos_release_binding(&binding);
+        return RSS_DDC_ERROR_SAFETY_GATE;
+    }
+
+    char role[RSS_DDC_TEXT_MAX] = {};
+    if (!service_epic_role(binding.service_proxy, role)) {
+        rss_macos_diagnostic(diagnostics, "operation=ValidateDCPDPServiceGet status=missing-service-role");
+        rss_macos_release_binding(&binding);
+        return RSS_DDC_ERROR_SAFETY_GATE;
+    }
+    snprintf(message, sizeof(message),
+             "backend=DCPDPService operation=ValidateGetVCP path=IOAVService service-role=%s",
+             role);
+    rss_macos_diagnostic(diagnostics, message);
+
+    if (!rss_ddc_dcpdpservice_get_validation_ready(RSS_DDC_DCPDP_SERVICE_CORRELATION_OK)) {
+        rss_macos_release_binding(&binding);
+        return RSS_DDC_ERROR_SAFETY_GATE;
+    }
+
+    error = rss_macos_run_dcpdpservice_get_validation(binding.service_proxy,
+                                                      RSS_DDC_DCPDP_SERVICE_CORRELATION_OK, result, diagnostics);
+    rss_macos_release_binding(&binding);
+    return error;
+}

@@ -51,3 +51,7 @@ bool rss_ddc_dcpdpservice_dpcd_validation_ready(RSSDDCDCPDPServiceCorrelationRes
                                                 unsigned int scoped_device_proxy_candidates) {
     return correlation == RSS_DDC_DCPDP_SERVICE_CORRELATION_OK && scoped_device_proxy_candidates == 1u;
 }
+
+bool rss_ddc_dcpdpservice_get_validation_ready(RSSDDCDCPDPServiceCorrelationResult correlation) {
+    return correlation == RSS_DDC_DCPDP_SERVICE_CORRELATION_OK;
+}

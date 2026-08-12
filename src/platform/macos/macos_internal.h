@@ -9,6 +9,8 @@
 
 #include "rss_ddc.h"
 
+#include "correlation.h"
+
 /**
  * The exact fail-closed predicate that rejected a partial registry binding.
  * These values are macOS-private diagnostics, not stable public error codes.
@@ -120,5 +122,13 @@ RSSDDCError rss_macos_probe_dpcd_path(uint32_t list_index, const RSSDDCDiagnosti
  */
 RSSDDCError rss_macos_validate_dcpdpservice_dpcd(uint32_t list_index, uint8_t *buffer,
                                                  const RSSDDCDiagnostics *diagnostics);
+
+RSSDDCError rss_macos_run_dcpdpservice_get_validation(io_service_t service_proxy,
+                                                      RSSDDCDCPDPServiceCorrelationResult correlation,
+                                                      RSSDDCVCPResult *result,
+                                                      const RSSDDCDiagnostics *diagnostics);
+
+RSSDDCError rss_macos_validate_dcpdpservice_get(uint32_t list_index, RSSDDCVCPResult *result,
+                                                const RSSDDCDiagnostics *diagnostics);
 
 #endif

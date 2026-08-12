@@ -253,6 +253,13 @@ RSSDDCError rss_ddc_probe_dpcd_path_with_diagnostics(uint32_t list_index, const 
  */
 RSSDDCError rss_ddc_validate_dcpdpservice_dpcd_with_diagnostics(uint32_t list_index, uint8_t *buffer,
                                                                  const RSSDDCDiagnostics *diagnostics);
+/**
+ * Validation-only DCPDPService conventional GET for VCP 0x10 through the
+ * selected dcpav-service-epic IOAVService path. Runtime capabilities remain
+ * disabled until separately promoted after hardware evidence.
+ */
+RSSDDCError rss_ddc_validate_dcpdpservice_get_with_diagnostics(uint32_t list_index, RSSDDCVCPResult *result,
+                                                                const RSSDDCDiagnostics *diagnostics);
 /** Performs Get VCP with no diagnostics; equivalent to the diagnostic form with NULL options. */
 RSSDDCError rss_ddc_get_vcp(uint32_t list_index, uint8_t vcp_code, RSSDDCVCPResult *result);
 /**
