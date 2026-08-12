@@ -27,18 +27,18 @@ make
 ./rss-ddc --verbose set 2 0x10 100 --verify --settle-ms 100 --retries 3 --retry-delay-ms 250
 ```
 
-PS190 `set` is hardware-validated only in the documented 25F84/Odyssey G75F scope. Do not assume that GET, SET, or base-block EDID support implies DPCD support, complete E-EDID support, or support for another provider.
+PS190 `set` is hardware-validated only in the documented 25F84/Odyssey G75F scope. Do not assume that GET, SET, or the documented complete two-block EDID acquisition implies DPCD support, blocks 2+, or support for another provider.
 
 `edid` is a read-only, independently dispatched capability. Current rss-ddc
-hardware-validates the PS190 Device-path base-block tuple on the documented
-macOS 25F84/Odyssey G75F topology. When the base declares one or more
-extensions, rss-ddc attempts only standard E-EDID block 1 (segment `0`, offset
-`0x80`) without a write; that new mapping is standards-backed but remains
-pending hardware validation. Blocks 2+ require a segment-pointer write and
-remain unsupported. `--decode` is the default, `--hex` labels every acquired
-128-byte block, and `--raw <file>` creates a new exact-byte file without
-overwriting an existing path. `extensions-complete` is the authoritative
-complete/partial state. DCPDP13 and MCDP EDID remain explicitly unsupported.
+hardware-validates PS190 Device-path EDID blocks 0 and 1 on the documented
+macOS 25F84/Odyssey G75F topology. Block 0 uses offset `0x00`; the standard
+E-EDID block-1 mapping uses segment `0`, offset `0x80`, and its private IOAV
+Device-path mapping is now hardware validated. No segment-pointer write is
+needed for block 1. Blocks 2+ require one and remain unsupported. `--decode`
+is the default, `--hex` labels every acquired 128-byte block, and `--raw
+<file>` creates a new exact-byte file without overwriting an existing path.
+`extensions-complete` is the authoritative complete/partial state. DCPDP13
+and MCDP EDID remain explicitly unsupported.
 
 Successful non-verbose `get` prints only the current value. `--verbose` writes the selected display/provider correlation, raw request/reply bytes, IOReturns, decoded values, and checksum status to standard error for controlled validation.
 For `info`, verbose mode emits a precise registry-correlation rejection reason
@@ -78,13 +78,21 @@ hardware-validated plain GET or plain SET provider transactions.
 | --- | --- | --- |
 | `DCPDP13Service` | conventional Service-path GET/SET and opt-in Set-and-Verify hardware-validated on the documented LG DP setup; EDID acquisition unproven | Get VCP, Set VCP |
 | `AppleDCPMCDP29XX` | classified; GET and SET unsupported | none |
-| `AppleDCPPS190` | raw GET, conventional SET, opt-in Set-and-Verify, and Device-path base EDID hardware-validated; block-1 E-EDID acquisition is pending validation | Get VCP, Set VCP, Read EDID |
+| `AppleDCPPS190` | raw GET, conventional SET, opt-in Set-and-Verify, and Device-path EDID blocks 0–1 hardware-validated on the documented Odyssey topology | Get VCP, Set VCP, Read EDID |
 | unknown | safe unsupported result | none |
 
 `DCPDP13Service` and `AppleDCPPS190` deliberately use different request
 framing. The provider comes from the selected Service proxy's immediate EPIC
 parent; a generic `IOPortTransportStateDisplayPort` node does not choose a
 backend because the PS190 HDMI topology can also expose that class.
+
+## Roadmap
+
+1. EDID — current PS190 blocks 0–1 scope complete
+2. DPCD
+3. MCDP
+4. More monitor catalog coverage
+5. Machine-readable profiles later
 
 Read [the architecture](docs/architecture.md), [Apple Silicon transport notes](docs/apple-silicon-ddc.md), and the [Monitor Compatibility & Quirks catalog](docs/monitors/README.md) before enabling another provider capability.
 

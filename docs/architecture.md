@@ -28,14 +28,14 @@ rather than fabricated or treated as checksum-valid. A successful partial
 acquisition has a valid base block and `extensions_complete=false`; callers
 must use that state rather than assuming the declared count was read.
 
-rss-ddc hardware validation established PS190's Device-path base-block tuple:
-the branch-correlated `DCPAVDeviceProxy` creates `IOAVDevice`, then performs
-`IOAVDeviceReadI2C(device, 0x50, 0x00, buffer, 128)`. It returned a valid
-header/checksum on macOS 25F84 with the documented Odyssey G75F. rss-ddc
-enables that path only for PS190. Standard E-EDID maps extension block 1 to
-segment 0, offset `0x80`; the implementation makes that one read when the base
-declares an extension. This is an evidence-backed IOAV subaddress inference,
-not a hardware-validation claim. Blocks 2+ require an E-EDID segment-pointer
+rss-ddc hardware validation established PS190's Device-path EDID reads: the
+branch-correlated `DCPAVDeviceProxy` creates `IOAVDevice`, then performs
+`IOAVDeviceReadI2C(device, 0x50, 0x00, buffer, 128)` for block 0 and
+`IOAVDeviceReadI2C(device, 0x50, 0x80, buffer + 128, 128)` for block 1. Both
+checksums passed on macOS 25F84 with the documented Odyssey G75F, producing a
+complete 256-byte EDID. Standard E-EDID maps that second block to segment 0,
+offset `0x80`; the private IOAV Device-path mapping is hardware validated for
+this provider/monitor/topology. Blocks 2+ require an E-EDID segment-pointer
 write; no PS190 IOAV mapping for that write is enabled, so they remain partial.
 DCPDP13 and MCDP EDID remain unsupported. EDID uses the same selected-display
 correlation and never scans global displays or borrows a sibling binding.
@@ -47,7 +47,9 @@ block 1 = segment 0/offset `0x80`, block 2 = segment 1/offset `0x00`, and
 block 3 = segment 1/offset `0x80`. The PS190 backend uses only the first two
 locations; it does not write the E-EDID segment pointer at I²C address `0x30`.
 This follows the [VESA E-EDID addressing table](https://glenwing.github.io/docs/VESA-EEDID-A2.pdf),
-while the private-IOAV mapping of block 1 remains pending hardware validation.
+while the private-IOAV mapping of block 1 is hardware validated only for the
+documented PS190/Odyssey topology. It does not establish the required segment
+pointer write or access to later blocks.
 
 EDID data may later help profile matching through manufacturer/product, name,
 serial, fingerprint, and provider/path context. No fingerprint is currently

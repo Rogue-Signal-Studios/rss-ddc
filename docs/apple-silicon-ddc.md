@@ -3,21 +3,22 @@
 ## Evidence scope
 
 **Hardware-validated `rss-ddc` behavior** is limited to the Service-path
-transactions below, manually run from iTerm2 on macOS build `25F84` with an
-Odyssey G75F. The tested HDMI provider was `AppleDCPPS190`; the separately
-tested USB-C → DisplayPort provider was `DCPDP13Service`. **Static-analysis
-conclusions** cover the PS190 no-offset transport sentinel. Provider
-classification and safety correlation are implementation architecture, not
-portability evidence.
+transactions and PS190 Device-path EDID reads below, manually run from iTerm2
+on macOS Tahoe `26.5.2` build `25F84` with an Odyssey G75F on a Mac mini M4
+Pro. The tested HDMI provider was `AppleDCPPS190`; the separately tested USB-C
+→ DisplayPort provider was `DCPDP13Service`. **Static-analysis conclusions**
+cover the PS190 no-offset transport sentinel. Provider classification and
+safety correlation are implementation architecture, not portability evidence.
 
 ## EDID acquisition evidence
 
-rss-ddc has hardware-validated one PS190 **Device** path base read on macOS
-`25F84` with the Odyssey G75F: the structurally paired `DCPAVDeviceProxy` was
-used to create `IOAVDevice`, then
-`IOAVDeviceReadI2C(device, 0x50, 0x00, buffer, 128)` returned the valid base
-block below. No write, segment-pointer operation, or extension-block read was
-involved. This is distinct from the Service APIs used by PS190 GET/SET.
+rss-ddc has hardware-validated PS190 **Device** path reads of both available
+EDID blocks on macOS Tahoe `26.5.2` build `25F84` with the Odyssey G75F. The
+structurally paired `DCPAVDeviceProxy` created `IOAVDevice`; block 0 used
+`IOAVDeviceReadI2C(device, 0x50, 0x00, buffer, 128)` and block 1 used
+`IOAVDeviceReadI2C(device, 0x50, 0x80, buffer + 128, 128)`. This produced the
+valid 256-byte image below. No write or segment-pointer operation was needed.
+This Device path is distinct from the Service APIs used by PS190 GET/SET.
 
 ```text
 00 ff ff ff ff ff ff 00 4c 2d 67 79 51 43 30 31
@@ -28,16 +29,28 @@ b3 00 d1 c0 01 01 e7 7c 70 a0 d0 a0 29 50 30 20
 ff eb 00 0a 20 20 20 20 20 20 00 00 00 fc 00 4f
 64 79 73 73 65 79 20 47 37 35 46 0a 00 00 00 ff
 00 48 4e 54 4c 35 30 31 37 39 30 0a 20 20 01 91
+
+02 03 4c f0 e2 78 03 4b 61 5f 10 3f 04 03 76 5a
+5c 7e c1 23 09 07 07 83 01 00 00 e2 00 4f e3 05
+c0 00 6b 03 0c 00 20 00 b8 44 28 00 20 01 6d d8
+5d c4 01 78 80 6b 00 30 b4 c3 64 3f e6 06 05 01
+73 5a 00 e2 0f 41 e5 01 8b 84 90 59 6f c2 00 a0
+a0 a0 55 50 30 20 35 00 a2 90 31 00 00 1a 56 5e
+00 a0 a0 a0 29 50 30 20 35 00 a2 90 31 00 00 1a
+00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 76
 ```
 
 It decodes as `SAM`, product `0x7967`, numeric serial `825246545`, text serial
 `HNTL501790`, `Odyssey G75F`, EDID `1.3`, `93 × 40 cm`, with one declared
-extension and a valid base checksum. The E-EDID standard places block 1 at
-segment 0/offset `0x80`; rss-ddc now issues that one IOAV Device read when the
-validated base declares it. That IOAV mapping is a standards-backed inference
-awaiting hardware validation. Blocks 2+ need a segment-pointer write, which is
-not implemented. DCPDP13/MCDP EDID acquisition, extension timing, and any
-provider-wide EDID rule remain unproven.
+extension and a valid base checksum. The hardware-read block 1 is CTA-861,
+revision 3, with a valid checksum; it completed the declared one-extension
+image at 256 bytes and also succeeded through the guarded raw export path.
+The E-EDID block-number-to-segment/offset model is standards-backed. Its
+segment-0/offset-`0x80` block-1 IOAV Device mapping is now hardware validated
+for this exact PS190/Odyssey topology. Blocks 2+ need a segment-pointer write,
+which remains unimplemented and unvalidated. DCPDP13/MCDP EDID acquisition,
+extension timing beyond block 1, and any provider-wide EDID rule remain
+unproven.
 
 ## Standard DP Get VCP (`DCPDP13Service`)
 
@@ -262,4 +275,4 @@ succeeded; acceptance of other values or monitor configurations is not
 implied. This behavior derives from `m1ddc-rss` commit `a561e56` and its
 current `sources/i2c.m`/`sources/m1ddc.m` Service-write path.
 
-No out-of-bounds or canary corruption was observed in the predecessor research lab's guarded request/reply buffers. This does not establish behavior on different providers, monitors, cables/adapters, firmware revisions, or macOS releases. DCPDP13 Set VCP, MCDP GET/SET, EDID/DPCD operations, and broader provider/hardware coverage remain unsupported or unvalidated.
+No out-of-bounds or canary corruption was observed in the predecessor research lab's guarded request/reply buffers. This does not establish behavior on different providers, monitors, cables/adapters, firmware revisions, or macOS releases. DCPDP13 Set VCP, DCPDP13/MCDP EDID, DPCD operations, MCDP GET/SET, and broader provider/hardware coverage remain unsupported or unvalidated.

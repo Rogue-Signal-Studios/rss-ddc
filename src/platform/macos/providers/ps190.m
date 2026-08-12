@@ -152,8 +152,8 @@ done:
 /**
  * The base tuple is hardware-validated in rss-ddc. E-EDID assigns block 1 to
  * segment 0/offset 0x80, so this backend makes one additional read only when
- * the base declares it. That IOAV mapping is standards-backed but not yet
- * hardware-validated. Blocks >= 2 require a 0x30 segment-pointer write whose
+ * the base declares it. The documented PS190/Odyssey block-1 IOAV mapping is
+ * hardware-validated; blocks >= 2 require a 0x30 segment-pointer write whose
  * PS190 IOAV semantics are unproven, so they remain explicitly incomplete.
  */
 RSSDDCError rss_macos_ps190_read_edid(RSSMacOSBinding *binding, RSSDDCEDID *edid,
@@ -191,7 +191,7 @@ RSSDDCError rss_macos_ps190_read_edid(RSSMacOSBinding *binding, RSSDDCEDID *edid
             return RSS_DDC_ERROR_SYSTEM;
         }
         snprintf(message, sizeof(message),
-                 "extension=1 segment=0x%02x data=0x%08x length=128 acquisition=standards-backed-pending-validation",
+                 "extension=1 segment=0x%02x data=0x%08x length=128 acquisition=hardware-validated-PS190-block1",
                  block1.segment, block1.offset);
         rss_macos_diagnostic(diagnostics, message);
         result = IOAVDeviceReadI2C(device, 0x50, block1.offset,

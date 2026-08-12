@@ -75,7 +75,7 @@ The following identity was read by the rss-ddc PS190 **Device** path on macOS
 `25F84`. It describes EDID data, not the ordinary CoreGraphics display
 discovery fields above.
 
-| Field | Hardware-validated base-block value |
+| Field | Hardware-validated EDID value |
 | --- | --- |
 | Manufacturer ID | `SAM` |
 | Product code | `0x7967` |
@@ -85,14 +85,30 @@ discovery fields above.
 | EDID version | `1.3` |
 | Physical size | `93 × 40 cm` |
 | Declared extensions | `1` |
+| Received extensions | `1` |
+| Complete | Yes |
 | Base-block checksum | Valid |
+| Extension 1 type | CTA-861 |
+| Extension 1 revision | `3` |
+| Extension 1 checksum | Valid |
+| Total EDID size | `256` bytes |
 
 The acquisition was `IOAVDeviceReadI2C(device, 0x50, 0x00, buffer, 128)` after
-the PS190 branch/device safety correlation. It performed no DDC/CI or
-segment-pointer write. Extension acquisition is separate: block 1 uses the
-standard segment-0/offset-`0x80` model in the current implementation but has
-not yet been hardware validated. No EDID identity is recorded for the LG
-sibling display.
+the PS190 branch/device safety correlation, followed by the hardware-validated
+block-1 call `IOAVDeviceReadI2C(device, 0x50, 0x80, buffer + 128, 128)`. The
+standard E-EDID mapping is segment 0/offset `0x80`; no DDC/CI or segment-pointer
+write was used. This complete two-block result was targeted only at the
+selected PS190 display in the live mixed PS190 + DCPDP13 topology. It does not
+establish blocks 2+, segment-pointer semantics, or DCPDP13 EDID support. No
+EDID identity is recorded for the LG sibling display.
+
+## Roadmap
+
+1. EDID — current PS190 scope complete
+2. DPCD
+3. MCDP
+4. More monitor catalog coverage
+5. Machine-readable profiles later
 
 ## Notes
 
