@@ -17,12 +17,11 @@ static void usage(const char *program) {
             "  %s [--verbose] edid <display-index> [--decode|--hex|--raw <file>]\n"
             "  %s [--verbose] dpcd <display-index> <address> <length>\n"
             "  %s [--verbose] probe-dpcd-path <display-index>\n"
-            "  %s [--verbose] validate-dcpdpservice-set <display-index>\n"
             "  %s [--verbose] get <display-index> <vcp>\n"
             "  %s [--verbose] set <display-index> <vcp> <value>\n"
             "  %s [--verbose] set <display-index> <vcp> <value> --verify [--settle-ms <ms>] "
             "[--retries <count>] [--retry-delay-ms <ms>]\n",
-            program, program, program, program, program, program, program, program, program);
+            program, program, program, program, program, program, program, program);
 }
 
 static bool parse_unsigned(const char *text, unsigned long maximum, unsigned long *value) {
@@ -168,15 +167,6 @@ int main(int argc, char **argv) {
                                                                        verbose ? &diagnostics : NULL);
         if (error != RSS_DDC_OK) { fprintf(stderr, "rss-ddc: %s\n", rss_ddc_error_string(error)); return EXIT_FAILURE; }
         printf("DPCD path candidate correlation completed; no IODP construction or DPCD read was performed.\n");
-        return EXIT_SUCCESS;
-    }
-    if (strcmp(argv[argument], "validate-dcpdpservice-set") == 0) {
-        if (argc != argument + 2) { usage(argv[0]); return EXIT_FAILURE; }
-        RSSDDCDiagnostics diagnostics = {.callback = write_diagnostic, .context = NULL};
-        RSSDDCError error = rss_ddc_validate_dcpdpservice_set_with_diagnostics((uint32_t)display_index,
-                                                                                verbose ? &diagnostics : NULL);
-        if (error != RSS_DDC_OK) { fprintf(stderr, "rss-ddc: %s\n", rss_ddc_error_string(error)); return EXIT_FAILURE; }
-        printf("DCPDPService SET validation completed; runtime SET capability remains disabled.\n");
         return EXIT_SUCCESS;
     }
     if (strcmp(argv[argument], "dpcd") == 0) {

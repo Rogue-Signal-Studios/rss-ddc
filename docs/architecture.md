@@ -14,7 +14,7 @@ provider dispatcher
  DP      MCDP      PS190
 ```
 
-Capabilities are independent flags: Get VCP, Set VCP, EDID read, and DPCD read. A provider receives only the capabilities that have been separately enabled. PS190 Get VCP and Set VCP, plus DCPDP13 Get VCP and Set VCP, are hardware-validated in this project. PS190 Device-path EDID and read-only DPCD, plus DCPDP13 read-only DPCD, are hardware-validated on their documented topologies. DCPDPService Get VCP and read-only DPCD are hardware-validated on the documented Mac Studio XL2730Z topology. DCPDP13/MCDP/DCPDPService EDID and MCDP DPCD remain fail-closed; DCPDPService SET remains validation-only.
+Capabilities are independent flags: Get VCP, Set VCP, EDID read, and DPCD read. A provider receives only the capabilities that have been separately enabled. PS190 Get VCP and Set VCP, plus DCPDP13 Get VCP and Set VCP, are hardware-validated in this project. PS190 Device-path EDID and read-only DPCD, plus DCPDP13 read-only DPCD, are hardware-validated on their documented topologies. DCPDPService Get VCP, Set VCP, and read-only DPCD are hardware-validated on the documented Mac Studio XL2730Z topology. DCPDP13/MCDP/DCPDPService EDID and MCDP DPCD remain fail-closed.
 
 ## EDID
 

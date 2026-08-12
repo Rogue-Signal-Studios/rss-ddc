@@ -131,8 +131,8 @@ int main(void) {
     assert(rss_ddc_dcpdpservice_set_validation_adjacent_target(0, 0, &target) == RSS_DDC_ERROR_ARGUMENT);
 
     assert(rss_ddc_provider_capabilities(RSS_DDC_PROVIDER_DCPDP_SERVICE) ==
-           (RSS_DDC_CAP_GET_VCP | RSS_DDC_CAP_READ_DPCD));
-    assert((rss_ddc_provider_capabilities(RSS_DDC_PROVIDER_DCPDP_SERVICE) & RSS_DDC_CAP_SET_VCP) == 0);
+           (RSS_DDC_CAP_GET_VCP | RSS_DDC_CAP_SET_VCP | RSS_DDC_CAP_READ_DPCD));
+    assert(rss_ddc_provider_capabilities(RSS_DDC_PROVIDER_DCPDP_SERVICE) == 0x0bu);
 
     reset_mocks();
     uint8_t expected_payload[RSS_DDC_CONVENTIONAL_SET_VCP_REQUEST_SIZE];

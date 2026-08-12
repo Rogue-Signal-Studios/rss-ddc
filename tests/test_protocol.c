@@ -28,6 +28,12 @@ int main(void) {
     const uint8_t expected_set_maximum[] = {0x84, 0x03, 0x10, 0xff, 0xff, 0xa8};
     rss_ddc_build_conventional_set_vcp(0x10, UINT16_MAX, set_request);
     assert(memcmp(set_request, expected_set_maximum, sizeof(set_request)) == 0);
+    const uint8_t expected_set_brightness_61[] = {0x84, 0x03, 0x10, 0x00, 0x3d, 0x95};
+    const uint8_t expected_set_brightness_62[] = {0x84, 0x03, 0x10, 0x00, 0x3e, 0x96};
+    rss_ddc_build_conventional_set_vcp(0x10, 61, set_request);
+    assert(memcmp(set_request, expected_set_brightness_61, sizeof(set_request)) == 0);
+    rss_ddc_build_conventional_set_vcp(0x10, 62, set_request);
+    assert(memcmp(set_request, expected_set_brightness_62, sizeof(set_request)) == 0);
     assert(rss_ddc_request_checksum((const uint8_t[]){0x51, 0x84, 0x03, 0x60, 0x00, 0x0f}, 6) ==
            expected_set_15[5]);
 

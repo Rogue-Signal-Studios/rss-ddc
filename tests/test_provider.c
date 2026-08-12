@@ -22,13 +22,14 @@ int main(void) {
     assert(rss_ddc_provider_capabilities(RSS_DDC_PROVIDER_DCPDP13) ==
            (RSS_DDC_CAP_GET_VCP | RSS_DDC_CAP_SET_VCP | RSS_DDC_CAP_READ_DPCD));
     assert(rss_ddc_provider_capabilities(RSS_DDC_PROVIDER_DCPDP_SERVICE) ==
-           (RSS_DDC_CAP_GET_VCP | RSS_DDC_CAP_READ_DPCD));
+           (RSS_DDC_CAP_GET_VCP | RSS_DDC_CAP_SET_VCP | RSS_DDC_CAP_READ_DPCD));
+    assert(rss_ddc_provider_capabilities(RSS_DDC_PROVIDER_DCPDP_SERVICE) == 0x0bu);
     assert(rss_ddc_provider_capabilities(RSS_DDC_PROVIDER_MCDP29XX) == RSS_DDC_CAP_NONE);
     assert((rss_ddc_provider_capabilities(RSS_DDC_PROVIDER_DCPDP13) & RSS_DDC_CAP_SET_VCP) != 0);
     assert((rss_ddc_provider_capabilities(RSS_DDC_PROVIDER_PS190) & RSS_DDC_CAP_READ_DPCD) != 0);
     assert((rss_ddc_provider_capabilities(RSS_DDC_PROVIDER_DCPDP13) & RSS_DDC_CAP_READ_DPCD) != 0);
     assert((rss_ddc_provider_capabilities(RSS_DDC_PROVIDER_DCPDP13) & RSS_DDC_CAP_READ_EDID) == 0);
-    assert((rss_ddc_provider_capabilities(RSS_DDC_PROVIDER_DCPDP_SERVICE) & RSS_DDC_CAP_SET_VCP) == 0);
+    assert((rss_ddc_provider_capabilities(RSS_DDC_PROVIDER_DCPDP_SERVICE) & RSS_DDC_CAP_SET_VCP) != 0);
     assert((rss_ddc_provider_capabilities(RSS_DDC_PROVIDER_DCPDP_SERVICE) & RSS_DDC_CAP_READ_EDID) == 0);
     assert((rss_ddc_provider_capabilities(RSS_DDC_PROVIDER_MCDP29XX) & RSS_DDC_CAP_SET_VCP) == 0);
     assert((rss_ddc_provider_capabilities(RSS_DDC_PROVIDER_UNKNOWN) & RSS_DDC_CAP_SET_VCP) == 0);

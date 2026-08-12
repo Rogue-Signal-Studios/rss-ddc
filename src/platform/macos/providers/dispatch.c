@@ -31,10 +31,8 @@ RSSDDCError rss_macos_provider_set_vcp(RSSMacOSBinding *binding, uint8_t vcp_cod
         case RSS_DDC_BACKEND_PS190:
             return rss_macos_ps190_set_vcp(binding, vcp_code, value, diagnostics);
         case RSS_DDC_BACKEND_DCPDP13:
-            return rss_macos_dp_set_vcp(binding, vcp_code, value, diagnostics);
         case RSS_DDC_BACKEND_DCPDP_SERVICE:
-            rss_macos_diagnostic(diagnostics, "operation=SetVCP status=unsupported");
-            return RSS_DDC_ERROR_UNSUPPORTED_CAPABILITY;
+            return rss_macos_dp_set_vcp(binding, vcp_code, value, diagnostics);
         case RSS_DDC_BACKEND_MCDP29XX:
             rss_macos_diagnostic(diagnostics, "operation=SetVCP status=unsupported");
             return RSS_DDC_ERROR_UNSUPPORTED_CAPABILITY;

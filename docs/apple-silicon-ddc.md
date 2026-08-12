@@ -157,11 +157,10 @@ DP adapters, Apple Silicon systems, macOS releases, or monitors.
 On a Mac Studio M2 Ultra (macOS `25F84`, three external displays), display
 index 2 (BenQ XL2730Z) reported registry class `DCPDPService` on `DCPEXT2`.
 No `AppleDCPMCDP29XX` provider was present in that tested live topology.
-`DCPDPService` is now a first-class rss-ddc provider with runtime GET and
-read-only DPCD (`0x09`). Both paths are hardware validated on that topology.
-SET remains a validation-only hypothesis (`validate-dcpdpservice-set`);
-same-state writes succeeded but reversible transition validation is pending.
-EDID remains unsupported. See [Mac Studio topology notes](monitors/mac-studio-m2-ultra.md)
+`DCPDPService` is now a first-class rss-ddc provider with runtime GET, SET, and
+read-only DPCD (`0x0b`) on the documented Mac Studio XL2730Z topology. SET was
+hardware validated by reversible brightness transition 62→61→62. EDID remains
+unsupported. See [Mac Studio topology notes](monitors/mac-studio-m2-ultra.md)
 and [BenQ XL2730Z](monitors/benq-xl2730z.md).
 
 DCPDP13 GET uses `IOAVServiceCreateWithService` on the selected external

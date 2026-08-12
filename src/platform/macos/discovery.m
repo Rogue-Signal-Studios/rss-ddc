@@ -6,11 +6,9 @@
 
 #include <stdio.h>
 #include <string.h>
-#include <unistd.h>
 
 #include "correlation.h"
 #include "dpcd.h"
-#include "set_validation.h"
 #include "validation.h"
 #include "macos_internal.h"
 
@@ -264,18 +262,6 @@ static bool is_dp_service_identity(io_service_t service, RSSMacOSCorrelationFail
     if (provider != NULL) CFRelease(provider);
     if (parent != MACH_PORT_NULL) IOObjectRelease(parent);
     return result == RSS_DDC_DP_CORRELATION_OK;
-}
-
-/** Reads the immediate EPIC provider class string for validation-only provider checks. */
-static bool service_epic_provider_class(io_service_t service, char provider_class[RSS_DDC_TEXT_MAX]) {
-    io_registry_entry_t parent = MACH_PORT_NULL;
-    provider_class[0] = '\0';
-    if (IORegistryEntryGetParentEntry(service, kIOServicePlane, &parent) != KERN_SUCCESS) return false;
-    CFTypeRef provider = IORegistryEntryCreateCFProperty(parent, CFSTR("EPICProviderClass"), kCFAllocatorDefault, 0);
-    bool copied = copyCFString(provider, provider_class);
-    if (provider != NULL) CFRelease(provider);
-    IOObjectRelease(parent);
-    return copied;
 }
 
 static bool is_dcpdpservice_service_identity(io_service_t service, RSSMacOSCorrelationFailure *failure) {
@@ -736,111 +722,5 @@ RSSDDCError rss_macos_dp_read_dpcd(RSSMacOSBinding *binding, uint32_t address, u
         snprintf(message, sizeof(message), "dpcd bytes=%zu", length);
         rss_macos_diagnostic(diagnostics, message);
     }
-    return error;
-}
-
-typedef struct {
-    RSSMacOSBinding *binding;
-    const RSSDDCDiagnostics *diagnostics;
-} ReversibleSetContext;
-
-static RSSDDCError reversible_get_vcp(void *opaque, RSSDDCVCPResult *result) {
-    ReversibleSetContext *context = opaque;
-    return rss_macos_dcpdpservice_get_vcp(context->binding, RSS_DDC_DCPDP_SERVICE_SET_VALIDATION_VCP, result,
-                                          context->diagnostics);
-}
-
-static RSSDDCError reversible_set_vcp(void *opaque, uint16_t value) {
-    ReversibleSetContext *context = opaque;
-    return rss_macos_run_dcpdpservice_set_validation(context->binding->service_proxy,
-                                                     RSS_DDC_DCPDP_SERVICE_CORRELATION_OK, value,
-                                                     context->diagnostics);
-}
-
-static RSSDDCError reversible_settle(void *opaque) {
-    ReversibleSetContext *context = opaque;
-    char settle_message[64] = {};
-    snprintf(settle_message, sizeof(settle_message), "verification-settle=%ums",
-             RSS_DDC_DCPDP_SERVICE_SET_VERIFY_SETTLE_MS);
-    rss_macos_diagnostic(context->diagnostics, settle_message);
-    usleep(RSS_DDC_DCPDP_SERVICE_SET_VERIFY_SETTLE_MS * 1000u);
-    return RSS_DDC_OK;
-}
-
-static void reversible_log(void *opaque, const char *message) {
-    ReversibleSetContext *context = opaque;
-    rss_macos_diagnostic(context->diagnostics, message);
-}
-
-RSSDDCError rss_macos_validate_dcpdpservice_set(uint32_t list_index, const RSSDDCDiagnostics *diagnostics) {
-    RSSMacOSBinding binding = {0};
-    RSSDDCError error = rss_macos_resolve_binding(list_index, &binding);
-    if (error != RSS_DDC_OK) {
-        rss_macos_diagnostic(diagnostics, rss_macos_correlation_failure_string(binding.correlation_failure));
-        rss_macos_release_binding(&binding);
-        return error;
-    }
-
-    char provider_class[RSS_DDC_TEXT_MAX] = {};
-    char message[512] = {};
-    char role[RSS_DDC_TEXT_MAX] = {};
-    if (binding.display.provider != RSS_DDC_PROVIDER_DCPDP_SERVICE ||
-        !service_epic_provider_class(binding.service_proxy, provider_class) ||
-        strcmp(provider_class, RSS_DDC_REGISTRY_CLASS_DCPDP_SERVICE) != 0) {
-        snprintf(message, sizeof(message),
-                 "operation=ValidateDCPDPServiceSet status=unsupported-provider registry-class=%s",
-                 provider_class[0] ? provider_class : "<missing>");
-        rss_macos_diagnostic(diagnostics, message);
-        rss_macos_release_binding(&binding);
-        return RSS_DDC_ERROR_UNSUPPORTED_PROVIDER;
-    }
-    if (!service_epic_role(binding.service_proxy, role)) {
-        rss_macos_diagnostic(diagnostics, "operation=ValidateDCPDPServiceSet status=missing-service-role");
-        rss_macos_release_binding(&binding);
-        return RSS_DDC_ERROR_SAFETY_GATE;
-    }
-    snprintf(message, sizeof(message),
-             "display=%u product=%s provider=%s role=%s operation=ValidateReversibleSetVCP",
-             binding.display.list_index, binding.display.product_name,
-             RSS_DDC_REGISTRY_CLASS_DCPDP_SERVICE, role);
-    rss_macos_diagnostic(diagnostics, message);
-
-    if (!rss_ddc_dcpdpservice_get_validation_ready(RSS_DDC_DCPDP_SERVICE_CORRELATION_OK)) {
-        rss_macos_release_binding(&binding);
-        return RSS_DDC_ERROR_SAFETY_GATE;
-    }
-
-    ReversibleSetContext context = {.binding = &binding, .diagnostics = diagnostics};
-    RSSDDCDCPDPServiceReversibleSetReport report = {};
-    const RSSDDCDCPDPServiceReversibleSetValidationCallbacks callbacks = {
-        .context = &context,
-        .get_vcp = reversible_get_vcp,
-        .set_vcp = reversible_set_vcp,
-        .verification_settle = reversible_settle,
-        .log = reversible_log,
-    };
-    error = rss_ddc_run_dcpdpservice_reversible_set_validation(RSS_DDC_DCPDP_SERVICE_CORRELATION_OK, &callbacks,
-                                                               &report);
-    if (error == RSS_DDC_OK) {
-        snprintf(message, sizeof(message),
-                 "validation-status=success original=%u target=%u restored=%u",
-                 report.original_value, report.target_value, report.original_value);
-        rss_macos_diagnostic(diagnostics, message);
-        rss_macos_diagnostic(diagnostics,
-                             "DCPDPService reversible SET validation completed successfully; runtime SET capability remains disabled");
-    } else {
-        snprintf(message, sizeof(message),
-                 "validation-status=failure outcome=%u original=%u target=%u target-writes-completed=%s restore-attempted=%s restore-writes-completed=%s",
-                 (unsigned int)report.outcome, report.original_value, report.target_value,
-                 report.target_writes_completed ? "yes" : "no", report.restore_attempted ? "yes" : "no",
-                 report.restore_writes_completed ? "yes" : "no");
-        rss_macos_diagnostic(diagnostics, message);
-        if (report.outcome == RSS_DDC_REVERSIBLE_SET_OUTCOME_RESTORE_WRITE_FAILED ||
-            report.outcome == RSS_DDC_REVERSIBLE_SET_OUTCOME_RESTORE_VERIFY_FAILED) {
-            rss_macos_diagnostic(diagnostics, "CRITICAL: restoration failed or unverified after state-changing SET");
-        }
-        rss_macos_diagnostic(diagnostics, "runtime SET capability remains disabled for DCPDPService");
-    }
-    rss_macos_release_binding(&binding);
     return error;
 }

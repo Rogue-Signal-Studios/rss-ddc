@@ -82,7 +82,7 @@ uint32_t rss_ddc_provider_capabilities(RSSDDCProvider provider) {
         case RSS_DDC_PROVIDER_DCPDP13:
             return RSS_DDC_CAP_GET_VCP | RSS_DDC_CAP_SET_VCP | RSS_DDC_CAP_READ_DPCD;
         case RSS_DDC_PROVIDER_DCPDP_SERVICE:
-            return RSS_DDC_CAP_GET_VCP | RSS_DDC_CAP_READ_DPCD;
+            return RSS_DDC_CAP_GET_VCP | RSS_DDC_CAP_SET_VCP | RSS_DDC_CAP_READ_DPCD;
         case RSS_DDC_PROVIDER_PS190:
             return RSS_DDC_CAP_GET_VCP | RSS_DDC_CAP_SET_VCP | RSS_DDC_CAP_READ_EDID | RSS_DDC_CAP_READ_DPCD;
         case RSS_DDC_PROVIDER_UNKNOWN:

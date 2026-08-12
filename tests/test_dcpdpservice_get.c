@@ -106,7 +106,7 @@ int main(void) {
     assert(rss_ddc_provider_capabilities(RSS_DDC_PROVIDER_UNKNOWN) == RSS_DDC_CAP_NONE);
     assert(rss_ddc_provider_from_registry_class("DCPDPService") == RSS_DDC_PROVIDER_DCPDP_SERVICE);
     assert(rss_ddc_provider_capabilities(RSS_DDC_PROVIDER_DCPDP_SERVICE) ==
-           (RSS_DDC_CAP_GET_VCP | RSS_DDC_CAP_READ_DPCD));
+           (RSS_DDC_CAP_GET_VCP | RSS_DDC_CAP_SET_VCP | RSS_DDC_CAP_READ_DPCD));
 
     RSSDDCVCPResult result = {};
     const RSSDDCConventionalGetValidationCallbacks callbacks = {

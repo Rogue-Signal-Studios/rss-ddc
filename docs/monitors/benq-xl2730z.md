@@ -19,11 +19,11 @@ ports, cables, or firmware.
 | Capability | Status | Notes |
 | --- | --- | --- |
 | Get VCP | **Hardware validated; runtime supported** | Conventional Service-path IOAV GET. |
+| Set VCP | **Hardware validated; runtime supported** | Reversible 62→61→62 transition; conventional two-write SET. |
 | Read DPCD `0x00000` / 16 | **Hardware validated; runtime supported** | Same-role scoped `DCPDPDeviceProxy → IODPDevice → IODPDeviceReadDPCD`. |
-| Set VCP | Validation hypothesis only | Same-state writes succeeded; reversible transition pending via `validate-dcpdpservice-set`. Normal `set` remains unsupported. |
 | EDID | Unsupported / unvalidated | Normal `edid` fails closed. |
 
-rss-ddc capabilities on this topology: `0x09` (GET + DPCD).
+rss-ddc capabilities on this topology: `0x0b` (GET + SET + DPCD).
 
 ## Hardware-validated GET
 
@@ -61,6 +61,43 @@ Validated reply:
 
 Decode: VCP `0x10`, maximum 100, current 62, checksum valid.
 
+## Hardware-validated SET
+
+Command (example reversible transition):
+
+```sh
+./rss-ddc --verbose set 2 0x10 61
+./rss-ddc --verbose get 2 0x10
+./rss-ddc --verbose set 2 0x10 62
+```
+
+Validated during research via reversible harness (`62 → 61 → 62`):
+
+| Step | Payload | Result |
+| --- | --- | --- |
+| Target SET (61) | `84 03 10 00 3d 95` | write #1/#2 `IOReturn=0`, verify current=61 after 250 ms harness settle |
+| Restore SET (62) | `84 03 10 00 3e 96` | write #1/#2 `IOReturn=0`, verify current=62 after 250 ms harness settle |
+
+Transport (both steps):
+
+- chip `0x37`, data/subaddress `0x51`
+- 10 ms pre-delay, write #1, 10 ms pre-delay, write #2
+- no SET response read
+
+Normal `./rss-ddc set 2 ...` uses the same conventional backend with no
+unconditional post-SET delay. Use `./rss-ddc set 2 ... --verify` when transient
+post-SET GET framing is a concern.
+
+## Observed post-SET verification quirk
+
+On this monitor/provider:
+
+- Same-state SET once produced successful writes but an **immediate** post-SET GET returned malformed framing (`invalid source/framing`)
+- A later normal GET recovered (current unchanged at 62)
+- Reversible validation with a **250 ms** harness-only settle before verification succeeded
+
+This establishes an **observed immediate post-SET transient verification window** on this topology. It does not prove stale-buffer data, does not require 250 ms for plain SET, and does not change global Set-and-Verify defaults (100 ms settle, up to three 250 ms retries). The generic orchestration already treats parser/read failures as retryable.
+
 ## Hardware-validated DPCD
 
 Command:
@@ -86,71 +123,13 @@ Result (macOS 26.5.2 / 25F84):
 IOReturn = 0x00000000
 ```
 
-Decode:
-
-| Field | Value |
-| --- | --- |
-| DPCD revision | `0x12` |
-| Max link rate (raw) | `0x14` (HBR2 / 5.40 Gbps per lane) |
-| Max lane count | 4 |
-| Enhanced framing | yes |
-| Downstream port present | no |
-
-## SET validation (pending hardware proof)
-
-### Same-state experiment (observed, not validated)
-
-Earlier harness revision (write current back to itself):
-
-- Pre-GET: VCP `0x10`, maximum 100, current **62**
-- SET payload: `84 03 10 00 3e 96` (chip `0x37`, data `0x51`, two writes, 10 ms pre-delay each)
-- Write #1 and #2: `IOReturn=0x00000000`
-- Immediate post-SET GET (no settle): malformed reply `01 10 fd 3e 96 00 64 00 3e fe 04` → strict parser rejected (`invalid source/framing`)
-- Later normal `./rss-ddc --verbose get 2 0x10` succeeded with current **62**
-
-Classification:
-
-- IOAV construction and conventional SET **writes** succeeded
-- Immediate post-SET GET hit an **immediate post-SET malformed/transient reply window** (same class as documented LG/DCPDP13 post-SET transients; not proven stale-buffer data)
-- Same-state SET did **not** prove semantic state mutation
-
-SET is **not** hardware validated.
-
-### Reversible validation harness (current)
-
-Proves an adjacent reversible transition:
-
-```text
-current → adjacent target → verify target → restore original → verify original
-```
-
-Validation-only policy:
-
-- VCP `0x10` only
-- Target: `original - 1` when `original > 0`, else `original + 1` when below maximum
-- One **250 ms** verification settle before each verification GET (harness policy from LG/DCPDP13 evidence; not a universal requirement)
-- No retries
-- Restoration mandatory after successful state-changing SET, even if target verification fails
-
-```sh
-./rss-ddc --verbose get 2 0x10
-./rss-ddc --verbose validate-dcpdpservice-set 2
-```
-
-For brightness 62, expected flow: **62 → 61 → verify 61 → restore 62 → verify 62**.
-
-Do not use `./rss-ddc set 2 ...` until SET is separately hardware validated and promoted.
-
 ## Distinction from DCPDP13Service
 
 `DCPDPService` is a distinct registry provider class on this host (display 1
-uses `DCPDP13Service`). Transport framing for GET/DPCD currently overlaps, but
-capability states differ: DCPDPService has no runtime SET or EDID until
-independently validated.
+uses `DCPDP13Service`). GET/SET/DPCD transport framing currently overlaps, but
+provider identity, correlation, and EDID capability differ.
 
-## Next steps after successful SET validation
+## Open items
 
-1. Mark DCPDPService SET hardware validated on this topology.
-2. Enable normal SET capability in a separate checkpoint.
-3. Validate a reversible brightness transition if needed.
-4. Keep EDID separate.
+- EDID remains unsupported until separately validated
+- Do not generalize SET/GET/DPCD behavior to every `DCPDPService` monitor

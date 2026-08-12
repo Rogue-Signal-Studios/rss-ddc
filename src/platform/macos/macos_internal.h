@@ -117,16 +117,5 @@ RSSDDCError rss_macos_provider_read_dpcd(RSSMacOSBinding *binding, uint32_t addr
                                          size_t length, const RSSDDCDiagnostics *diagnostics);
 /** Registry-only conventional-DP candidate reporting; it never creates IODP/IOAV objects. */
 RSSDDCError rss_macos_probe_dpcd_path(uint32_t list_index, const RSSDDCDiagnostics *diagnostics);
-/**
- * Validation-only DCPDPService Set VCP for brightness (0x10): GET current,
- * write the same value with the standard-DP two-write hypothesis, optional
- * post-GET. Normal runtime SET remains disabled.
- */
-RSSDDCError rss_macos_validate_dcpdpservice_set(uint32_t list_index, const RSSDDCDiagnostics *diagnostics);
-
-RSSDDCError rss_macos_run_dcpdpservice_set_validation(io_service_t service_proxy,
-                                                      RSSDDCDCPDPServiceCorrelationResult correlation,
-                                                      uint16_t current_value,
-                                                      const RSSDDCDiagnostics *diagnostics);
 
 #endif
