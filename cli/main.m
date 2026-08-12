@@ -8,8 +8,15 @@
 #include "rss_ddc.h"
 
 static void usage(const char *program) {
-    fprintf(stderr, "Usage:\n  %s list\n  %s [--verbose] info <display-index>\n  %s [--verbose] get <display-index> <vcp>\n  %s [--verbose] set <display-index> <vcp> <value>\n",
-            program, program, program, program);
+    fprintf(stderr,
+            "Usage:\n"
+            "  %s list\n"
+            "  %s [--verbose] info <display-index>\n"
+            "  %s [--verbose] get <display-index> <vcp>\n"
+            "  %s [--verbose] set <display-index> <vcp> <value>\n"
+            "  %s [--verbose] set <display-index> <vcp> <value> --verify [--settle-ms <ms>] "
+            "[--retries <count>] [--retry-delay-ms <ms>]\n",
+            program, program, program, program, program);
 }
 
 static bool parse_unsigned(const char *text, unsigned long maximum, unsigned long *value) {
@@ -93,15 +100,52 @@ int main(int argc, char **argv) {
         printf("%u\n", result.current_value);
         return EXIT_SUCCESS;
     }
-    if (strcmp(argv[argument], "set") == 0 && argc == argument + 4) {
+    if (strcmp(argv[argument], "set") == 0 && argc >= argument + 4) {
         unsigned long value = 0;
         if (!parse_unsigned(argv[argument + 3], UINT16_MAX, &value)) {
             usage(argv[0]);
             return EXIT_FAILURE;
         }
         RSSDDCDiagnostics diagnostics = {.callback = write_diagnostic, .context = NULL};
-        RSSDDCError error = rss_ddc_set_vcp_with_diagnostics((uint32_t)display_index, (uint8_t)vcp,
-                                                              (uint16_t)value, verbose ? &diagnostics : NULL);
+        bool verify = false;
+        bool has_policy_option = false;
+        RSSDDCVerifyPolicy policy = rss_ddc_default_verify_policy();
+        for (int option = argument + 4; option < argc; ++option) {
+            if (strcmp(argv[option], "--verify") == 0 && !verify) {
+                verify = true;
+                continue;
+            }
+            uint32_t *destination = NULL;
+            if (strcmp(argv[option], "--settle-ms") == 0) destination = &policy.settle_ms;
+            else if (strcmp(argv[option], "--retries") == 0) destination = &policy.retry_count;
+            else if (strcmp(argv[option], "--retry-delay-ms") == 0) destination = &policy.retry_delay_ms;
+            if (destination == NULL || ++option >= argc) {
+                usage(argv[0]);
+                return EXIT_FAILURE;
+            }
+            unsigned long parsed = 0;
+            if (!parse_unsigned(argv[option], UINT32_MAX, &parsed)) {
+                usage(argv[0]);
+                return EXIT_FAILURE;
+            }
+            *destination = (uint32_t)parsed;
+            has_policy_option = true;
+        }
+        if (has_policy_option && !verify) {
+            usage(argv[0]);
+            return EXIT_FAILURE;
+        }
+        RSSDDCError error;
+        if (verify) {
+            RSSDDCVCPResult result = {};
+            error = rss_ddc_set_vcp_and_verify_with_diagnostics((uint32_t)display_index, (uint8_t)vcp,
+                                                                 (uint16_t)value, &policy, &result,
+                                                                 verbose ? &diagnostics : NULL);
+            if (error == RSS_DDC_OK) printf("verified %u\n", result.current_value);
+        } else {
+            error = rss_ddc_set_vcp_with_diagnostics((uint32_t)display_index, (uint8_t)vcp,
+                                                      (uint16_t)value, verbose ? &diagnostics : NULL);
+        }
         if (error != RSS_DDC_OK) fprintf(stderr, "rss-ddc: %s\n", rss_ddc_error_string(error));
         return error == RSS_DDC_OK ? EXIT_SUCCESS : EXIT_FAILURE;
     }

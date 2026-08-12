@@ -34,11 +34,29 @@ typedef enum {
 } RSSMacOSCorrelationFailure;
 
 /**
+ * Private evidence retained only for one Set-and-Verify sequence. A display
+ * list index can reorder, so verification needs a stronger match before it may
+ * address the current entry at that index. The UUID is derived from the
+ * CoreGraphics display through ColorSync; the remaining fields corroborate the
+ * selected provider/transport binding.
+ */
+typedef struct {
+    bool valid;
+    uint32_t cg_display_id;
+    RSSDDCProvider provider;
+    char display_uuid[RSS_DDC_TEXT_MAX];
+    char product_name[RSS_DDC_TEXT_MAX];
+    char branch_device_id[RSS_DDC_TEXT_MAX];
+    char transport[RSS_DDC_TEXT_MAX];
+} RSSMacOSDisplayIdentity;
+
+/**
  * Retained, macOS-private display binding. `service_proxy` follows IOKit Create
  * ownership and must be released exactly once with rss_macos_release_binding.
  */
 typedef struct {
     RSSDDCDisplay display;
+    RSSMacOSDisplayIdentity identity;
     io_service_t service_proxy;
     bool dp_safety_gate;
     bool ps190_safety_gate;
@@ -53,6 +71,11 @@ RSSDDCError rss_macos_discover_displays(RSSDDCDisplay *displays, size_t capacity
  * correlation before any provider backend is allowed to construct IOAVService.
  */
 RSSDDCError rss_macos_resolve_binding(uint32_t list_index, RSSMacOSBinding *binding);
+/** Captures optional identity evidence for Set-and-Verify without affecting plain GET/SET resolution. */
+bool rss_macos_capture_binding_identity(RSSMacOSBinding *binding);
+/** True only when a freshly correlated binding still proves the original display identity. */
+bool rss_macos_binding_matches_identity(const RSSMacOSBinding *binding,
+                                        const RSSMacOSDisplayIdentity *identity);
 /** Releases the retained service proxy and zeroes the binding; safe on a partial binding. */
 void rss_macos_release_binding(RSSMacOSBinding *binding);
 /** Returns a static precise diagnostic for a failed partial binding. */

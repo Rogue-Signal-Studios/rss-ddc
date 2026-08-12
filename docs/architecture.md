@@ -100,3 +100,56 @@ timing rule. A future explicit set-and-verify API would need a configurable
 settling/retry policy.
 
 The library currently supports numeric list indices. Stable system/EDID identifiers are a planned addition after their matching semantics are designed and tested.
+
+## Opt-in Set-and-Verify
+
+Plain operations intentionally retain their narrow transport meaning:
+
+```text
+Get VCP = one independent provider GET
+Set VCP = one provider-specific, write-only SET
+```
+
+`rss_ddc_set_vcp_and_verify` and the CLI's `set ... --verify` add a distinct
+orchestration layer, not backend timing. It performs one ordinary provider SET,
+an optional caller-selected settling delay, an initial independent GET, then
+`retry_count` additional GET attempts separated by an optional caller-selected
+delay. It succeeds only if a strict GET reply reports exactly the requested
+full-width `uint16_t` current value. `retry_count` does **not** include the
+initial GET. The default policy is 100 ms settle, three additional attempts,
+and 250 ms between attempts. Bounds of 60,000 ms per delay and ten additional
+attempts keep the optional operation finite; callers may use zero delay or zero
+retries.
+
+The defaults are a modest recovery window informed by the documented LG
+observation, where an immediate post-SET GET was malformed and a GET at about
+one second recovered. They are not presented as a protocol requirement or a
+claim about other monitors. No post-SET sleep, retry, or automatic GET was
+added to either provider backend, `rss_ddc_set_vcp`, or `rss_ddc_get_vcp`.
+
+After SET, a numeric display index alone is unsafe: the monitor can disconnect,
+indices can reorder, or the same index can denote a sibling. The macOS adapter
+therefore captures the initial ColorSync/CoreGraphics display UUID, CoreGraphics
+display ID, provider, product name, `BranchDeviceID`, and provider-role/transport. Each
+verification GET performs a fresh safety correlation at the original index and
+requires all retained identity evidence to match. It never searches for a
+replacement or falls back to another display. A missing/changed identity or a
+failed fresh correlation yields `RSS_DDC_ERROR_VERIFY_UNAVAILABLE`; the GET is
+not issued. This intentionally conservative behavior can produce “SET
+completed but verification unavailable” after a successful write.
+
+Malformed replies (including the observed all-zero LG frame), read failures,
+temporary service construction failures, and valid-but-mismatched values are
+retryable during the explicit policy window. Invalid policy/input, unsupported
+provider/capability, SET failure, and identity unavailability are not retried.
+Exhausted mismatches return `RSS_DDC_ERROR_VERIFY_MISMATCH`; exhausted
+retryable GET failures return `RSS_DDC_ERROR_VERIFY_RETRY_EXHAUSTED`, while
+per-attempt diagnostics retain the underlying parser/read error. This feature
+has synthetic test coverage only and remains pending hardware validation.
+
+Input VCP `0x60` receives no protocol special case. At the orchestration level,
+an input change may intentionally remove the issuing host's active transport.
+If the original display then cannot be safely re-correlated, rss-ddc reports
+verification unavailable rather than claiming SET failed or verified. The
+operation remains single-target: one selected display, one binding, one
+backend; no `--all` or broadcast behavior is introduced.

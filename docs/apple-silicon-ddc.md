@@ -138,6 +138,25 @@ monitor-specific settling behavior, not a required one-second delay or a rule
 for DP monitors. rss-ddc keeps SET write-only and GET independent; it adds no
 automatic sleep, retry, or verification after SET.
 
+## Opt-in verification policy (synthetic coverage; hardware validation pending)
+
+The public `set --verify` facility deliberately sits above the documented
+PS190 and conventional-DP backends. It does not change raw PS190 GET framing,
+conventional DP framing, either provider's two-write SET sequence, or ordinary
+GET/SET timing. After a successful write-only SET it can apply a caller-chosen
+settle/retry policy and issue independent GETs. The initial default is 100 ms
+settle plus three additional attempts at 250 ms intervals; this is a modest
+policy choice, not a claim that DDC/CI or the LG requires those values.
+
+For safety in a mixed topology, verification captures the original
+ColorSync/CoreGraphics display UUID/ID and provider/transport correlation and refuses a later
+GET unless the original numeric index still proves that same display. It never
+searches or selects a sibling after re-enumeration. If an input-source SET
+switches the monitor away from the issuing host, the write may have succeeded
+while verification is unavailable. That outcome is explicitly not “verified”
+and not proof that the backend SET failed. No automatic verification behavior
+is hardware-validated yet.
+
 ## PS190 Get VCP
 
 For `AppleDCPPS190`, a normal `IOAVServiceWriteI2C(..., data=0x51, ...)` uses register/subaddress preparation and is not the validated DDC/CI GET framing. The working request is raw-framed and uses `UINT32_MAX` for both calls:

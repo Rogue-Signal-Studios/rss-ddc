@@ -20,6 +20,8 @@ make
 ./rss-ddc get 1 0x10
 ./rss-ddc --verbose get 1 0x10
 ./rss-ddc set 1 0x60 18
+./rss-ddc set 1 0x10 50 --verify
+./rss-ddc --verbose set 2 0x10 100 --verify --settle-ms 100 --retries 3 --retry-delay-ms 250
 ```
 
 PS190 `set` is hardware-validated only in the documented 25F84/Odyssey G75F scope. Do not assume that GET or SET support implies EDID or DPCD support, or that either operation applies to another provider.
@@ -28,6 +30,28 @@ Successful non-verbose `get` prints only the current value. `--verbose` writes t
 For `info`, verbose mode emits a precise registry-correlation rejection reason
 without constructing an IOAV Service object; it is the first diagnostic to run
 when a display fails closed.
+
+`set` remains a provider-specific write-only operation. `set --verify` is a
+separate, opt-in orchestration layer: it writes once, waits for the requested
+settle period, performs one GET plus the requested number of additional GET
+attempts, and succeeds only when the decoded current value equals the requested
+16-bit value. Its defaults are 100 ms settle, three additional attempts, and
+250 ms between retries. They are caller-visible policy choices, not DDC/CI
+requirements; override them with `--settle-ms`, `--retries`, and
+`--retry-delay-ms`.
+
+Before every verify GET, rss-ddc re-correlates the current display index and
+requires its ColorSync/CoreGraphics display UUID, provider, product, branch, and transport to
+match the binding captured before SET. If it cannot prove that identity after a
+disconnect or re-enumeration, verification fails closed instead of selecting a
+sibling. This means `set --verify` may report that SET completed but safe
+verification is unavailable. In particular, a successful input-source (`0x60`)
+SET can intentionally remove the issuing host's active transport; that outcome
+does not prove that the write failed, but it is not reported as verified.
+
+Set-and-Verify has synthetic coverage only and is pending manual hardware
+validation. It does not alter the separately hardware-validated plain GET or
+plain SET provider transactions.
 
 ## Provider model
 

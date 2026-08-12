@@ -1,4 +1,5 @@
 @import CoreGraphics;
+@import ColorSync;
 @import Foundation;
 @import IOKit;
 
@@ -75,6 +76,46 @@ static void copy_display_name(CGDirectDisplayID display_id, RSSDDCDisplay *displ
     }
     if (attributes != NULL) CFRelease(attributes);
     IOObjectRelease(adapter);
+}
+
+/**
+ * The ColorSync UUID derived from the CoreGraphics display is retained only for
+ * Set-and-Verify. Without it, a later list-index lookup cannot safely prove it
+ * still refers to the same monitor, so that optional operation fails before a write.
+ */
+static bool copy_display_uuid(CGDirectDisplayID display_id, char destination[RSS_DDC_TEXT_MAX]) {
+    CFUUIDRef uuid = CGDisplayCreateUUIDFromDisplayID(display_id);
+    if (uuid == NULL) return false;
+    CFStringRef text = CFUUIDCreateString(kCFAllocatorDefault, uuid);
+    bool copied = copyCFString(text, destination);
+    if (text != NULL) CFRelease(text);
+    CFRelease(uuid);
+    return copied;
+}
+
+static bool copy_identity_from_display(const RSSDDCDisplay *display, RSSMacOSDisplayIdentity *identity) {
+    if (display == NULL || identity == NULL) return false;
+    *identity = (RSSMacOSDisplayIdentity){.cg_display_id = display->cg_display_id, .provider = display->provider};
+    snprintf(identity->product_name, sizeof(identity->product_name), "%s", display->product_name);
+    snprintf(identity->branch_device_id, sizeof(identity->branch_device_id), "%s", display->branch_device_id);
+    snprintf(identity->transport, sizeof(identity->transport), "%s", display->transport);
+    identity->valid = copy_display_uuid(display->cg_display_id, identity->display_uuid);
+    return identity->valid;
+}
+
+bool rss_macos_binding_matches_identity(const RSSMacOSBinding *binding,
+                                        const RSSMacOSDisplayIdentity *identity) {
+    if (binding == NULL || identity == NULL || !binding->identity.valid || !identity->valid) return false;
+    return binding->identity.cg_display_id == identity->cg_display_id &&
+        binding->identity.provider == identity->provider &&
+        strcmp(binding->identity.display_uuid, identity->display_uuid) == 0 &&
+        strcmp(binding->identity.product_name, identity->product_name) == 0 &&
+        strcmp(binding->identity.branch_device_id, identity->branch_device_id) == 0 &&
+        strcmp(binding->identity.transport, identity->transport) == 0;
+}
+
+bool rss_macos_capture_binding_identity(RSSMacOSBinding *binding) {
+    return binding != NULL && copy_identity_from_display(&binding->display, &binding->identity);
 }
 
 /** External-only prevents selecting internal panel service proxies for DDC control. */

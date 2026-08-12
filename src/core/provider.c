@@ -20,6 +20,9 @@ const char *rss_ddc_error_string(RSSDDCError error) {
         case RSS_DDC_ERROR_REPLY_STATUS: return "DDC/CI reply reports failure status";
         case RSS_DDC_ERROR_REPLY_VCP: return "DDC/CI reply VCP code does not match request";
         case RSS_DDC_ERROR_REPLY_CHECKSUM: return "DDC/CI reply checksum is invalid";
+        case RSS_DDC_ERROR_VERIFY_MISMATCH: return "verification value did not match after all attempts";
+        case RSS_DDC_ERROR_VERIFY_RETRY_EXHAUSTED: return "verification retries exhausted after transient GET failures";
+        case RSS_DDC_ERROR_VERIFY_UNAVAILABLE: return "SET completed but the original display is unavailable for safe verification";
         case RSS_DDC_ERROR_SYSTEM: return "macOS system error";
     }
     return "unknown error";

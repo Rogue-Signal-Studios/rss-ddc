@@ -56,6 +56,9 @@ typedef enum {
     RSS_DDC_ERROR_REPLY_STATUS,
     RSS_DDC_ERROR_REPLY_VCP,
     RSS_DDC_ERROR_REPLY_CHECKSUM,
+    RSS_DDC_ERROR_VERIFY_MISMATCH,
+    RSS_DDC_ERROR_VERIFY_RETRY_EXHAUSTED,
+    RSS_DDC_ERROR_VERIFY_UNAVAILABLE,
     RSS_DDC_ERROR_SYSTEM,
 } RSSDDCError;
 
@@ -87,6 +90,24 @@ typedef struct {
     uint16_t maximum_value;
     uint16_t current_value;
 } RSSDDCVCPResult;
+
+/**
+ * Explicit policy for the optional high-level Set-and-Verify operation.
+ * All delays are milliseconds. `retry_count` means additional verification
+ * GET attempts after the initial GET, not total attempts. The operation never
+ * applies this policy to ordinary Set VCP or Get VCP calls.
+ */
+typedef struct {
+    uint32_t settle_ms;
+    uint32_t retry_count;
+    uint32_t retry_delay_ms;
+} RSSDDCVerifyPolicy;
+
+enum {
+    /** Bounds keep an explicit verification request deterministic and finite. */
+    RSS_DDC_VERIFY_MAX_RETRIES = 10,
+    RSS_DDC_VERIFY_MAX_DELAY_MS = 60000,
+};
 
 /**
  * Optional portable text diagnostics. Messages are transient: callbacks must
@@ -148,6 +169,27 @@ RSSDDCError rss_ddc_set_vcp(uint32_t list_index, uint8_t vcp_code, uint16_t valu
  */
 RSSDDCError rss_ddc_set_vcp_with_diagnostics(uint32_t list_index, uint8_t vcp_code, uint16_t value,
                                               const RSSDDCDiagnostics *diagnostics);
+/**
+ * Returns the explicit default verification policy: 100 ms settling, then up
+ * to three additional GET attempts separated by 250 ms. These are a modest
+ * caller-visible policy choice, not a DDC/CI or provider timing requirement.
+ */
+RSSDDCVerifyPolicy rss_ddc_default_verify_policy(void);
+/**
+ * Performs one write-only provider Set VCP, then verifies the requested value
+ * with an independent Get VCP sequence controlled by `policy` (or the default
+ * when NULL). Before every verify GET the macOS backend must prove that the
+ * current list index still denotes the original physical display; otherwise it
+ * fails closed with RSS_DDC_ERROR_VERIFY_UNAVAILABLE. `result` is written only
+ * when verification succeeds.
+ */
+RSSDDCError rss_ddc_set_vcp_and_verify(uint32_t list_index, uint8_t vcp_code, uint16_t value,
+                                        const RSSDDCVerifyPolicy *policy, RSSDDCVCPResult *result);
+/** Diagnostic form of rss_ddc_set_vcp_and_verify with the usual transient callback rules. */
+RSSDDCError rss_ddc_set_vcp_and_verify_with_diagnostics(uint32_t list_index, uint8_t vcp_code,
+                                                         uint16_t value, const RSSDDCVerifyPolicy *policy,
+                                                         RSSDDCVCPResult *result,
+                                                         const RSSDDCDiagnostics *diagnostics);
 
 #ifdef __cplusplus
 }
