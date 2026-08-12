@@ -63,30 +63,53 @@ Decode: VCP `0x10`, maximum 100, current 62, checksum valid.
 
 ## Hardware-validated SET
 
-Command (example reversible transition):
+### Normal runtime (post-promotion)
+
+Commands:
 
 ```sh
 ./rss-ddc --verbose set 2 0x10 61
 ./rss-ddc --verbose get 2 0x10
 ./rss-ddc --verbose set 2 0x10 62
+./rss-ddc --verbose get 2 0x10
 ```
 
-Validated during research via reversible harness (`62 → 61 → 62`):
+Hardware-validated transition **62 → 61 → 62** on macOS 26.5.2 / build `25F84`:
 
-| Step | Payload | Result |
+| Step | Payload | Writes | Follow-up GET |
+| --- | --- | --- | --- |
+| SET 61 | `84 03 10 00 3d 95` | chip `0x37`, data `0x51`, 10 ms pre-delay ×2, both `IOReturn=0` | current=61 |
+| SET 62 | `84 03 10 00 3e 96` | same transport | current=62 |
+
+No SET response read. Normal `./rss-ddc set 2 ...` uses this backend with no unconditional post-SET delay.
+
+### Research harness (pre-promotion)
+
+Reversible validation harness also proved 62→61→62 before runtime SET was enabled, using a harness-only **250 ms** verification settle. That settle is not part of normal plain SET.
+
+## Hardware-validated Set-and-Verify
+
+Default policy (unchanged globally):
+
+- `settle_ms=100`
+- `retry_count=3`
+- `retry_delay_ms=250`
+
+Commands:
+
+```sh
+./rss-ddc --verbose set 2 0x10 61 --verify
+./rss-ddc --verbose set 2 0x10 62 --verify
+```
+
+Results on this topology:
+
+| Transition | First verify attempt | Outcome |
 | --- | --- | --- |
-| Target SET (61) | `84 03 10 00 3d 95` | write #1/#2 `IOReturn=0`, verify current=61 after 250 ms harness settle |
-| Restore SET (62) | `84 03 10 00 3e 96` | write #1/#2 `IOReturn=0`, verify current=62 after 250 ms harness settle |
+| 62 → 61 | expected=61, returned=61 | verified |
+| 61 → 62 | expected=62, returned=62 | verified |
 
-Transport (both steps):
-
-- chip `0x37`, data/subaddress `0x51`
-- 10 ms pre-delay, write #1, 10 ms pre-delay, write #2
-- no SET response read
-
-Normal `./rss-ddc set 2 ...` uses the same conventional backend with no
-unconditional post-SET delay. Use `./rss-ddc set 2 ... --verify` when transient
-post-SET GET framing is a concern.
+No provider-specific verification changes were required. Generic orchestration was sufficient with the default 100 ms settle on these tests.
 
 ## Observed post-SET verification quirk
 
@@ -95,8 +118,9 @@ On this monitor/provider:
 - Same-state SET once produced successful writes but an **immediate** post-SET GET returned malformed framing (`invalid source/framing`)
 - A later normal GET recovered (current unchanged at 62)
 - Reversible validation with a **250 ms** harness-only settle before verification succeeded
+- Normal Set-and-Verify later succeeded on the **first** attempt after the default **100 ms** settle
 
-This establishes an **observed immediate post-SET transient verification window** on this topology. It does not prove stale-buffer data, does not require 250 ms for plain SET, and does not change global Set-and-Verify defaults (100 ms settle, up to three 250 ms retries). The generic orchestration already treats parser/read failures as retryable.
+This establishes an **intermittent immediate post-SET transient verification window** on this topology. It does not prove stale-buffer data, does not establish that 250 ms is required, and does not imply an unconditional monitor-specific delay for plain SET or GET. The existing generic Set-and-Verify orchestration (100 ms settle, retryable parser/read failures) is adequate based on current evidence.
 
 ## Hardware-validated DPCD
 
@@ -122,6 +146,16 @@ Result (macOS 26.5.2 / 25F84):
 12 14 c4 01 01 00 01 c0 02 00 06 00 00 00 01 00
 IOReturn = 0x00000000
 ```
+
+Decode:
+
+| Field | Value |
+| --- | --- |
+| DPCD revision | `0x12` (1.2) |
+| Max link rate (raw) | `0x14` (HBR2 / 5.40 Gbps per lane) |
+| Max lane count | 4 |
+| Enhanced framing | yes |
+| Downstream port present | no |
 
 ## Distinction from DCPDP13Service
 

@@ -30,18 +30,21 @@ See [BenQ XL2730Z](benq-xl2730z.md) for per-monitor evidence.
 
 | Capability | Status |
 | --- | --- |
-| GET VCP | **Hardware validated; runtime supported** |
-| SET VCP | **Hardware validated; runtime supported** (62→61→62 reversible transition) |
-| DPCD read `0x00000`/16 | **Hardware validated; runtime supported** |
-| EDID | Unsupported / unvalidated |
+| GET VCP | **Hardware validated; normal runtime** |
+| SET VCP | **Hardware validated; normal runtime** (62→61→62) |
+| Set-and-Verify | **Hardware validated** (default policy, first attempt both directions) |
+| DPCD read `0x00000`/16 | **Hardware validated; normal runtime** |
+| EDID | Unsupported / unvalidated (`ReadEDID status=unsupported`) |
 
-### Post-promotion commands
+### Validated normal-runtime commands
 
 ```sh
 ./rss-ddc list
 ./rss-ddc --verbose get 2 0x10
 ./rss-ddc --verbose set 2 0x10 61
 ./rss-ddc --verbose get 2 0x10
+./rss-ddc --verbose set 2 0x10 62
+./rss-ddc --verbose set 2 0x10 61 --verify
 ./rss-ddc --verbose set 2 0x10 62 --verify
 ./rss-ddc --verbose dpcd 2 0x00000 16
 ```

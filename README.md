@@ -4,7 +4,7 @@
 
 ## Status
 
-This milestone provides real macOS display/provider discovery, strict DDC/CI parsing, and provider-specific Service-path operations. PS190 GET/SET and DCPDP13 GET/SET are hardware-validated in `rss-ddc`; read-only native DPCD is hardware-validated on their documented paths. DCPDPService GET, SET, and read-only DPCD are hardware-validated on the documented Mac Studio XL2730Z topology. Unsupported providers and capabilities return explicit errors rather than falling back to a guessed transport.
+This milestone provides real macOS display/provider discovery, strict DDC/CI parsing, and provider-specific Service-path operations. PS190 GET/SET and DCPDP13 GET/SET are hardware-validated in `rss-ddc`; read-only native DPCD is hardware-validated on their documented paths. DCPDPService GET, SET, read-only DPCD, and Set-and-Verify are hardware-validated on the documented Mac Studio XL2730Z three-display topology (capabilities `0x0b`). Unsupported providers and capabilities return explicit errors rather than falling back to a guessed transport.
 
 The project uses Apple-private macOS interfaces inside the macOS backend only. Behavior can vary by macOS release, display provider, cable/adapter topology, and monitor firmware.
 
@@ -98,7 +98,7 @@ hardware-validated plain GET or plain SET provider transactions.
 | Provider | Backend status | Capabilities |
 | --- | --- | --- |
 | `DCPDP13Service` | conventional Service-path GET/SET and opt-in Set-and-Verify, plus native read-only DPCD, hardware-validated on the documented LG DP setup; EDID unsupported | Get VCP, Set VCP, Read DPCD |
-| `DCPDPService` | distinct registry class; conventional Service-path GET/SET/DPCD hardware-validated on documented XL2730Z path; EDID unsupported | Get VCP, Set VCP, Read DPCD |
+| `DCPDPService` | distinct registry class; conventional Service-path GET/SET/DPCD and Set-and-Verify hardware-validated on documented XL2730Z path (`0x0b`); EDID unsupported | Get VCP, Set VCP, Read DPCD |
 | `AppleDCPMCDP29XX` | classified; GET and SET unsupported | none |
 | `AppleDCPPS190` | raw GET, conventional SET, Device-path EDID blocks 0–1, and native DPCD reads hardware validated on the documented Odyssey topology | Get VCP, Set VCP, Read EDID, Read DPCD |
 | unknown | safe unsupported result | none |
@@ -112,7 +112,7 @@ backend because the PS190 HDMI topology can also expose that class.
 
 1. EDID — current PS190 blocks 0–1 scope complete
 2. DPCD — current PS190 + DCPDP13 + DCPDPService read-only scope complete
-3. DCPDPService GET/SET/DPCD — complete for current Mac Studio validation scope; EDID open
+3. DCPDPService GET/SET/DPCD/Set-and-Verify — complete for current Mac Studio validation scope; EDID open
 4. MCDP
 5. More monitor catalog coverage
 6. Machine-readable profiles later
