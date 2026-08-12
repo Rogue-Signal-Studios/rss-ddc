@@ -14,7 +14,7 @@ provider dispatcher
  DP      MCDP      PS190
 ```
 
-Capabilities are independent flags: Get VCP, Set VCP, EDID read, and DPCD read. A provider receives only the capabilities that have been separately enabled. PS190 Get VCP and Set VCP, plus DCPDP13 Get VCP, are hardware-validated in this project. DCPDP13 Set VCP is enabled from prior USB-C/DP research but remains pending standalone validation; MCDP, EDID, and DPCD remain fail-closed.
+Capabilities are independent flags: Get VCP, Set VCP, EDID read, and DPCD read. A provider receives only the capabilities that have been separately enabled. PS190 Get VCP and Set VCP, plus DCPDP13 Get VCP and Set VCP, are hardware-validated in this project. MCDP, EDID, and DPCD remain fail-closed.
 
 Provider dispatch is a pure C mapping from the immediate EPIC provider class,
 which keeps classification testable without opening a display user client.
@@ -69,8 +69,10 @@ the literal role `DCPEXT0`, which was true only in the earlier one-display
 topology; with both displays present, the selected Odyssey and its
 `BranchDeviceID=pHDMIg` DCPDP device both used `DCPEXT1`. The gate now compares
 the selected AV Service's role with the selected branch-matched device's role.
-It does not make the mixed topology a hardware-validation claim: GET/SET must
-still be rerun by the user before multi-monitor runtime behavior is validated.
+User-run same-state GET/SET validation then confirmed that each selected
+binding dispatched only to its own provider path. This is evidence for the
+documented two-display topology, not a certification for arbitrary monitor
+counts or providers.
 
 The PS190 backend contains two intentionally separate transaction shapes. GET
 uses the hardware-validated raw framing and `UINT32_MAX` no-offset sentinel.
@@ -81,11 +83,20 @@ branches on the provider. This keeps unusual IOAV mechanics contained inside
 the provider backend and makes each path independently testable.
 
 DCPDP13 GET is conventional (`data=0x51`, four-byte request, 50 ms, then an
-11-byte read). Its implemented Set VCP backend instead reuses the common
+11-byte read). Its Set VCP backend reuses the common
 six-byte conventional request builder and the same historical two-write,
 10-ms-prewrite, no-acknowledgement sequence as PS190 SET. This similarity does
 not make the providers interchangeable: the DP backend is selected only after
-the DCPDP13 per-display safety gate, and its rss-ddc Set behavior remains
-pending controlled hardware validation.
+the DCPDP13 per-display safety gate. The transaction was hardware-validated
+only as a same-state brightness SET on the documented LG DP path.
+
+SET remains write-only and GET remains an independent operation. On the tested
+LG, an immediate GET after SET returned an all-zero 11-byte frame; the strict
+parser rejected it as malformed. A GET after approximately one second, and
+five additional GETs spaced roughly one second apart, all returned valid
+frames. rss-ddc deliberately adds no global post-SET delay, retry, or implicit
+verification because this is a monitor-specific observation, not a universal
+timing rule. A future explicit set-and-verify API would need a configurable
+settling/retry policy.
 
 The library currently supports numeric list indices. Stable system/EDID identifiers are a planned addition after their matching semantics are designed and tested.

@@ -4,11 +4,11 @@
 
 ## Status
 
-This milestone provides real macOS display/provider discovery, strict DDC/CI parsing, and provider-specific Service-path operations. PS190 GET and SET, plus DCPDP13 GET, are hardware-validated in `rss-ddc`; unsupported providers and capabilities return explicit errors rather than falling back to a guessed transport.
+This milestone provides real macOS display/provider discovery, strict DDC/CI parsing, and provider-specific Service-path operations. PS190 GET/SET and DCPDP13 GET/SET are hardware-validated in `rss-ddc`; unsupported providers and capabilities return explicit errors rather than falling back to a guessed transport.
 
 The project uses Apple-private macOS interfaces inside the macOS backend only. Behavior can vary by macOS release, display provider, cable/adapter topology, and monitor firmware.
 
-Validated `rss-ddc` hardware/OS scope is limited to macOS build `25F84` and an Odyssey G75F. On `AppleDCPPS190`, Get VCP `0x10`/`0x60` and Set VCP `0x60` were manually validated. On a USB-C → DisplayPort `DCPDP13Service` path, Get VCP `0x10`/`0x60` was manually validated. No portability beyond these exact setups is implied; DCPDP13 Set VCP is implemented from prior DP research and remains pending rss-ddc hardware validation.
+Validated `rss-ddc` hardware/OS scope is limited to macOS build `25F84` on a simultaneous two-display topology: an Odyssey G75F on HDMI/`AppleDCPPS190` and an LG HDR QHD on DisplayPort/`DCPDP13Service`. GET and same-state SET were manually validated on each selected display without affecting its sibling. No portability beyond these exact setups is implied.
 
 ## CLI
 
@@ -33,7 +33,7 @@ when a display fails closed.
 
 | Provider | Backend status | Capabilities |
 | --- | --- | --- |
-| `DCPDP13Service` | conventional Service-path GET hardware-validated; SET implemented and pending validation | Get VCP, Set VCP |
+| `DCPDP13Service` | conventional Service-path GET and SET hardware-validated on the documented LG DP setup | Get VCP, Set VCP |
 | `AppleDCPMCDP29XX` | classified; GET and SET unsupported | none |
 | `AppleDCPPS190` | raw GET and conventional SET hardware-validated on the documented 25F84 setup | Get VCP, Set VCP |
 | unknown | safe unsupported result | none |

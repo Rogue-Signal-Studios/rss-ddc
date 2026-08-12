@@ -13,8 +13,10 @@ portability evidence.
 ## Standard DP Get VCP (`DCPDP13Service`)
 
 `DCPDP13Service` is a distinct provider backend. `rss-ddc` Get VCP was
-hardware-validated on macOS `25F84` with the Odyssey G75F connected by USB-C
-to DisplayPort. It used the conventional Service-level IOAV form:
+hardware-validated on macOS `25F84` using conventional Service-level IOAV
+framing. The initial single-display validation used an Odyssey G75F over USB-C
+to DisplayPort; the later simultaneous mixed-provider validation below used
+an LG HDR QHD on the DisplayPort path.
 
 ```text
 write chip=0x37, data=0x51, payload=82 01 <VCP> <checksum>
@@ -80,9 +82,9 @@ provider identity.
 
 ## Standard DP Set VCP (`DCPDP13Service`)
 
-`rss-ddc` implements, but has not yet hardware-validated, the conventional DP
-Set VCP transaction recovered from the original USB-C/DisplayPort-only m1ddc
-path (the parent of research commit `a561e56`). The common portable builder
+`rss-ddc` implements the conventional DP Set VCP transaction recovered from
+the original USB-C/DisplayPort-only m1ddc path (the parent of research commit
+`a561e56`). The common portable builder
 forms `84 03 <VCP> <value-high> <value-low> <checksum>`, where the checksum is
 `0x6e ^ 0x51 ^ 0x84 ^ 0x03 ^ VCP ^ value-high ^ value-low`. The DP backend uses
 the display-correlated `IOAVService` to issue exactly two writes:
@@ -97,9 +99,44 @@ response/ack read=none
 For input VCP `0x60`, values 15, 17, and 18 produce `84 03 60 00 0f d7`,
 `84 03 60 00 11 c9`, and `84 03 60 00 12 ca`. This transaction shape matches
 PS190 SET but not PS190 GET: PS190 GET is raw-framed with `UINT32_MAX`, while
-both SET paths use the conventional subaddress form. DP SET remains pending
-controlled hardware validation in `rss-ddc`; a successful write return alone
-does not establish visible monitor acceptance.
+both SET paths use the conventional subaddress form. DP SET was
+hardware-validated as a same-state `0x10 = 100` transaction on the documented
+LG HDR QHD path: both writes returned `IOReturn = 0x00000000`, and the sibling
+PS190 display did not change. A successful write return still does not
+establish acceptance of other values or monitor configurations.
+
+## Simultaneous mixed-provider validation
+
+On macOS `25F84`, the following two external displays were attached at once:
+
+| Display | Product / transport | Provider / role |
+| --- | --- | --- |
+| 1 | Odyssey G75F / HDMI | `AppleDCPPS190` / `DCPEXT1`, branch `pHDMIg` |
+| 2 | LG HDR QHD / DisplayPort | `DCPDP13Service` / `DCPEXT0` |
+
+Discovery and provider correlation resolved both displays independently.
+Selected-display GET stayed isolated: Odyssey returned the PS190 fixtures
+`51 82 01 10 ac` → `6e 88 02 00 10 00 00 32 00 32 a4` (max/current 50) and
+`51 82 01 60 dc` → `6e 88 02 00 60 00 00 12 00 12 d4` (max/current 18). LG
+returned conventional DP fixtures `82 01 10 fd` →
+`6e 88 02 00 10 00 00 64 00 64 a4` (max/current 100) and `82 01 60 8d` →
+`6e 88 02 00 60 00 00 12 00 00 c6` (max 18, current 0). Every listed reply
+passed strict framing and checksum validation.
+
+Same-state SETs were also isolated: Odyssey `0x60 = 18` sent
+`84 03 60 00 12 ca` twice, and LG `0x10 = 100` sent `84 03 10 00 64 cc`
+twice. Each write used chip `0x37`, data `0x51`, length 6, and a 10 ms
+pre-write delay; all four calls returned `IOReturn = 0x00000000`. Neither
+operation changed its sibling display. Two writes within one backend SET are
+one selected-display transaction, not a broadcast.
+
+On the LG only, an immediate independent GET after the same-state SET returned
+`00 00 00 00 00 00 00 00 00 00 00`. The strict parser rejected it as invalid
+source/framing. A GET after approximately one second was valid, and five more
+GETs approximately one second apart were all valid. This is an observed
+monitor-specific settling behavior, not a required one-second delay or a rule
+for DP monitors. rss-ddc keeps SET write-only and GET independent; it adds no
+automatic sleep, retry, or verification after SET.
 
 ## PS190 Get VCP
 

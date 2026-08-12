@@ -50,6 +50,10 @@ int main(void) {
     assert(rss_ddc_parse_get_vcp_reply(reply_60, sizeof(reply_60), 0x60, &result) == RSS_DDC_OK);
     assert(result.maximum_value == 18 && result.current_value == 18);
 
+    const uint8_t all_zero_reply[RSS_DDC_GET_VCP_REPLY_SIZE] = {};
+    assert(rss_ddc_parse_get_vcp_reply(all_zero_reply, sizeof(all_zero_reply), 0x10, &result) ==
+           RSS_DDC_ERROR_REPLY_SOURCE);
+
     uint8_t malformed[RSS_DDC_GET_VCP_REPLY_SIZE] = {};
     memcpy(malformed, reply_10, sizeof(malformed));
     assert(rss_ddc_parse_get_vcp_reply(malformed, sizeof(malformed) - 1, 0x10, &result) == RSS_DDC_ERROR_REPLY_LENGTH);
