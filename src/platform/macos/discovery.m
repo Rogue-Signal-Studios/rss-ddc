@@ -5,19 +5,16 @@
 @import IOKit;
 
 #include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
 
 #include "correlation.h"
 #include "dpcd.h"
-#include "validation.h"
+#include "enumeration.h"
+#include "reader.h"
 #include "macos_internal.h"
-
-/* Private CoreDisplay entry point reconstructed from Apple runtime research. Returned dictionary follows Create ownership. */
-extern CFDictionaryRef CoreDisplay_DisplayCreateInfoDictionary(CGDirectDisplayID display);
-typedef CFTypeRef IODPDeviceRef;
-extern IODPDeviceRef IODPDeviceCreateWithService(CFAllocatorRef, io_service_t);
-extern CFTypeID IODPDeviceGetTypeID(void);
-extern IOReturn IODPDeviceReadDPCD(IODPDeviceRef, uint32_t, void *, uint32_t);
+#include "private/coredisplay_private.h"
+#include "private/iodp_private.h"
 
 const char *rss_macos_correlation_failure_string(RSSMacOSCorrelationFailure failure) {
     switch (failure) {
@@ -526,13 +523,22 @@ static unsigned int dp_device_candidates_for_role(const char *role, io_service_t
  * CoreFoundation objects created here are released before the function returns.
  */
 RSSDDCError rss_macos_discover_displays(RSSDDCDisplay *displays, size_t capacity, size_t *count) {
-    if (count == NULL) return RSS_DDC_ERROR_ARGUMENT;
-    CGDirectDisplayID ids[16] = {};
+    if (count == NULL || (displays == NULL && capacity != 0)) return RSS_DDC_ERROR_ARGUMENT;
     CGDisplayCount total = 0;
-    if (CGGetOnlineDisplayList(16, ids, &total) != kCGErrorSuccess) return RSS_DDC_ERROR_DISCOVERY;
-    size_t written = 0;
-    for (CGDisplayCount index = 0; index < total; ++index) {
-        if (written == capacity) break;
+    if (CGGetOnlineDisplayList(0, NULL, &total) != kCGErrorSuccess) return RSS_DDC_ERROR_DISCOVERY;
+    *count = (size_t)total;
+    if (total == 0 || capacity == 0) return RSS_DDC_OK;
+
+    CGDirectDisplayID *ids = calloc((size_t)total, sizeof(*ids));
+    if (ids == NULL) return RSS_DDC_ERROR_SYSTEM;
+    CGDisplayCount observed = 0;
+    if (CGGetOnlineDisplayList(total, ids, &observed) != kCGErrorSuccess) {
+        free(ids);
+        return RSS_DDC_ERROR_DISCOVERY;
+    }
+    *count = (size_t)observed;
+    size_t written = rss_ddc_enumeration_write_count((size_t)observed, capacity);
+    for (size_t index = 0; index < written; ++index) {
         RSSDDCDisplay display = {0};
         display.list_index = (uint32_t)index + 1;
         display.cg_display_id = ids[index];
@@ -544,9 +550,28 @@ RSSDDCError rss_macos_discover_displays(RSSDDCDisplay *displays, size_t capacity
             (void)inspect_service(service, &display);
             IOObjectRelease(service);
         }
-        displays[written++] = display;
+        displays[index] = display;
     }
-    *count = written;
+    free(ids);
+    return RSS_DDC_OK;
+}
+
+/* Avoid a hidden display-count limit when an operation resolves a list index. */
+static RSSDDCError online_display_id_for_index(uint32_t list_index, CGDirectDisplayID *display_id) {
+    if (list_index == 0 || display_id == NULL) return RSS_DDC_ERROR_ARGUMENT;
+    CGDisplayCount total = 0;
+    if (CGGetOnlineDisplayList(0, NULL, &total) != kCGErrorSuccess) return RSS_DDC_ERROR_DISCOVERY;
+    if ((uint64_t)list_index > (uint64_t)total) return RSS_DDC_ERROR_NOT_FOUND;
+    CGDirectDisplayID *ids = calloc((size_t)total, sizeof(*ids));
+    if (ids == NULL) return RSS_DDC_ERROR_SYSTEM;
+    CGDisplayCount observed = 0;
+    CGError error = CGGetOnlineDisplayList(total, ids, &observed);
+    if (error != kCGErrorSuccess || (uint64_t)list_index > (uint64_t)observed) {
+        free(ids);
+        return error == kCGErrorSuccess ? RSS_DDC_ERROR_NOT_FOUND : RSS_DDC_ERROR_DISCOVERY;
+    }
+    *display_id = ids[list_index - 1];
+    free(ids);
     return RSS_DDC_OK;
 }
 
@@ -560,13 +585,12 @@ RSSDDCError rss_macos_discover_displays(RSSDDCDisplay *displays, size_t capacity
 RSSDDCError rss_macos_resolve_binding(uint32_t list_index, RSSMacOSBinding *binding) {
     if (binding == NULL || list_index == 0) return RSS_DDC_ERROR_ARGUMENT;
     *binding = (RSSMacOSBinding){0};
-    CGDirectDisplayID ids[16] = {};
-    CGDisplayCount total = 0;
-    if (CGGetOnlineDisplayList(16, ids, &total) != kCGErrorSuccess || list_index > total) {
+    CGDirectDisplayID display_id = 0;
+    RSSDDCError list_error = online_display_id_for_index(list_index, &display_id);
+    if (list_error != RSS_DDC_OK) {
         binding->correlation_failure = RSS_MACOS_CORRELATION_NO_SELECTED_DISPLAY;
-        return RSS_DDC_ERROR_NOT_FOUND;
+        return list_error;
     }
-    CGDirectDisplayID display_id = ids[list_index - 1];
     binding->display.list_index = list_index;
     binding->display.cg_display_id = display_id;
     binding->display.online = true;
@@ -710,7 +734,7 @@ RSSDDCError rss_macos_dp_read_dpcd(RSSMacOSBinding *binding, uint32_t address, u
              backend, role, candidates);
     rss_macos_diagnostic(diagnostics, message);
     DPCDReadContext context = {.candidate = candidate, .diagnostics = diagnostics};
-    const RSSDDCDPCDValidationCallbacks callbacks = {
+    const RSSDDCDPCDReadCallbacks callbacks = {
         .context = &context,
         .construct = dpcd_read_construct,
         .read = dpcd_read_once,

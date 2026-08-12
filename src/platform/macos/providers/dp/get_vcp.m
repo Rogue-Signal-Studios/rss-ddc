@@ -6,18 +6,7 @@
 
 #include "macos_internal.h"
 #include "protocol.h"
-
-/*
- * This is a private IOAV ABI boundary. It intentionally stays confined to the
- * macOS backend: CreateWithService returns a retained CF object and the I2C
- * methods use IOReturn rather than POSIX errno. No such type leaks into the C
- * public API.
- */
-typedef CFTypeRef IOAVServiceRef;
-extern IOAVServiceRef IOAVServiceCreateWithService(CFAllocatorRef, io_service_t);
-extern CFTypeID IOAVServiceGetTypeID(void);
-extern IOReturn IOAVServiceReadI2C(IOAVServiceRef, uint32_t, uint32_t, void *, uint32_t);
-extern IOReturn IOAVServiceWriteI2C(IOAVServiceRef, uint32_t, uint32_t, void *, uint32_t);
+#include "private/ioav_private.h"
 
 /** Formats a bounded, pointer-free byte trace for the optional diagnostics callback. */
 static void diagnostic_bytes(const RSSDDCDiagnostics *diagnostics, const char *label,

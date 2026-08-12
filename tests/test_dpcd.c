@@ -3,7 +3,7 @@
 #include <string.h>
 
 #include "dpcd.h"
-#include "validation.h"
+#include "reader.h"
 
 typedef struct {
     unsigned int construct_calls;
@@ -71,7 +71,7 @@ int main(void) {
     assert(rss_ddc_decode_dpcd_capabilities(0, capabilities, 5, &decoded) == RSS_DDC_ERROR_DPCD_LENGTH);
 
     ValidationMock mock = {};
-    RSSDDCDPCDValidationCallbacks callbacks = {
+    RSSDDCDPCDReadCallbacks callbacks = {
         .context = &mock, .construct = mock_construct, .read = mock_read, .release = mock_release,
     };
     assert(rss_ddc_run_dpcd_candidate_read(1, &callbacks, 0, bytes, 17) == RSS_DDC_ERROR_DPCD_LENGTH);

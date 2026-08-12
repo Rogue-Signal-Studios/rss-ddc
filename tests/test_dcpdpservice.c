@@ -3,7 +3,7 @@
 #include <string.h>
 
 #include "correlation.h"
-#include "validation.h"
+#include "reader.h"
 
 static int construct_calls = 0;
 static int read_calls = 0;
@@ -45,7 +45,7 @@ int main(void) {
     assert(RSS_DDC_DCPDP_SERVICE_DPCD_VALIDATION_LENGTH == 16u);
 
     uint8_t bytes[RSS_DDC_DCPDP_SERVICE_DPCD_VALIDATION_LENGTH] = {};
-    const RSSDDCDPCDValidationCallbacks callbacks = {
+    const RSSDDCDPCDReadCallbacks callbacks = {
         .context = NULL,
         .construct = mock_construct,
         .read = mock_read,
@@ -65,7 +65,7 @@ int main(void) {
     assert(bytes[0] == 0x11);
 
     construct_calls = read_calls = release_calls = 0;
-    const RSSDDCDPCDValidationCallbacks failing_callbacks = {
+    const RSSDDCDPCDReadCallbacks failing_callbacks = {
         .context = NULL,
         .construct = mock_construct_fail,
         .read = mock_read,

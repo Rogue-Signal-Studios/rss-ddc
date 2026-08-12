@@ -9,6 +9,11 @@
 extern "C" {
 #endif
 
+/* Pre-1.0 API marker: source compatibility may evolve as provider coverage matures. */
+#define RSS_DDC_VERSION_MAJOR 0
+#define RSS_DDC_VERSION_MINOR 1
+#define RSS_DDC_VERSION_PATCH 0
+
 /** Runtime provider classes derived from the macOS registry, never CPU generation. */
 typedef enum {
     RSS_DDC_PROVIDER_UNKNOWN = 0,
@@ -75,7 +80,7 @@ enum {
     RSS_DDC_EDID_BLOCK_SIZE = 128,
     RSS_DDC_EDID_MAX_BLOCKS = 8,
     RSS_DDC_EDID_MAX_BYTES = RSS_DDC_EDID_BLOCK_SIZE * RSS_DDC_EDID_MAX_BLOCKS,
-    /** Largest single DPCD read proven by the current PS190 research. No chunking is performed. */
+    /** Largest single DPCD read proven by the current hardware-validated scope. No chunking is performed. */
     RSS_DDC_DPCD_MAX_READ_BYTES = 16,
     /** DisplayPort DPCD uses a 20-bit register address. */
     RSS_DDC_DPCD_MAX_ADDRESS = 0x000fffff,
@@ -203,7 +208,10 @@ uint32_t rss_ddc_provider_capabilities(RSSDDCProvider provider);
 
 /**
  * Snapshots online displays into caller storage. `displays` may be NULL only
- * when `capacity` is zero; `count` receives the number written.
+ * when `capacity` is zero. `count` always receives the total number observed,
+ * while at most min(capacity, *count) snapshots are written. This permits a
+ * safe two-call allocation pattern. A display topology may change between
+ * calls, so callers must retry or handle a larger returned count explicitly.
  */
 RSSDDCError rss_ddc_list_displays(RSSDDCDisplay *displays, size_t capacity, size_t *count);
 /** Resolves one current list index and returns its safe public display snapshot. */

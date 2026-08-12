@@ -7,26 +7,8 @@
 #include "macos_internal.h"
 #include "edid.h"
 #include "protocol.h"
-
-/*
- * Private IOAV ABI declarations reconstructed from Apple interfaces and our
- * research. They remain backend-private so public headers stay portable.
- * CreateWithService returns a retained CF object released with CFRelease.
- */
-typedef CFTypeRef IOAVServiceRef;
-typedef CFTypeRef IOAVDeviceRef;
-typedef CFTypeRef IODPDeviceRef;
-extern IOAVServiceRef IOAVServiceCreateWithService(CFAllocatorRef, io_service_t);
-extern CFTypeID IOAVServiceGetTypeID(void);
-extern IOReturn IOAVServiceReadI2C(IOAVServiceRef, uint32_t, uint32_t, void *, uint32_t);
-extern IOReturn IOAVServiceWriteI2C(IOAVServiceRef, uint32_t, uint32_t, void *, uint32_t);
-extern IOAVDeviceRef IOAVDeviceCreateWithService(CFAllocatorRef, io_service_t);
-extern CFTypeID IOAVDeviceGetTypeID(void);
-extern IOReturn IOAVDeviceReadI2C(IOAVDeviceRef, uint32_t, uint32_t, void *, uint32_t);
-/* Private IODP ABI recovered from Apple's arm64e implementation and prior guarded PS190 reads. */
-extern IODPDeviceRef IODPDeviceCreateWithService(CFAllocatorRef, io_service_t);
-extern CFTypeID IODPDeviceGetTypeID(void);
-extern IOReturn IODPDeviceReadDPCD(IODPDeviceRef, uint32_t, void *, uint32_t);
+#include "private/ioav_private.h"
+#include "private/iodp_private.h"
 
 enum {
     RSS_PS190_SET_WRITE_COUNT = 2,

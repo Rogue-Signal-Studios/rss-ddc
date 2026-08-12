@@ -1,9 +1,9 @@
-#include "validation.h"
+#include "reader.h"
 #include "dpcd.h"
 
 RSSDDCError rss_ddc_run_dpcd_candidate_read(unsigned int candidate_count,
-                                            const RSSDDCDPCDValidationCallbacks *callbacks, uint32_t address,
-                                            uint8_t *bytes, size_t length) {
+                                             const RSSDDCDPCDReadCallbacks *callbacks, uint32_t address,
+                                             uint8_t *bytes, size_t length) {
     if (callbacks == NULL || callbacks->construct == NULL || callbacks->read == NULL || callbacks->release == NULL) {
         return RSS_DDC_ERROR_ARGUMENT;
     }

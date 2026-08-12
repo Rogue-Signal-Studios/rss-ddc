@@ -6,16 +6,7 @@
 
 #include "macos_internal.h"
 #include "protocol.h"
-
-/*
- * Private IOAV remains behind the macOS backend. CreateWithService returns a
- * retained CF object; this Set path releases it after the complete write-only
- * transaction, including on a failed write.
- */
-typedef CFTypeRef IOAVServiceRef;
-extern IOAVServiceRef IOAVServiceCreateWithService(CFAllocatorRef, io_service_t);
-extern CFTypeID IOAVServiceGetTypeID(void);
-extern IOReturn IOAVServiceWriteI2C(IOAVServiceRef, uint32_t, uint32_t, void *, uint32_t);
+#include "private/ioav_private.h"
 
 enum {
     RSS_DP_SET_WRITE_COUNT = 2,

@@ -39,6 +39,36 @@ static void print_display(const RSSDDCDisplay *display) {
            display->cg_display_id);
 }
 
+/*
+ * The public API reports the total online count even when its destination is
+ * undersized. A topology may change between the sizing and fill calls, so the
+ * CLI retries once with the new total and otherwise fails instead of printing
+ * an ambiguous partial list.
+ */
+static RSSDDCError list_displays_dynamic(RSSDDCDisplay **displays_out, size_t *count_out) {
+    if (displays_out == NULL || count_out == NULL) return RSS_DDC_ERROR_ARGUMENT;
+    *displays_out = NULL;
+    *count_out = 0;
+    for (unsigned int attempt = 0; attempt < 2; ++attempt) {
+        size_t required = 0;
+        RSSDDCError error = rss_ddc_list_displays(NULL, 0, &required);
+        if (error != RSS_DDC_OK || required == 0) return error;
+        if (required > SIZE_MAX / sizeof(**displays_out)) return RSS_DDC_ERROR_SYSTEM;
+        RSSDDCDisplay *displays = calloc(required, sizeof(*displays));
+        if (displays == NULL) return RSS_DDC_ERROR_SYSTEM;
+        size_t observed = required;
+        error = rss_ddc_list_displays(displays, required, &observed);
+        if (error == RSS_DDC_OK && observed <= required) {
+            *displays_out = displays;
+            *count_out = observed;
+            return RSS_DDC_OK;
+        }
+        free(displays);
+        if (error != RSS_DDC_OK) return error;
+    }
+    return RSS_DDC_ERROR_DISCOVERY;
+}
+
 /** CLI adapter for portable diagnostics; stderr preserves concise script-friendly stdout. */
 static void write_diagnostic(void *context, const char *message) {
     (void)context;
@@ -89,7 +119,7 @@ static void print_dpcd_decode(uint32_t address, const uint8_t *bytes, size_t len
            capabilities.enhanced_framing ? "yes" : "no", capabilities.downstream_port_present ? "yes" : "no");
 }
 
-/** Parses the small public CLI surface; hardware access is limited to explicit GET/SET/EDID commands. */
+/** Parses the small public CLI surface; hardware access is limited to explicit GET/SET/EDID/DPCD commands. */
 int main(int argc, char **argv) {
     bool verbose = false;
     int argument = 1;
@@ -102,14 +132,16 @@ int main(int argc, char **argv) {
         return EXIT_FAILURE;
     }
     if (strcmp(argv[argument], "list") == 0) {
-        RSSDDCDisplay displays[16] = {};
+        if (argc != argument + 1) { usage(argv[0]); return EXIT_FAILURE; }
+        RSSDDCDisplay *displays = NULL;
         size_t count = 0;
-        RSSDDCError error = rss_ddc_list_displays(displays, 16, &count);
+        RSSDDCError error = list_displays_dynamic(&displays, &count);
         if (error != RSS_DDC_OK) {
             fprintf(stderr, "rss-ddc: %s\n", rss_ddc_error_string(error));
             return EXIT_FAILURE;
         }
         for (size_t index = 0; index < count; ++index) print_display(&displays[index]);
+        free(displays);
         return EXIT_SUCCESS;
     }
     unsigned long display_index = 0;
