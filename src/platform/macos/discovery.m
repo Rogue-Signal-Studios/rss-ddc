@@ -117,6 +117,30 @@ static bool is_ps190_service_identity(io_service_t service) {
 }
 
 /**
+ * DCPDP13 is selected solely from the immediate Service EPIC provider, never
+ * from a generic DisplayPort transport-state node. PS190 HDMI also exposes a
+ * DisplayPort-shaped active transport, so that state is correlation evidence
+ * only and cannot select the conventional backend.
+ */
+static bool is_dp_service_identity(io_service_t service) {
+    io_registry_entry_t parent = MACH_PORT_NULL;
+    if (!is_external(service) || IORegistryEntryGetParentEntry(service, kIOServicePlane, &parent) != KERN_SUCCESS) {
+        return false;
+    }
+    CFTypeRef provider = IORegistryEntryCreateCFProperty(parent, CFSTR("EPICProviderClass"), kCFAllocatorDefault, 0);
+    CFTypeRef ui_supported = IORegistryEntryCreateCFProperty(service, CFSTR("IOAVServiceUserInterfaceSupported"),
+                                                              kCFAllocatorDefault, 0);
+    char provider_text[RSS_DDC_TEXT_MAX] = {};
+    bool matches = copyCFString(provider, provider_text) &&
+        strcmp(provider_text, "DCPDP13Service") == 0 && ui_supported != NULL &&
+        CFGetTypeID(ui_supported) == CFBooleanGetTypeID() && CFBooleanGetValue(ui_supported);
+    if (ui_supported != NULL) CFRelease(ui_supported);
+    if (provider != NULL) CFRelease(provider);
+    IOObjectRelease(parent);
+    return matches;
+}
+
+/**
  * Correlates a display adapter to one external DCPAVServiceProxy. Returns a
  * retained proxy; multiple matches are rejected rather than guessed.
  */
@@ -266,9 +290,10 @@ RSSDDCError rss_macos_discover_displays(RSSDDCDisplay *displays, size_t capacity
 }
 
 /**
- * Builds the private binding used by hardware operations. PS190 additionally
- * requires active-transport/branch/device/service correlation established in
- * prior lab validation; a failed predicate prevents IOAVService construction.
+ * Builds the private binding used by hardware operations. Both enabled
+ * providers require active-transport/branch/device/service correlation before
+ * a backend can construct IOAVService. The exact EPIC provider is decisive;
+ * the shared transport state is never used to choose a backend.
  */
 RSSDDCError rss_macos_resolve_binding(uint32_t list_index, RSSMacOSBinding *binding) {
     if (binding == NULL || list_index == 0) return RSS_DDC_ERROR_ARGUMENT;
@@ -288,9 +313,13 @@ RSSDDCError rss_macos_resolve_binding(uint32_t list_index, RSSMacOSBinding *bind
         return ambiguous_service ? RSS_DDC_ERROR_SAFETY_GATE : RSS_DDC_ERROR_DISCOVERY;
     }
     if (!inspect_service(binding->service_proxy, &binding->display)) return RSS_DDC_ERROR_DISCOVERY;
-    if (binding->display.provider == RSS_DDC_PROVIDER_PS190) {
-        bool branch_ok = active_branch_for_product(binding->display.product_name, binding->display.branch_device_id) &&
-            branch_has_unique_device_proxy(binding->display.branch_device_id);
+    bool branch_ok = active_branch_for_product(binding->display.product_name, binding->display.branch_device_id) &&
+        branch_has_unique_device_proxy(binding->display.branch_device_id);
+    if (binding->display.provider == RSS_DDC_PROVIDER_DCPDP13) {
+        binding->dp_safety_gate = binding->display.external && branch_ok &&
+            is_dp_service_identity(binding->service_proxy);
+        if (!binding->dp_safety_gate) return RSS_DDC_ERROR_SAFETY_GATE;
+    } else if (binding->display.provider == RSS_DDC_PROVIDER_PS190) {
         binding->ps190_safety_gate = binding->display.external && branch_ok &&
             is_ps190_service_identity(binding->service_proxy);
         if (!binding->ps190_safety_gate) return RSS_DDC_ERROR_SAFETY_GATE;

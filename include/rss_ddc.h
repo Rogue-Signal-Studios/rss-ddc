@@ -17,6 +17,18 @@ typedef enum {
     RSS_DDC_PROVIDER_PS190,
 } RSSDDCProvider;
 
+/*
+ * The protocol implementation selected for a provider identity. This remains
+ * a portable policy value; it exposes no macOS private-framework or IOKit
+ * objects to callers.
+ */
+typedef enum {
+    RSS_DDC_BACKEND_UNSUPPORTED = 0,
+    RSS_DDC_BACKEND_DCPDP13,
+    RSS_DDC_BACKEND_MCDP29XX,
+    RSS_DDC_BACKEND_PS190,
+} RSSDDCBackend;
+
 /** Independent capabilities. A provider must opt in to each one after validation. */
 typedef enum {
     RSS_DDC_CAP_NONE = 0,
@@ -90,6 +102,10 @@ typedef struct {
 /** Returns a static, human-readable name for an error or provider. */
 const char *rss_ddc_error_string(RSSDDCError error);
 const char *rss_ddc_provider_string(RSSDDCProvider provider);
+/** Returns the backend policy selected by a registry-derived provider identity. */
+RSSDDCBackend rss_ddc_provider_backend(RSSDDCProvider provider);
+/** Returns a static backend label suitable for diagnostics and tests. */
+const char *rss_ddc_backend_name(RSSDDCBackend backend);
 /** Classifies a synthetic or registry-derived provider class without macOS types. */
 RSSDDCProvider rss_ddc_provider_from_registry_class(const char *provider_class);
 /** Returns only the independently validated capabilities for a provider. */

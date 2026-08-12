@@ -7,8 +7,9 @@ BUILD = build
 .DEFAULT_GOAL := $(NAME)
 
 CORE_SOURCES = src/core/provider.c src/core/rss_ddc.c src/ddc/protocol.c src/platform/macos/providers/dispatch.c \
-	src/platform/macos/providers/dp/get_vcp.c src/platform/macos/providers/mcdp/get_vcp.c
-MACOS_SOURCES = src/platform/macos/discovery.m src/platform/macos/providers/ps190.m
+	src/platform/macos/providers/mcdp/get_vcp.c
+MACOS_SOURCES = src/platform/macos/discovery.m src/platform/macos/providers/ps190.m \
+	src/platform/macos/providers/dp/get_vcp.m
 CLI_SOURCE = cli/main.m
 TESTS = $(BUILD)/test_protocol $(BUILD)/test_provider
 

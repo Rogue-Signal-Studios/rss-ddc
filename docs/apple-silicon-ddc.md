@@ -2,7 +2,32 @@
 
 ## Evidence scope
 
-**Hardware-validated `rss-ddc` behavior** is limited to the PS190 Service-path Get VCP transactions below, manually run from iTerm2 on macOS build `25F84`, an Odyssey G75F, and provider `AppleDCPPS190`. **Static-analysis conclusions** cover the no-offset transport sentinel. Provider classification and safety correlation are implementation architecture, not portability evidence. Other provider behavior remains unimplemented or unsupported.
+**Hardware-validated `rss-ddc` behavior** is limited to the PS190 Service-path Get VCP transactions below, manually run from iTerm2 on macOS build `25F84`, an Odyssey G75F, and provider `AppleDCPPS190`. **Prior research-fork hardware evidence** supports the conventional DCPDP13 sequence described below, but it has not yet been repeated by this standalone project. **Static-analysis conclusions** cover the PS190 no-offset transport sentinel. Provider classification and safety correlation are implementation architecture, not portability evidence.
+
+## Standard DP Get VCP (`DCPDP13Service`)
+
+`DCPDP13Service` is a distinct provider backend. Earlier hardware work on an
+Odyssey connected through USB-C to DisplayPort used the conventional
+Service-level IOAV form:
+
+```text
+write chip=0x37, data=0x51, payload=82 01 <VCP> <checksum>
+delay 50 ms
+read  chip=0x37, data=0x51, length=11
+```
+
+For that representation, `0x51` is the IOAV data/subaddress argument and is
+not included in the four-byte payload. The request checksum remains seeded by
+the DDC destination address `0x6e`: VCP `0x10` uses `82 01 10 fd`; VCP `0x60`
+uses `82 01 60 8d`.
+
+`rss-ddc` enables this backend only after correlating the selected external
+display to an actual `DCPDP13Service` Service proxy, the active branch, and a
+unique external `DCPDPDeviceProxy`. A generic
+`IOPortTransportStateDisplayPort` observation cannot select this backend:
+PS190 HDMI has presented the same transport-state class. The standalone
+backend is pending its first hardware validation, so these details are an
+implementation based on prior evidence, not a portability claim.
 
 ## PS190 Get VCP
 
@@ -25,4 +50,4 @@ For both rows, `rss-ddc` selected the `AppleDCPPS190` backend; the raw write and
 
 The parser validates source, framing, response length, command, status, requested VCP, decoded maximum/current values, and checksum. BetterDisplay independently reported the same current values; it was used only as a behavior oracle.
 
-No out-of-bounds or canary corruption was observed in the predecessor research lab's guarded request/reply buffers. This does not establish behavior on different providers, monitors, cables/adapters, firmware revisions, or macOS releases. Standard DP GET, MCDP GET, Set VCP, EDID/DPCD operations, and broader provider/hardware coverage remain unsupported or unvalidated.
+No out-of-bounds or canary corruption was observed in the predecessor research lab's guarded request/reply buffers. This does not establish behavior on different providers, monitors, cables/adapters, firmware revisions, or macOS releases. DCPDP13 standalone validation, MCDP GET, Set VCP, EDID/DPCD operations, and broader provider/hardware coverage remain unsupported or unvalidated.

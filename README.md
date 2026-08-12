@@ -4,11 +4,11 @@
 
 ## Status
 
-This first milestone provides real macOS display/provider discovery, a strict DDC/CI Get VCP parser, and a hardware-validated PS190 Service-path GET implementation. It is intentionally conservative: unsupported providers and capabilities return explicit errors rather than falling back to a guessed transport.
+This milestone provides real macOS display/provider discovery, strict DDC/CI Get VCP parsing, and provider-specific Service-path GET implementations. The PS190 path is hardware-validated in `rss-ddc`; the DCPDP13 path is based on prior research-fork hardware evidence and remains pending validation in this standalone project. Unsupported providers and capabilities return explicit errors rather than falling back to a guessed transport.
 
 The project uses Apple-private macOS interfaces inside the macOS backend only. Behavior can vary by macOS release, display provider, cable/adapter topology, and monitor firmware.
 
-Validated `rss-ddc` hardware/OS scope is limited to macOS build `25F84`, an `AppleDCPPS190` path, and an Odyssey G75F. Get VCP `0x10` and `0x60` were validated end-to-end with the CLI; no portability beyond that setup is implied.
+Validated `rss-ddc` hardware/OS scope is limited to macOS build `25F84`, an `AppleDCPPS190` path, and an Odyssey G75F. Get VCP `0x10` and `0x60` were validated end-to-end with the CLI; no portability beyond that setup is implied. DCPDP13 hardware validation was previously established only in the research fork and must be repeated with `rss-ddc` before it is treated as a validated standalone backend.
 
 ## CLI
 
@@ -29,10 +29,15 @@ Successful non-verbose `get` prints only the current value. `--verbose` writes t
 
 | Provider | Backend status | Capabilities |
 | --- | --- | --- |
-| `DCPDP13Service` | classified; GET not yet enabled | none |
+| `DCPDP13Service` | conventional Service-path GET implemented; standalone hardware validation pending | Get VCP |
 | `AppleDCPMCDP29XX` | classified; GET not yet enabled | none |
 | `AppleDCPPS190` | Service-path GET hardware-validated on the documented 25F84 setup | Get VCP |
 | unknown | safe unsupported result | none |
+
+`DCPDP13Service` and `AppleDCPPS190` deliberately use different request
+framing. The provider comes from the selected Service proxy's immediate EPIC
+parent; a generic `IOPortTransportStateDisplayPort` node does not choose a
+backend because the PS190 HDMI topology can also expose that class.
 
 Read [the architecture](docs/architecture.md) and [Apple Silicon transport notes](docs/apple-silicon-ddc.md) before enabling another provider capability.
 

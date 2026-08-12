@@ -43,6 +43,34 @@ RSSDDCProvider rss_ddc_provider_from_registry_class(const char *provider_class) 
     return RSS_DDC_PROVIDER_UNKNOWN;
 }
 
+RSSDDCBackend rss_ddc_provider_backend(RSSDDCProvider provider) {
+    switch (provider) {
+        case RSS_DDC_PROVIDER_DCPDP13: return RSS_DDC_BACKEND_DCPDP13;
+        case RSS_DDC_PROVIDER_MCDP29XX: return RSS_DDC_BACKEND_MCDP29XX;
+        case RSS_DDC_PROVIDER_PS190: return RSS_DDC_BACKEND_PS190;
+        case RSS_DDC_PROVIDER_UNKNOWN: return RSS_DDC_BACKEND_UNSUPPORTED;
+    }
+    return RSS_DDC_BACKEND_UNSUPPORTED;
+}
+
+const char *rss_ddc_backend_name(RSSDDCBackend backend) {
+    switch (backend) {
+        case RSS_DDC_BACKEND_DCPDP13: return "DCPDP13Service";
+        case RSS_DDC_BACKEND_MCDP29XX: return "AppleDCPMCDP29XX";
+        case RSS_DDC_BACKEND_PS190: return "AppleDCPPS190";
+        case RSS_DDC_BACKEND_UNSUPPORTED: return "unsupported";
+    }
+    return "unsupported";
+}
+
 uint32_t rss_ddc_provider_capabilities(RSSDDCProvider provider) {
-    return provider == RSS_DDC_PROVIDER_PS190 ? RSS_DDC_CAP_GET_VCP : RSS_DDC_CAP_NONE;
+    switch (provider) {
+        case RSS_DDC_PROVIDER_DCPDP13:
+        case RSS_DDC_PROVIDER_PS190:
+            return RSS_DDC_CAP_GET_VCP;
+        case RSS_DDC_PROVIDER_UNKNOWN:
+        case RSS_DDC_PROVIDER_MCDP29XX:
+            return RSS_DDC_CAP_NONE;
+    }
+    return RSS_DDC_CAP_NONE;
 }

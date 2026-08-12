@@ -16,6 +16,7 @@
 typedef struct {
     RSSDDCDisplay display;
     io_service_t service_proxy;
+    bool dp_safety_gate;
     bool ps190_safety_gate;
 } RSSMacOSBinding;
 

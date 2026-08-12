@@ -11,10 +11,19 @@ enum {
     RSS_DDC_REPLY_COMMAND = 0x02,
 };
 
-uint8_t rss_ddc_raw_request_checksum(const uint8_t *bytes, size_t byte_count) {
+uint8_t rss_ddc_request_checksum(const uint8_t *bytes, size_t byte_count) {
     uint8_t checksum = RSS_DDC_DESTINATION_ADDRESS;
     for (size_t index = 0; index < byte_count; ++index) checksum ^= bytes[index];
     return checksum;
+}
+
+void rss_ddc_build_conventional_get_vcp(
+    uint8_t vcp_code, uint8_t request[RSS_DDC_CONVENTIONAL_GET_VCP_REQUEST_SIZE]) {
+    request[0] = RSS_DDC_GET_LENGTH;
+    request[1] = RSS_DDC_GET_COMMAND;
+    request[2] = vcp_code;
+    /* The 0x51 source address is passed as IOAV's subaddress, not in this payload. */
+    request[3] = rss_ddc_request_checksum(request, 3);
 }
 
 void rss_ddc_build_raw_get_vcp(uint8_t vcp_code, uint8_t request[RSS_DDC_GET_VCP_REQUEST_SIZE]) {
@@ -23,7 +32,7 @@ void rss_ddc_build_raw_get_vcp(uint8_t vcp_code, uint8_t request[RSS_DDC_GET_VCP
     request[1] = RSS_DDC_GET_LENGTH;
     request[2] = RSS_DDC_GET_COMMAND;
     request[3] = vcp_code;
-    request[4] = rss_ddc_raw_request_checksum(request, RSS_DDC_GET_VCP_REQUEST_SIZE - 1);
+    request[4] = rss_ddc_request_checksum(request, RSS_DDC_GET_VCP_REQUEST_SIZE - 1);
 }
 
 RSSDDCError rss_ddc_parse_get_vcp_reply(const uint8_t *reply, size_t byte_count,

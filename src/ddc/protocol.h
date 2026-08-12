@@ -7,15 +7,19 @@
 #include "rss_ddc.h"
 
 enum {
+    RSS_DDC_CONVENTIONAL_GET_VCP_REQUEST_SIZE = 4,
     RSS_DDC_GET_VCP_REQUEST_SIZE = 5,
     RSS_DDC_GET_VCP_REPLY_SIZE = 11,
 };
 
 /**
- * XORs the DDC destination seed (0x6e) with raw request bytes. The caller
- * supplies bytes before the checksum, including inline source address 0x51.
+ * XORs the DDC destination seed (0x6e) with a provider-specific request
+ * representation. PS190 includes inline 0x51; conventional DP does not.
  */
-uint8_t rss_ddc_raw_request_checksum(const uint8_t *bytes, size_t byte_count);
+uint8_t rss_ddc_request_checksum(const uint8_t *bytes, size_t byte_count);
+/** Builds a four-byte DCPDP13 payload; the IOAV data argument carries 0x51 separately. */
+void rss_ddc_build_conventional_get_vcp(
+    uint8_t vcp_code, uint8_t request[RSS_DDC_CONVENTIONAL_GET_VCP_REQUEST_SIZE]);
 /** Builds the complete five-byte raw-framed Get VCP request for the PS190 transport. */
 void rss_ddc_build_raw_get_vcp(uint8_t vcp_code, uint8_t request[RSS_DDC_GET_VCP_REQUEST_SIZE]);
 /**

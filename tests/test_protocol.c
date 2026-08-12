@@ -5,6 +5,15 @@
 #include "protocol.h"
 
 int main(void) {
+    /* Conventional DCPDP13 payloads omit 0x51 because IOAV carries it separately. */
+    const uint8_t expected_conventional_10[] = {0x82, 0x01, 0x10, 0xfd};
+    const uint8_t expected_conventional_60[] = {0x82, 0x01, 0x60, 0x8d};
+    uint8_t conventional[RSS_DDC_CONVENTIONAL_GET_VCP_REQUEST_SIZE] = {};
+    rss_ddc_build_conventional_get_vcp(0x10, conventional);
+    assert(memcmp(conventional, expected_conventional_10, sizeof(conventional)) == 0);
+    rss_ddc_build_conventional_get_vcp(0x60, conventional);
+    assert(memcmp(conventional, expected_conventional_60, sizeof(conventional)) == 0);
+
     /* Hardware-validated PS190 request/reply fixtures; this test is fully synthetic. */
     const uint8_t expected_10[] = {0x51, 0x82, 0x01, 0x10, 0xac};
     const uint8_t expected_60[] = {0x51, 0x82, 0x01, 0x60, 0xdc};
@@ -13,6 +22,8 @@ int main(void) {
     assert(memcmp(request, expected_10, sizeof(request)) == 0);
     rss_ddc_build_raw_get_vcp(0x60, request);
     assert(memcmp(request, expected_60, sizeof(request)) == 0);
+    assert(rss_ddc_request_checksum(expected_10, sizeof(expected_10) - 1) == expected_10[4]);
+    assert(rss_ddc_request_checksum(expected_60, sizeof(expected_60) - 1) == expected_60[4]);
 
     const uint8_t reply_10[] = {0x6e, 0x88, 0x02, 0x00, 0x10, 0x00, 0x00, 0x32, 0x00, 0x32, 0xa4};
     const uint8_t reply_60[] = {0x6e, 0x88, 0x02, 0x00, 0x60, 0x00, 0x00, 0x12, 0x00, 0x12, 0xd4};
