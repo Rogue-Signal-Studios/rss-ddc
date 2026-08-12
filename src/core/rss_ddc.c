@@ -15,10 +15,16 @@ RSSDDCError rss_ddc_list_displays(RSSDDCDisplay *displays, size_t capacity, size
 
 /** Resolves and then releases the private binding; callers receive only its public snapshot. */
 RSSDDCError rss_ddc_get_display(uint32_t list_index, RSSDDCDisplay *display) {
+    return rss_ddc_get_display_with_diagnostics(list_index, display, NULL);
+}
+
+RSSDDCError rss_ddc_get_display_with_diagnostics(uint32_t list_index, RSSDDCDisplay *display,
+                                                  const RSSDDCDiagnostics *diagnostics) {
     if (display == NULL) return RSS_DDC_ERROR_ARGUMENT;
     RSSMacOSBinding binding = {0};
     RSSDDCError error = rss_macos_resolve_binding(list_index, &binding);
     if (error == RSS_DDC_OK) *display = binding.display;
+    else rss_macos_diagnostic(diagnostics, rss_macos_correlation_failure_string(binding.correlation_failure));
     rss_macos_release_binding(&binding);
     return error;
 }
@@ -46,7 +52,7 @@ RSSDDCError rss_ddc_get_vcp_with_diagnostics(uint32_t list_index, uint8_t vcp_co
         rss_macos_diagnostic(diagnostics, message);
         error = rss_macos_provider_get_vcp(&binding, vcp_code, result, diagnostics);
     } else {
-        rss_macos_diagnostic(diagnostics, rss_ddc_error_string(error));
+        rss_macos_diagnostic(diagnostics, rss_macos_correlation_failure_string(binding.correlation_failure));
     }
     rss_macos_release_binding(&binding);
     return error;
@@ -75,7 +81,7 @@ RSSDDCError rss_ddc_set_vcp_with_diagnostics(uint32_t list_index, uint8_t vcp_co
         rss_macos_diagnostic(diagnostics, message);
         error = rss_macos_provider_set_vcp(&binding, vcp_code, value, diagnostics);
     } else {
-        rss_macos_diagnostic(diagnostics, rss_ddc_error_string(error));
+        rss_macos_diagnostic(diagnostics, rss_macos_correlation_failure_string(binding.correlation_failure));
     }
     rss_macos_release_binding(&binding);
     return error;

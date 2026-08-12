@@ -8,7 +8,7 @@
 #include "rss_ddc.h"
 
 static void usage(const char *program) {
-    fprintf(stderr, "Usage:\n  %s list\n  %s info <display-index>\n  %s [--verbose] get <display-index> <vcp>\n  %s [--verbose] set <display-index> <vcp> <value>\n",
+    fprintf(stderr, "Usage:\n  %s list\n  %s [--verbose] info <display-index>\n  %s [--verbose] get <display-index> <vcp>\n  %s [--verbose] set <display-index> <vcp> <value>\n",
             program, program, program, program);
 }
 
@@ -63,7 +63,9 @@ int main(int argc, char **argv) {
     }
     if (strcmp(argv[argument], "info") == 0) {
         RSSDDCDisplay display = {};
-        RSSDDCError error = rss_ddc_get_display((uint32_t)display_index, &display);
+        RSSDDCDiagnostics diagnostics = {.callback = write_diagnostic, .context = NULL};
+        RSSDDCError error = rss_ddc_get_display_with_diagnostics((uint32_t)display_index, &display,
+                                                                  verbose ? &diagnostics : NULL);
         if (error != RSS_DDC_OK) {
             fprintf(stderr, "rss-ddc: %s\n", rss_ddc_error_string(error));
             return EXIT_FAILURE;

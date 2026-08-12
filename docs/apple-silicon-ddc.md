@@ -22,12 +22,29 @@ the DDC destination address `0x6e`: VCP `0x10` uses `82 01 10 fd`; VCP `0x60`
 uses `82 01 60 8d`.
 
 `rss-ddc` enables this backend only after correlating the selected external
-display to an actual `DCPDP13Service` Service proxy, the active branch, and a
-unique external `DCPDPDeviceProxy`. A generic
-`IOPortTransportStateDisplayPort` observation cannot select this backend:
-PS190 HDMI has presented the same transport-state class. The standalone
-backend is pending its first hardware validation, so these details are an
-implementation based on prior evidence, not a portability claim.
+display to exactly one external `DCPAVServiceProxy`, then verifies that that
+proxy's immediate EPIC parent has `EPICProviderClass = DCPDP13Service` and
+that `IOAVServiceUserInterfaceSupported` is true. `DCPAVServiceProxy` is the
+registry object used to construct the private Service interface; a
+`DCPDPDeviceProxy` is not substituted for it.
+
+This distinction matters because the PS190 resolver's active-branch
+`BranchDeviceID` → unique `DCPDPDeviceProxy` relationship is a separately
+observed PS190 safety rule, not a standard-DP requirement. A live read-only
+inspection on macOS `25F84` after moving the Odyssey G75F to USB-C → DP found
+one active `IOPortTransportStateDisplayPort` for the monitor
+(`Port-USB-C@2/DisplayPort`) but no `BranchDeviceID`. Requiring that PS190
+field caused the first standalone DP attempt to fail closed before any IOAV
+operation. The corrected DP gate does not use the field.
+
+Earlier research also observed a `DCPDPServiceProxy` under a sibling EPIC
+interface to the display-correlated AV service. That is useful topology
+evidence, but the research did not establish it as a prerequisite for
+constructing `IOAVService`; rss-ddc therefore does not turn it into a new
+untested requirement. A generic `IOPortTransportStateDisplayPort` observation
+still cannot select this backend: PS190 HDMI has presented the same
+transport-state class. The standalone backend remains pending its first
+hardware validation, so none of these details is a portability claim.
 
 ## PS190 Get VCP
 

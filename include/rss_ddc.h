@@ -118,6 +118,13 @@ uint32_t rss_ddc_provider_capabilities(RSSDDCProvider provider);
 RSSDDCError rss_ddc_list_displays(RSSDDCDisplay *displays, size_t capacity, size_t *count);
 /** Resolves one current list index and returns its safe public display snapshot. */
 RSSDDCError rss_ddc_get_display(uint32_t list_index, RSSDDCDisplay *display);
+/**
+ * Resolves one current list index with optional correlation diagnostics. The
+ * callback follows the same transient ownership and re-entrancy rules as the
+ * Get/Set diagnostic APIs; it never opens an IOAV user client.
+ */
+RSSDDCError rss_ddc_get_display_with_diagnostics(uint32_t list_index, RSSDDCDisplay *display,
+                                                  const RSSDDCDiagnostics *diagnostics);
 /** Performs Get VCP with no diagnostics; equivalent to the diagnostic form with NULL options. */
 RSSDDCError rss_ddc_get_vcp(uint32_t list_index, uint8_t vcp_code, RSSDDCVCPResult *result);
 /**

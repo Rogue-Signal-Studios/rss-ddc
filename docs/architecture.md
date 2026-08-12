@@ -25,6 +25,22 @@ present that same state.
 
 For PS190, the binding resolver requires an external display, a correlated active DisplayPort transport, a `BranchDeviceID` with exactly one external `DCPDPDeviceProxy`, and an external Unit-0 `DCPAVServiceProxy`. Its immediate parent must identify `dcpav-service-epic`, `DCPEXT0`, and `AppleDCPPS190`; `IOAVServiceUserInterfaceSupported` must be true. Only then does the backend construct the private Service interface. Registry IDs are transient evidence, not persistent identifiers.
 
+For conventional DP, the resolver deliberately uses a different, smaller
+gate: the selected display must map to exactly one external
+`DCPAVServiceProxy`; that service's immediate EPIC parent must identify
+`DCPDP13Service`; and `IOAVServiceUserInterfaceSupported` must be true. This
+is enough to identify the exact Service object that the backend constructs,
+while rejecting missing, ambiguous, non-external, provider-mismatched, or
+UI-disabled candidates. It does not require PS190's `BranchDeviceID` or
+`DCPDPDeviceProxy`: the live USB-C DP topology on the documented machine has
+no `BranchDeviceID`. Neither gate selects a provider from a generic
+DisplayPort-named registry node.
+
+Correlation failures retain an internal predicate and can be surfaced by the
+diagnostic public API or `rss-ddc --verbose info`. This gives operators a
+specific fail-closed reason without exposing transient IOKit handles or
+opening a user client.
+
 The PS190 backend contains two intentionally separate transaction shapes. GET
 uses the hardware-validated raw framing and `UINT32_MAX` no-offset sentinel.
 SET preserves the hardware-validated conventional `data=0x51` write,

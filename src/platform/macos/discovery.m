@@ -5,10 +5,34 @@
 #include <stdio.h>
 #include <string.h>
 
+#include "correlation.h"
 #include "macos_internal.h"
 
 /* Private CoreDisplay entry point reconstructed from Apple runtime research. Returned dictionary follows Create ownership. */
 extern CFDictionaryRef CoreDisplay_DisplayCreateInfoDictionary(CGDirectDisplayID display);
+
+const char *rss_macos_correlation_failure_string(RSSMacOSCorrelationFailure failure) {
+    switch (failure) {
+        case RSS_MACOS_CORRELATION_NONE: return "provider correlation failed without a recorded predicate";
+        case RSS_MACOS_CORRELATION_NO_SELECTED_DISPLAY: return "correlation: selected CoreGraphics display was not found";
+        case RSS_MACOS_CORRELATION_NO_DISPLAY_REGISTRY_NODE: return "correlation: selected display has no matching registry node";
+        case RSS_MACOS_CORRELATION_NO_SERVICE_PROXY: return "correlation: zero external DCPAVServiceProxy candidates";
+        case RSS_MACOS_CORRELATION_AMBIGUOUS_SERVICE_PROXY: return "correlation: multiple external DCPAVServiceProxy candidates";
+        case RSS_MACOS_CORRELATION_MISSING_SERVICE_PROVIDER: return "correlation: service EPICProviderClass is missing";
+        case RSS_MACOS_CORRELATION_NOT_EXTERNAL: return "correlation: selected service is not external";
+        case RSS_MACOS_CORRELATION_NO_ACTIVE_BRANCH: return "correlation: no active DisplayPort branch matches the selected product";
+        case RSS_MACOS_CORRELATION_MISSING_BRANCH_DEVICE_ID: return "correlation: matching active branch has no BranchDeviceID";
+        case RSS_MACOS_CORRELATION_AMBIGUOUS_ACTIVE_BRANCH: return "correlation: multiple active branches match the selected product";
+        case RSS_MACOS_CORRELATION_NO_DCPDP_DEVICE_PROXY: return "correlation: zero external DCPDPDeviceProxy candidates for BranchDeviceID";
+        case RSS_MACOS_CORRELATION_AMBIGUOUS_DCPDP_DEVICE_PROXY: return "correlation: multiple external DCPDPDeviceProxy candidates for BranchDeviceID";
+        case RSS_MACOS_CORRELATION_UNEXPECTED_EPIC_PARENT: return "correlation: unexpected Service EPIC parent";
+        case RSS_MACOS_CORRELATION_PROVIDER_MISMATCH: return "correlation: Service EPICProviderClass does not match the selected backend";
+        case RSS_MACOS_CORRELATION_ROLE_MISMATCH: return "correlation: Service EPIC role does not match the selected backend";
+        case RSS_MACOS_CORRELATION_UNIT_MISMATCH: return "correlation: Service Unit does not match the selected backend";
+        case RSS_MACOS_CORRELATION_UI_UNSUPPORTED: return "correlation: IOAVServiceUserInterfaceSupported is not true";
+    }
+    return "provider correlation failed with an unrecognized predicate";
+}
 
 /** Copies only string-valued registry fields into the fixed-size public snapshot. */
 static bool copyCFString(CFTypeRef value, char destination[RSS_DDC_TEXT_MAX]) {
@@ -85,9 +109,14 @@ static bool inspect_service(io_service_t service, RSSDDCDisplay *display) {
  * client can be created. Each predicate distinguishes Endpoint11 Service
  * state from unrelated external device/service proxies.
  */
-static bool is_ps190_service_identity(io_service_t service) {
+static bool is_ps190_service_identity(io_service_t service, RSSMacOSCorrelationFailure *failure) {
     io_registry_entry_t parent = MACH_PORT_NULL;
-    if (!is_external(service) || IORegistryEntryGetParentEntry(service, kIOServicePlane, &parent) != KERN_SUCCESS) {
+    if (!is_external(service)) {
+        *failure = RSS_MACOS_CORRELATION_NOT_EXTERNAL;
+        return false;
+    }
+    if (IORegistryEntryGetParentEntry(service, kIOServicePlane, &parent) != KERN_SUCCESS) {
+        *failure = RSS_MACOS_CORRELATION_UNEXPECTED_EPIC_PARENT;
         return false;
     }
     CFTypeRef epic_name = IORegistryEntryCreateCFProperty(parent, CFSTR("EPICName"), kCFAllocatorDefault, 0);
@@ -100,13 +129,25 @@ static bool is_ps190_service_identity(io_service_t service) {
     char role_text[RSS_DDC_TEXT_MAX] = {};
     char provider_text[RSS_DDC_TEXT_MAX] = {};
     int64_t unit_value = -1;
-    bool matches = copyCFString(epic_name, epic_name_text) &&
-        copyCFString(role, role_text) && copyCFString(provider, provider_text) &&
-        unit != NULL && CFGetTypeID(unit) == CFNumberGetTypeID() &&
-        CFNumberGetValue(unit, kCFNumberSInt64Type, &unit_value) &&
-        ui_supported != NULL && CFGetTypeID(ui_supported) == CFBooleanGetTypeID() && CFBooleanGetValue(ui_supported) &&
+    bool matches = copyCFString(epic_name, epic_name_text) && copyCFString(role, role_text) &&
+        copyCFString(provider, provider_text) && unit != NULL && CFGetTypeID(unit) == CFNumberGetTypeID() &&
+        CFNumberGetValue(unit, kCFNumberSInt64Type, &unit_value) && ui_supported != NULL &&
+        CFGetTypeID(ui_supported) == CFBooleanGetTypeID() && CFBooleanGetValue(ui_supported) &&
         strcmp(epic_name_text, "dcpav-service-epic") == 0 && strcmp(role_text, "DCPEXT0") == 0 &&
         strcmp(provider_text, "AppleDCPPS190") == 0 && unit_value == 0;
+    if (!matches) {
+        if (ui_supported == NULL || CFGetTypeID(ui_supported) != CFBooleanGetTypeID() || !CFBooleanGetValue(ui_supported)) {
+            *failure = RSS_MACOS_CORRELATION_UI_UNSUPPORTED;
+        } else if (unit_value != 0) {
+            *failure = RSS_MACOS_CORRELATION_UNIT_MISMATCH;
+        } else if (strcmp(provider_text, "AppleDCPPS190") != 0) {
+            *failure = RSS_MACOS_CORRELATION_PROVIDER_MISMATCH;
+        } else if (strcmp(role_text, "DCPEXT0") != 0) {
+            *failure = RSS_MACOS_CORRELATION_ROLE_MISMATCH;
+        } else {
+            *failure = RSS_MACOS_CORRELATION_UNEXPECTED_EPIC_PARENT;
+        }
+    }
     if (ui_supported != NULL) CFRelease(ui_supported);
     if (unit != NULL) CFRelease(unit);
     if (provider != NULL) CFRelease(provider);
@@ -117,41 +158,63 @@ static bool is_ps190_service_identity(io_service_t service) {
 }
 
 /**
- * DCPDP13 is selected solely from the immediate Service EPIC provider, never
- * from a generic DisplayPort transport-state node. PS190 HDMI also exposes a
- * DisplayPort-shaped active transport, so that state is correlation evidence
- * only and cannot select the conventional backend.
+ * DCPDP13 is selected solely from the immediate DCPAV Service EPIC provider,
+ * never from a generic DisplayPort transport-state node. The service proxy is
+ * already correlated to CoreGraphics' selected display; PS190 can expose a
+ * DisplayPort-shaped transport, so connector/transport state cannot select
+ * the conventional backend.
  */
-static bool is_dp_service_identity(io_service_t service) {
+static bool is_dp_service_identity(io_service_t service, RSSMacOSCorrelationFailure *failure) {
     io_registry_entry_t parent = MACH_PORT_NULL;
-    if (!is_external(service) || IORegistryEntryGetParentEntry(service, kIOServicePlane, &parent) != KERN_SUCCESS) {
-        return false;
+    RSSDDCDPCorrelationFacts facts = {.service_candidate_count = 1, .service_external = is_external(service)};
+    if (IORegistryEntryGetParentEntry(service, kIOServicePlane, &parent) == KERN_SUCCESS) {
+        facts.epic_parent_present = true;
     }
-    CFTypeRef provider = IORegistryEntryCreateCFProperty(parent, CFSTR("EPICProviderClass"), kCFAllocatorDefault, 0);
+    CFTypeRef provider = parent == MACH_PORT_NULL ? NULL :
+        IORegistryEntryCreateCFProperty(parent, CFSTR("EPICProviderClass"), kCFAllocatorDefault, 0);
     CFTypeRef ui_supported = IORegistryEntryCreateCFProperty(service, CFSTR("IOAVServiceUserInterfaceSupported"),
                                                               kCFAllocatorDefault, 0);
     char provider_text[RSS_DDC_TEXT_MAX] = {};
-    bool matches = copyCFString(provider, provider_text) &&
-        strcmp(provider_text, "DCPDP13Service") == 0 && ui_supported != NULL &&
-        CFGetTypeID(ui_supported) == CFBooleanGetTypeID() && CFBooleanGetValue(ui_supported);
+    if (copyCFString(provider, provider_text)) facts.epic_provider = rss_ddc_provider_from_registry_class(provider_text);
+    facts.ui_supported = ui_supported != NULL && CFGetTypeID(ui_supported) == CFBooleanGetTypeID() &&
+        CFBooleanGetValue(ui_supported);
+    RSSDDCDPCorrelationResult result = rss_ddc_evaluate_dp_correlation(&facts);
+    switch (result) {
+        case RSS_DDC_DP_CORRELATION_OK: break;
+        case RSS_DDC_DP_CORRELATION_NO_SERVICE: *failure = RSS_MACOS_CORRELATION_NO_SERVICE_PROXY; break;
+        case RSS_DDC_DP_CORRELATION_AMBIGUOUS_SERVICE: *failure = RSS_MACOS_CORRELATION_AMBIGUOUS_SERVICE_PROXY; break;
+        case RSS_DDC_DP_CORRELATION_NOT_EXTERNAL: *failure = RSS_MACOS_CORRELATION_NOT_EXTERNAL; break;
+        case RSS_DDC_DP_CORRELATION_NO_EPIC_PARENT: *failure = RSS_MACOS_CORRELATION_UNEXPECTED_EPIC_PARENT; break;
+        case RSS_DDC_DP_CORRELATION_PROVIDER_MISMATCH:
+            *failure = provider == NULL ? RSS_MACOS_CORRELATION_MISSING_SERVICE_PROVIDER :
+                RSS_MACOS_CORRELATION_PROVIDER_MISMATCH;
+            break;
+        case RSS_DDC_DP_CORRELATION_UI_UNSUPPORTED: *failure = RSS_MACOS_CORRELATION_UI_UNSUPPORTED; break;
+    }
     if (ui_supported != NULL) CFRelease(ui_supported);
     if (provider != NULL) CFRelease(provider);
-    IOObjectRelease(parent);
-    return matches;
+    if (parent != MACH_PORT_NULL) IOObjectRelease(parent);
+    return result == RSS_DDC_DP_CORRELATION_OK;
 }
 
 /**
  * Correlates a display adapter to one external DCPAVServiceProxy. Returns a
  * retained proxy; multiple matches are rejected rather than guessed.
  */
-static io_service_t service_for_display(CGDirectDisplayID display_id, bool *ambiguous) {
-    if (ambiguous != NULL) *ambiguous = false;
+static io_service_t service_for_display(CGDirectDisplayID display_id, RSSMacOSCorrelationFailure *failure) {
+    if (failure != NULL) *failure = RSS_MACOS_CORRELATION_NO_SERVICE_PROXY;
     io_service_t adapter = adapter_for_display(display_id);
-    if (adapter == MACH_PORT_NULL) return MACH_PORT_NULL;
+    if (adapter == MACH_PORT_NULL) {
+        if (failure != NULL) *failure = RSS_MACOS_CORRELATION_NO_DISPLAY_REGISTRY_NODE;
+        return MACH_PORT_NULL;
+    }
     uint64_t adapter_id = 0;
     bool adapter_ok = IORegistryEntryGetRegistryEntryID(adapter, &adapter_id) == KERN_SUCCESS;
     IOObjectRelease(adapter);
-    if (!adapter_ok) return MACH_PORT_NULL;
+    if (!adapter_ok) {
+        if (failure != NULL) *failure = RSS_MACOS_CORRELATION_NO_DISPLAY_REGISTRY_NODE;
+        return MACH_PORT_NULL;
+    }
     io_registry_entry_t root = IORegistryGetRootEntry(kIOMainPortDefault);
     io_iterator_t iterator = MACH_PORT_NULL;
     if (root == MACH_PORT_NULL || IORegistryEntryCreateIterator(root, kIOServicePlane,
@@ -178,7 +241,7 @@ static io_service_t service_for_display(CGDirectDisplayID display_id, bool *ambi
                 IOObjectRelease(entry);
                 IOObjectRelease(match);
                 IOObjectRelease(iterator);
-                if (ambiguous != NULL) *ambiguous = true;
+                if (failure != NULL) *failure = RSS_MACOS_CORRELATION_AMBIGUOUS_SERVICE_PROXY;
                 return MACH_PORT_NULL;
             }
             match = entry;
@@ -187,6 +250,9 @@ static io_service_t service_for_display(CGDirectDisplayID display_id, bool *ambi
         IOObjectRelease(entry);
     }
     IOObjectRelease(iterator);
+    if (match == MACH_PORT_NULL && !frame_buffer_seen && failure != NULL) {
+        *failure = RSS_MACOS_CORRELATION_NO_DISPLAY_REGISTRY_NODE;
+    }
     return match;
 }
 
@@ -194,7 +260,9 @@ static io_service_t service_for_display(CGDirectDisplayID display_id, bool *ambi
  * Finds the single active DisplayPort transport for the selected product and
  * copies its BranchDeviceID. Ambiguity is a safety failure, not a tie-break.
  */
-static bool active_branch_for_product(const char *product_name, char branch[RSS_DDC_TEXT_MAX]) {
+static bool active_branch_for_product(const char *product_name, char branch[RSS_DDC_TEXT_MAX],
+                                      RSSMacOSCorrelationFailure *failure) {
+    *failure = RSS_MACOS_CORRELATION_NO_ACTIVE_BRANCH;
     io_registry_entry_t root = IORegistryGetRootEntry(kIOMainPortDefault);
     io_iterator_t iterator = MACH_PORT_NULL;
     if (root == MACH_PORT_NULL || IORegistryEntryCreateIterator(root, kIOServicePlane,
@@ -217,15 +285,18 @@ static bool active_branch_for_product(const char *product_name, char branch[RSS_
         CFTypeRef branch_value = IORegistryEntryCreateCFProperty(entry, CFSTR("BranchDeviceID"), kCFAllocatorDefault, 0);
         char product_text[RSS_DDC_TEXT_MAX] = {};
         bool active_true = active != NULL && CFGetTypeID(active) == CFBooleanGetTypeID() && CFBooleanGetValue(active);
-        bool matches = active_true && copyCFString(product, product_text) && strcmp(product_text, product_name) == 0 &&
-            copyCFString(branch_value, branch);
+        bool selected_transport = active_true && copyCFString(product, product_text) &&
+            strcmp(product_text, product_name) == 0;
+        bool matches = selected_transport && copyCFString(branch_value, branch);
         if (branch_value != NULL) CFRelease(branch_value);
         if (product != NULL) CFRelease(product);
         if (active != NULL) CFRelease(active);
         IOObjectRelease(entry);
+        if (selected_transport && !matches) *failure = RSS_MACOS_CORRELATION_MISSING_BRANCH_DEVICE_ID;
         if (matches && !found) found = true;
         else if (matches) {
             IOObjectRelease(iterator);
+            *failure = RSS_MACOS_CORRELATION_AMBIGUOUS_ACTIVE_BRANCH;
             return false;
         }
     }
@@ -234,7 +305,7 @@ static bool active_branch_for_product(const char *product_name, char branch[RSS_
 }
 
 /** Confirms the active branch maps to exactly one external DCPDP device proxy. */
-static bool branch_has_unique_device_proxy(const char *branch) {
+static bool branch_has_unique_device_proxy(const char *branch, RSSMacOSCorrelationFailure *failure) {
     io_registry_entry_t root = IORegistryGetRootEntry(kIOMainPortDefault);
     io_iterator_t iterator = MACH_PORT_NULL;
     if (root == MACH_PORT_NULL || IORegistryEntryCreateIterator(root, kIOServicePlane,
@@ -257,6 +328,8 @@ static bool branch_has_unique_device_proxy(const char *branch) {
         IOObjectRelease(entry);
     }
     IOObjectRelease(iterator);
+    if (count == 0) *failure = RSS_MACOS_CORRELATION_NO_DCPDP_DEVICE_PROXY;
+    else if (count > 1) *failure = RSS_MACOS_CORRELATION_AMBIGUOUS_DCPDP_DEVICE_PROXY;
     return count == 1;
 }
 
@@ -290,39 +363,55 @@ RSSDDCError rss_macos_discover_displays(RSSDDCDisplay *displays, size_t capacity
 }
 
 /**
- * Builds the private binding used by hardware operations. Both enabled
- * providers require active-transport/branch/device/service correlation before
- * a backend can construct IOAVService. The exact EPIC provider is decisive;
- * the shared transport state is never used to choose a backend.
+ * Builds the private binding used by hardware operations. The exact Service
+ * EPIC provider is decisive. PS190 additionally requires its observed active
+ * branch/device relationship; conventional DP intentionally does not because
+ * its live USB-C topology has no BranchDeviceID and the service-side identity
+ * is the evidence-backed relationship for IOAVService construction.
  */
 RSSDDCError rss_macos_resolve_binding(uint32_t list_index, RSSMacOSBinding *binding) {
     if (binding == NULL || list_index == 0) return RSS_DDC_ERROR_ARGUMENT;
     *binding = (RSSMacOSBinding){0};
     CGDirectDisplayID ids[16] = {};
     CGDisplayCount total = 0;
-    if (CGGetOnlineDisplayList(16, ids, &total) != kCGErrorSuccess || list_index > total) return RSS_DDC_ERROR_NOT_FOUND;
+    if (CGGetOnlineDisplayList(16, ids, &total) != kCGErrorSuccess || list_index > total) {
+        binding->correlation_failure = RSS_MACOS_CORRELATION_NO_SELECTED_DISPLAY;
+        return RSS_DDC_ERROR_NOT_FOUND;
+    }
     CGDirectDisplayID display_id = ids[list_index - 1];
     binding->display.list_index = list_index;
     binding->display.cg_display_id = display_id;
     binding->display.online = true;
     binding->display.external = !CGDisplayIsBuiltin(display_id);
     copy_display_name(display_id, &binding->display);
-    bool ambiguous_service = false;
-    binding->service_proxy = service_for_display(display_id, &ambiguous_service);
+    binding->service_proxy = service_for_display(display_id, &binding->correlation_failure);
     if (binding->service_proxy == MACH_PORT_NULL) {
-        return ambiguous_service ? RSS_DDC_ERROR_SAFETY_GATE : RSS_DDC_ERROR_DISCOVERY;
+        return binding->correlation_failure == RSS_MACOS_CORRELATION_AMBIGUOUS_SERVICE_PROXY ?
+            RSS_DDC_ERROR_SAFETY_GATE : RSS_DDC_ERROR_DISCOVERY;
     }
-    if (!inspect_service(binding->service_proxy, &binding->display)) return RSS_DDC_ERROR_DISCOVERY;
-    bool branch_ok = active_branch_for_product(binding->display.product_name, binding->display.branch_device_id) &&
-        branch_has_unique_device_proxy(binding->display.branch_device_id);
+    if (!inspect_service(binding->service_proxy, &binding->display)) {
+        binding->correlation_failure = RSS_MACOS_CORRELATION_MISSING_SERVICE_PROVIDER;
+        return RSS_DDC_ERROR_DISCOVERY;
+    }
     if (binding->display.provider == RSS_DDC_PROVIDER_DCPDP13) {
-        binding->dp_safety_gate = binding->display.external && branch_ok &&
-            is_dp_service_identity(binding->service_proxy);
-        if (!binding->dp_safety_gate) return RSS_DDC_ERROR_SAFETY_GATE;
+        binding->dp_safety_gate = binding->display.external &&
+            is_dp_service_identity(binding->service_proxy, &binding->correlation_failure);
+        if (!binding->dp_safety_gate) {
+            if (!binding->display.external) binding->correlation_failure = RSS_MACOS_CORRELATION_NOT_EXTERNAL;
+            return RSS_DDC_ERROR_SAFETY_GATE;
+        }
     } else if (binding->display.provider == RSS_DDC_PROVIDER_PS190) {
+        RSSMacOSCorrelationFailure branch_failure = RSS_MACOS_CORRELATION_NONE;
+        bool branch_ok = active_branch_for_product(binding->display.product_name, binding->display.branch_device_id,
+                                                    &branch_failure) &&
+            branch_has_unique_device_proxy(binding->display.branch_device_id, &branch_failure);
         binding->ps190_safety_gate = binding->display.external && branch_ok &&
-            is_ps190_service_identity(binding->service_proxy);
-        if (!binding->ps190_safety_gate) return RSS_DDC_ERROR_SAFETY_GATE;
+            is_ps190_service_identity(binding->service_proxy, &binding->correlation_failure);
+        if (!binding->ps190_safety_gate) {
+            if (!binding->display.external) binding->correlation_failure = RSS_MACOS_CORRELATION_NOT_EXTERNAL;
+            else if (!branch_ok) binding->correlation_failure = branch_failure;
+            return RSS_DDC_ERROR_SAFETY_GATE;
+        }
     }
     return RSS_DDC_OK;
 }

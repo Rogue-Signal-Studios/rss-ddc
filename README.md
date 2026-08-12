@@ -16,6 +16,7 @@ Validated `rss-ddc` hardware/OS scope is limited to macOS build `25F84`, an `App
 make
 ./rss-ddc list
 ./rss-ddc info 1
+./rss-ddc --verbose info 1
 ./rss-ddc get 1 0x10
 ./rss-ddc --verbose get 1 0x10
 ./rss-ddc set 1 0x60 18
@@ -24,6 +25,9 @@ make
 PS190 `set` is hardware-validated only in the documented 25F84/Odyssey G75F scope. Do not assume that GET or SET support implies EDID or DPCD support, or that either operation applies to another provider.
 
 Successful non-verbose `get` prints only the current value. `--verbose` writes the selected display/provider correlation, raw request/reply bytes, IOReturns, decoded values, and checksum status to standard error for controlled validation.
+For `info`, verbose mode emits a precise registry-correlation rejection reason
+without constructing an IOAV Service object; it is the first diagnostic to run
+when a display fails closed.
 
 ## Provider model
 
