@@ -72,7 +72,7 @@ framing. The provider comes from the selected Service proxy's immediate EPIC
 parent; a generic `IOPortTransportStateDisplayPort` node does not choose a
 backend because the PS190 HDMI topology can also expose that class.
 
-Read [the architecture](docs/architecture.md) and [Apple Silicon transport notes](docs/apple-silicon-ddc.md) before enabling another provider capability.
+Read [the architecture](docs/architecture.md), [Apple Silicon transport notes](docs/apple-silicon-ddc.md), and the [Monitor Compatibility & Quirks catalog](docs/monitors/README.md) before enabling another provider capability.
 
 ## Development
 

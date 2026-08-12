@@ -101,6 +101,11 @@ caller-controlled settling/retry policy.
 
 The library currently supports numeric list indices. Stable system/EDID identifiers are a planned addition after their matching semantics are designed and tested.
 
+Provider transport behavior and monitor observations are documented separately.
+The [monitor compatibility and quirks catalog](monitors/README.md) records
+tested models, VCPs, input labels, and timing observations without turning any
+one monitor's behavior into a provider-wide rule or runtime profile.
+
 ## Opt-in Set-and-Verify
 
 Plain operations intentionally retain their narrow transport meaning:

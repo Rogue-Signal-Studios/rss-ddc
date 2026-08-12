@@ -1,0 +1,76 @@
+# Samsung Odyssey G75F
+
+## Identity
+
+| Field | Evidence |
+| --- | --- |
+| Manufacturer | Samsung (model identity supplied by the validated test environment) |
+| Reported product name | `Odyssey G75F` |
+| Retail/model identifier beyond reported name | Unavailable in this catalog |
+| Serial / firmware | Unavailable in the recorded validation output |
+
+The absence of a serial, firmware version, and stronger product identifiers
+means these findings apply only to the documented monitor/configuration, not
+to every Odyssey variant.
+
+## Tested environment
+
+Hardware validation was user-run on macOS build `25F84`. The HDMI PS190 path
+was also tested while an LG HDR QHD/DCPDP13Service display was connected, which
+confirmed single-target operation in a mixed-provider topology. Provider
+transport details belong in the [Apple Silicon transport notes](../apple-silicon-ddc.md).
+
+## Tested provider paths
+
+### Built-in HDMI / `AppleDCPPS190`
+
+| Capability | Status | Evidence |
+| --- | --- | --- |
+| Get VCP `0x10` brightness | Hardware validated | Reply max/current `50/50`; raw PS190 GET framing is a provider-path fact, not a monitor rule. |
+| Get VCP `0x60` input source | Hardware validated | Reply max/current `18/18`. |
+| Set VCP `0x60` input source | Hardware validated | State-changing `18 → 17` visibly selected Hook; same-state `18` writes also succeeded. |
+| Set VCP `0x10` brightness | Hardware validated | Same-state `50`; real change/restore `50 → 49 → 50`. |
+| Set-and-Verify `0x10` | Hardware validated | Default policy verified the same-state and real brightness change/restore on attempt one. |
+
+The HDMI provider uses a raw, inline-`0x51` GET request and `UINT32_MAX`
+no-offset IOAV argument. That is documented as `AppleDCPPS190` transport
+behavior; do not use it as a claim about every Odyssey connection path.
+
+### USB-C → DisplayPort / `DCPDP13Service`
+
+| Capability | Status | Evidence |
+| --- | --- | --- |
+| Get VCP `0x10` brightness | Hardware validated | Observed max/current `50/50`. |
+| Get VCP `0x60` input source | Hardware validated | Observed max/current `18/15` on the DisplayPort/GigaChad path. |
+| Set VCP `0x60` | Research-backed | Historical conventional-DP request values `15`, `17`, and `18` are documented, but this catalog has no current rss-ddc hardware-validation record for this exact G75F USB-C → DP path. |
+| Set VCP `0x10` | Unverified | No current rss-ddc hardware-validation record for this exact path. |
+| Set-and-Verify | Unverified | No current hardware-validation record for this exact path. |
+
+This is specifically USB-C → DisplayPort evidence. It is not evidence for a
+native DP → DP connection or another adapter/cable path.
+
+## Observed input-source codes
+
+The following `0x60` values were observed on this monitor/configuration:
+
+| Value | Observed label |
+| --- | --- |
+| `15` | DisplayPort / GigaChad |
+| `17` | Hook |
+| `18` | Rogue |
+
+These are monitor/configuration-specific labels, not universal MCCS input
+codes. Only `17` and `18` have documented PS190 SET evidence in this catalog.
+
+## VCP observations
+
+| VCP | Observation |
+| --- | --- |
+| `0x10` brightness | PS190 path reported maximum/current `50/50`; Set-and-Verify demonstrated `50 → 49 → 50`. |
+| `0x60` input source | PS190 path reported maximum/current `18/18`; USB-C → DP path reported `18/15`. |
+
+## Notes
+
+Connection provider, not product name, chooses GET transport framing. See the
+[provider notes](../apple-silicon-ddc.md) and the [catalog index](README.md)
+for scope and evidence terminology.
