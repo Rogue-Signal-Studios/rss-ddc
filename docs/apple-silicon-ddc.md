@@ -2,13 +2,19 @@
 
 ## Evidence scope
 
-**Hardware-validated `rss-ddc` behavior** is limited to the PS190 Service-path Get VCP and Set VCP transactions below, manually run from iTerm2 on macOS build `25F84`, an Odyssey G75F, and provider `AppleDCPPS190`. **Prior research-fork hardware evidence** supports the conventional DCPDP13 GET sequence, but it has not yet been repeated by this standalone project. **Static-analysis conclusions** cover the PS190 no-offset transport sentinel. Provider classification and safety correlation are implementation architecture, not portability evidence.
+**Hardware-validated `rss-ddc` behavior** is limited to the Service-path
+transactions below, manually run from iTerm2 on macOS build `25F84` with an
+Odyssey G75F. The tested HDMI provider was `AppleDCPPS190`; the separately
+tested USB-C → DisplayPort provider was `DCPDP13Service`. **Static-analysis
+conclusions** cover the PS190 no-offset transport sentinel. Provider
+classification and safety correlation are implementation architecture, not
+portability evidence.
 
 ## Standard DP Get VCP (`DCPDP13Service`)
 
-`DCPDP13Service` is a distinct provider backend. Earlier hardware work on an
-Odyssey connected through USB-C to DisplayPort used the conventional
-Service-level IOAV form:
+`DCPDP13Service` is a distinct provider backend. `rss-ddc` Get VCP was
+hardware-validated on macOS `25F84` with the Odyssey G75F connected by USB-C
+to DisplayPort. It used the conventional Service-level IOAV form:
 
 ```text
 write chip=0x37, data=0x51, payload=82 01 <VCP> <checksum>
@@ -18,8 +24,19 @@ read  chip=0x37, data=0x51, length=11
 
 For that representation, `0x51` is the IOAV data/subaddress argument and is
 not included in the four-byte payload. The request checksum remains seeded by
-the DDC destination address `0x6e`: VCP `0x10` uses `82 01 10 fd`; VCP `0x60`
-uses `82 01 60 8d`.
+the DDC destination address `0x6e`.
+
+| VCP | Request | Reply | Decoded result |
+| --- | --- | --- | --- |
+| `0x10` | `82 01 10 fd` | `6e 88 02 00 10 00 00 32 00 32 a4` | max 50, current 50 |
+| `0x60` | `82 01 60 8d` | `6e 88 02 00 60 00 00 12 00 0f c9` | max 18, current 15 (DisplayPort / GigaChad path) |
+
+For both requests, `chip=0x37`, `data/subaddress=0x51`, and payload length
+was four bytes; after a 50 ms delay, the conventional read used the same
+`data/subaddress=0x51` and length 11. Both IOAV writes and reads returned
+`IOReturn = 0x00000000`, and the strict parser accepted the source, framing,
+response length, command, status, requested VCP, and checksum. Normal CLI
+output was `50` and `15`, respectively.
 
 `rss-ddc` enables this backend only after correlating the selected external
 display to exactly one external `DCPAVServiceProxy`, then verifies that that
@@ -43,8 +60,13 @@ evidence, but the research did not establish it as a prerequisite for
 constructing `IOAVService`; rss-ddc therefore does not turn it into a new
 untested requirement. A generic `IOPortTransportStateDisplayPort` observation
 still cannot select this backend: PS190 HDMI has presented the same
-transport-state class. The standalone backend remains pending its first
-hardware validation, so none of these details is a portability claim.
+transport-state class. This validation does not establish behavior for other
+DP adapters, Apple Silicon systems, macOS releases, or monitors.
+
+Unlike this conventional DP form, PS190 GET includes `0x51` in a five-byte raw
+payload and uses `UINT32_MAX` for both IOAV calls. Both use a 50 ms delay and
+the same strict 11-byte reply parser; framing is selected only by the proven
+provider identity.
 
 ## PS190 Get VCP
 
@@ -94,4 +116,4 @@ succeeded; acceptance of other values or monitor configurations is not
 implied. This behavior derives from `m1ddc-rss` commit `a561e56` and its
 current `sources/i2c.m`/`sources/m1ddc.m` Service-write path.
 
-No out-of-bounds or canary corruption was observed in the predecessor research lab's guarded request/reply buffers. This does not establish behavior on different providers, monitors, cables/adapters, firmware revisions, or macOS releases. DCPDP13 standalone validation, MCDP GET, EDID/DPCD operations, and broader provider/hardware coverage remain unsupported or unvalidated.
+No out-of-bounds or canary corruption was observed in the predecessor research lab's guarded request/reply buffers. This does not establish behavior on different providers, monitors, cables/adapters, firmware revisions, or macOS releases. DCPDP13 Set VCP, MCDP GET/SET, EDID/DPCD operations, and broader provider/hardware coverage remain unsupported or unvalidated.

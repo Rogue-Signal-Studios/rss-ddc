@@ -13,6 +13,10 @@ int main(void) {
     };
     assert(rss_ddc_evaluate_dp_correlation(&valid_dp) == RSS_DDC_DP_CORRELATION_OK);
 
+    /* Two independently selected DP displays are valid; no global count enters this decision. */
+    RSSDDCDPCorrelationFacts second_selected_dp = valid_dp;
+    assert(rss_ddc_evaluate_dp_correlation(&second_selected_dp) == RSS_DDC_DP_CORRELATION_OK);
+
     RSSDDCDPCorrelationFacts no_service = valid_dp;
     no_service.service_candidate_count = 0;
     assert(rss_ddc_evaluate_dp_correlation(&no_service) == RSS_DDC_DP_CORRELATION_NO_SERVICE);

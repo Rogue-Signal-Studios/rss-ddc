@@ -4,11 +4,11 @@
 
 ## Status
 
-This milestone provides real macOS display/provider discovery, strict DDC/CI parsing, and provider-specific Service-path operations. PS190 GET and SET are hardware-validated in `rss-ddc`; DCPDP13 GET is based on prior research-fork hardware evidence and remains pending validation in this standalone project. Unsupported providers and capabilities return explicit errors rather than falling back to a guessed transport.
+This milestone provides real macOS display/provider discovery, strict DDC/CI parsing, and provider-specific Service-path operations. PS190 GET and SET, plus DCPDP13 GET, are hardware-validated in `rss-ddc`; unsupported providers and capabilities return explicit errors rather than falling back to a guessed transport.
 
 The project uses Apple-private macOS interfaces inside the macOS backend only. Behavior can vary by macOS release, display provider, cable/adapter topology, and monitor firmware.
 
-Validated `rss-ddc` hardware/OS scope is limited to macOS build `25F84`, an `AppleDCPPS190` path, and an Odyssey G75F. Get VCP `0x10` and `0x60`, plus Set VCP `0x60`, were manually validated end-to-end with the CLI; no portability beyond that setup is implied. DCPDP13 hardware validation was previously established only in the research fork and must be repeated with `rss-ddc` before it is treated as a validated standalone backend.
+Validated `rss-ddc` hardware/OS scope is limited to macOS build `25F84` and an Odyssey G75F. On `AppleDCPPS190`, Get VCP `0x10`/`0x60` and Set VCP `0x60` were manually validated. On a USB-C → DisplayPort `DCPDP13Service` path, Get VCP `0x10`/`0x60` was manually validated. No portability beyond these exact setups is implied; DCPDP13 Set VCP remains unsupported.
 
 ## CLI
 
@@ -33,8 +33,8 @@ when a display fails closed.
 
 | Provider | Backend status | Capabilities |
 | --- | --- | --- |
-| `DCPDP13Service` | conventional Service-path GET implemented; standalone hardware validation pending | Get VCP |
-| `AppleDCPMCDP29XX` | classified; GET not yet enabled | none |
+| `DCPDP13Service` | conventional Service-path GET hardware-validated on the documented USB-C → DP setup; Set VCP unsupported | Get VCP |
+| `AppleDCPMCDP29XX` | classified; GET and SET unsupported | none |
 | `AppleDCPPS190` | raw GET and conventional SET hardware-validated on the documented 25F84 setup | Get VCP, Set VCP |
 | unknown | safe unsupported result | none |
 

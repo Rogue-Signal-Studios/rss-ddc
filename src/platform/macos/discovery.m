@@ -198,8 +198,10 @@ static bool is_dp_service_identity(io_service_t service, RSSMacOSCorrelationFail
 }
 
 /**
- * Correlates a display adapter to one external DCPAVServiceProxy. Returns a
- * retained proxy; multiple matches are rejected rather than guessed.
+ * Correlates one selected display adapter to one external DCPAVServiceProxy.
+ * This is intentionally a selected-display scope, not a global service-class
+ * lookup: multiple external displays may legitimately have the same provider.
+ * Multiple candidates in this display's scope are rejected rather than guessed.
  */
 static io_service_t service_for_display(CGDirectDisplayID display_id, RSSMacOSCorrelationFailure *failure) {
     if (failure != NULL) *failure = RSS_MACOS_CORRELATION_NO_SERVICE_PROXY;

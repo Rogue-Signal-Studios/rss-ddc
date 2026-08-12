@@ -14,7 +14,7 @@ provider dispatcher
  DP      MCDP      PS190
 ```
 
-Capabilities are independent flags: Get VCP, Set VCP, EDID read, and DPCD read. A provider receives only the capabilities that have been separately enabled. PS190 Get VCP and Set VCP are hardware-validated in this project; DCPDP13 Get VCP is enabled from prior research-fork evidence but remains pending standalone hardware confirmation. MCDP, DCPDP13 Set VCP, EDID, and DPCD remain fail-closed.
+Capabilities are independent flags: Get VCP, Set VCP, EDID read, and DPCD read. A provider receives only the capabilities that have been separately enabled. PS190 Get VCP and Set VCP, plus DCPDP13 Get VCP, are hardware-validated in this project. MCDP, DCPDP13 Set VCP, EDID, and DPCD remain fail-closed.
 
 Provider dispatch is a pure C mapping from the immediate EPIC provider class,
 which keeps classification testable without opening a display user client.
@@ -40,6 +40,28 @@ Correlation failures retain an internal predicate and can be surfaced by the
 diagnostic public API or `rss-ddc --verbose info`. This gives operators a
 specific fail-closed reason without exposing transient IOKit handles or
 opening a user client.
+
+## Multi-monitor targeting
+
+Single-target operations are a core safety constraint. A logical display
+index must first resolve to its own CoreGraphics adapter and then to exactly
+one external provider/Service path within that display's registry scope.
+`rss-ddc set 2 0x60 18`, for example, may affect only display 2. It must never
+broadcast to every provider or Service of a matching class.
+
+Global multiplicity is valid: one PS190 display plus two `DCPDP13Service`
+displays—or a PS190, DP, and MCDP display together—is not an error merely
+because classes, proxies, transports, or external displays repeat. The
+resolver therefore does not require global uniqueness of provider classes,
+`DCPAVServiceProxy`, `DCPDPDeviceProxy`, or transport nodes. It requires
+uniqueness only after candidates are scoped to the selected display. Two
+equally plausible paths for that one display are an ambiguity and fail closed;
+two paths belonging to two different selected displays are valid.
+
+Future multi-target API or CLI behavior must require explicit intent (for
+example, an explicit list of display indices or `--all`). It is not implied by
+the presence of multiple displays. The current public API and CLI remain
+single-target by default.
 
 The PS190 backend contains two intentionally separate transaction shapes. GET
 uses the hardware-validated raw framing and `UINT32_MAX` no-offset sentinel.
