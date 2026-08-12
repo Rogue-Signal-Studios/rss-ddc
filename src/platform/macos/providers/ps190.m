@@ -96,12 +96,12 @@ RSSDDCError rss_macos_ps190_get_vcp(RSSMacOSBinding *binding, uint8_t vcp_code, 
 }
 
 /**
- * Executes the historical PS190-capable Set VCP path recovered from m1ddc:
+ * Executes the hardware-validated PS190 Set VCP path recovered from m1ddc:
  * two conventional Service writes, each preceded by 10 ms, with no response
  * read. This is intentionally distinct from raw PS190 GET. The legacy path
  * supplied 0x51 as the IOAV data/subaddress argument and formed the matching
- * six-byte payload/checksum; it was the path through which input switching
- * continued to work while conventional GET did not.
+ * six-byte payload/checksum; rss-ddc validation confirmed that VCP 0x60 can
+ * visibly switch the documented Odyssey G75F input.
  *
  * The repeated write is preserved as evidence-backed transaction behavior,
  * not presented as a retry policy. A failed call returns WRITE immediately;

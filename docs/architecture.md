@@ -14,7 +14,7 @@ provider dispatcher
  DP      MCDP      PS190
 ```
 
-Capabilities are independent flags: Get VCP, Set VCP, EDID read, and DPCD read. A provider receives only the capabilities that have been separately enabled. PS190 Get VCP is hardware-validated in this project; PS190 Set VCP and DCPDP13 Get VCP are enabled from prior research-fork evidence but remain pending standalone hardware confirmation. MCDP, DCPDP13 Set VCP, EDID, and DPCD remain fail-closed.
+Capabilities are independent flags: Get VCP, Set VCP, EDID read, and DPCD read. A provider receives only the capabilities that have been separately enabled. PS190 Get VCP and Set VCP are hardware-validated in this project; DCPDP13 Get VCP is enabled from prior research-fork evidence but remains pending standalone hardware confirmation. MCDP, DCPDP13 Set VCP, EDID, and DPCD remain fail-closed.
 
 Provider dispatch is a pure C mapping from the immediate EPIC provider class,
 which keeps classification testable without opening a display user client.
@@ -27,7 +27,7 @@ For PS190, the binding resolver requires an external display, a correlated activ
 
 The PS190 backend contains two intentionally separate transaction shapes. GET
 uses the hardware-validated raw framing and `UINT32_MAX` no-offset sentinel.
-SET preserves the historically successful conventional `data=0x51` write,
+SET preserves the hardware-validated conventional `data=0x51` write,
 repeated twice after 10 ms pre-write delays, with no acknowledgement read.
 The common protocol layer only constructs DDC/CI bytes and checksums; it never
 branches on the provider. This keeps unusual IOAV mechanics contained inside

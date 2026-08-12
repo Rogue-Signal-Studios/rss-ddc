@@ -4,11 +4,11 @@
 
 ## Status
 
-This milestone provides real macOS display/provider discovery, strict DDC/CI parsing, and provider-specific Service-path operations. PS190 GET is hardware-validated in `rss-ddc`; PS190 SET and DCPDP13 GET are based on prior research-fork hardware evidence and remain pending validation in this standalone project. Unsupported providers and capabilities return explicit errors rather than falling back to a guessed transport.
+This milestone provides real macOS display/provider discovery, strict DDC/CI parsing, and provider-specific Service-path operations. PS190 GET and SET are hardware-validated in `rss-ddc`; DCPDP13 GET is based on prior research-fork hardware evidence and remains pending validation in this standalone project. Unsupported providers and capabilities return explicit errors rather than falling back to a guessed transport.
 
 The project uses Apple-private macOS interfaces inside the macOS backend only. Behavior can vary by macOS release, display provider, cable/adapter topology, and monitor firmware.
 
-Validated `rss-ddc` hardware/OS scope is limited to macOS build `25F84`, an `AppleDCPPS190` path, and an Odyssey G75F. Get VCP `0x10` and `0x60` were validated end-to-end with the CLI; no portability beyond that setup is implied. DCPDP13 hardware validation was previously established only in the research fork and must be repeated with `rss-ddc` before it is treated as a validated standalone backend.
+Validated `rss-ddc` hardware/OS scope is limited to macOS build `25F84`, an `AppleDCPPS190` path, and an Odyssey G75F. Get VCP `0x10` and `0x60`, plus Set VCP `0x60`, were manually validated end-to-end with the CLI; no portability beyond that setup is implied. DCPDP13 hardware validation was previously established only in the research fork and must be repeated with `rss-ddc` before it is treated as a validated standalone backend.
 
 ## CLI
 
@@ -21,7 +21,7 @@ make
 ./rss-ddc set 1 0x60 18
 ```
 
-`set` is present for API/CLI completeness but intentionally returns an unsupported-capability error in this milestone. Do not assume that GET support implies SET, EDID, or DPCD support.
+PS190 `set` is hardware-validated only in the documented 25F84/Odyssey G75F scope. Do not assume that GET or SET support implies EDID or DPCD support, or that either operation applies to another provider.
 
 Successful non-verbose `get` prints only the current value. `--verbose` writes the selected display/provider correlation, raw request/reply bytes, IOReturns, decoded values, and checksum status to standard error for controlled validation.
 
@@ -31,7 +31,7 @@ Successful non-verbose `get` prints only the current value. `--verbose` writes t
 | --- | --- | --- |
 | `DCPDP13Service` | conventional Service-path GET implemented; standalone hardware validation pending | Get VCP |
 | `AppleDCPMCDP29XX` | classified; GET not yet enabled | none |
-| `AppleDCPPS190` | raw GET hardware-validated; conventional SET implemented from prior evidence, validation pending | Get VCP, Set VCP |
+| `AppleDCPPS190` | raw GET and conventional SET hardware-validated on the documented 25F84 setup | Get VCP, Set VCP |
 | unknown | safe unsupported result | none |
 
 `DCPDP13Service` and `AppleDCPPS190` deliberately use different request

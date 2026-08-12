@@ -2,7 +2,7 @@
 
 ## Evidence scope
 
-**Hardware-validated `rss-ddc` behavior** is limited to the PS190 Service-path Get VCP transactions below, manually run from iTerm2 on macOS build `25F84`, an Odyssey G75F, and provider `AppleDCPPS190`. **Prior research-fork hardware evidence** supports the conventional DCPDP13 GET and the PS190 SET sequence described below, but neither has yet been repeated by this standalone project. **Static-analysis conclusions** cover the PS190 no-offset transport sentinel. Provider classification and safety correlation are implementation architecture, not portability evidence.
+**Hardware-validated `rss-ddc` behavior** is limited to the PS190 Service-path Get VCP and Set VCP transactions below, manually run from iTerm2 on macOS build `25F84`, an Odyssey G75F, and provider `AppleDCPPS190`. **Prior research-fork hardware evidence** supports the conventional DCPDP13 GET sequence, but it has not yet been repeated by this standalone project. **Static-analysis conclusions** cover the PS190 no-offset transport sentinel. Provider classification and safety correlation are implementation architecture, not portability evidence.
 
 ## Standard DP Get VCP (`DCPDP13Service`)
 
@@ -66,13 +66,15 @@ For input VCP `0x60`, values `17` and `18` produce `84 03 60 00 11 c9` and
 `84 03 60 00 12 ca`, respectively.
 
 The historical write helper performed **two** identical writes, each preceded
-by 10 ms, and did not read or validate a Set VCP acknowledgement. `rss-ddc`
-preserves that exact evidence-backed sequence pending its first standalone
-hardware validation. A write failure is reported; a successful return means
-only that both IOAV writes succeeded, not that the monitor accepted the
-semantic value. This behavior derives from
-`m1ddc-rss` commit `a561e56` and its current
-`sources/i2c.m`/`sources/m1ddc.m` path, which applied the same Service write
-to the built-in HDMI transport.
+by 10 ms, and did not read or validate a Set VCP acknowledgement. The same
+sequence is now hardware-validated in `rss-ddc`: the user manually executed
+the VCP `0x60` state-changing SET from `18` to `17`, and the Odyssey visibly
+switched to the requested Hook input. The same-state `18` transaction also
+returned `IOReturn = 0x00000000` for both writes. No GET result for value `17`
+was captured, so this validation establishes the successful write and visible
+state change only. A successful return still means only that both IOAV writes
+succeeded; acceptance of other values or monitor configurations is not
+implied. This behavior derives from `m1ddc-rss` commit `a561e56` and its
+current `sources/i2c.m`/`sources/m1ddc.m` Service-write path.
 
-No out-of-bounds or canary corruption was observed in the predecessor research lab's guarded request/reply buffers. This does not establish behavior on different providers, monitors, cables/adapters, firmware revisions, or macOS releases. DCPDP13 standalone validation, PS190 SET standalone validation, MCDP GET, EDID/DPCD operations, and broader provider/hardware coverage remain unsupported or unvalidated.
+No out-of-bounds or canary corruption was observed in the predecessor research lab's guarded request/reply buffers. This does not establish behavior on different providers, monitors, cables/adapters, firmware revisions, or macOS releases. DCPDP13 standalone validation, MCDP GET, EDID/DPCD operations, and broader provider/hardware coverage remain unsupported or unvalidated.
