@@ -6,6 +6,7 @@
 
 #include <stdio.h>
 #include <string.h>
+#include <unistd.h>
 
 #include "correlation.h"
 #include "dpcd.h"
@@ -738,6 +739,39 @@ RSSDDCError rss_macos_dp_read_dpcd(RSSMacOSBinding *binding, uint32_t address, u
     return error;
 }
 
+typedef struct {
+    RSSMacOSBinding *binding;
+    const RSSDDCDiagnostics *diagnostics;
+} ReversibleSetContext;
+
+static RSSDDCError reversible_get_vcp(void *opaque, RSSDDCVCPResult *result) {
+    ReversibleSetContext *context = opaque;
+    return rss_macos_dcpdpservice_get_vcp(context->binding, RSS_DDC_DCPDP_SERVICE_SET_VALIDATION_VCP, result,
+                                          context->diagnostics);
+}
+
+static RSSDDCError reversible_set_vcp(void *opaque, uint16_t value) {
+    ReversibleSetContext *context = opaque;
+    return rss_macos_run_dcpdpservice_set_validation(context->binding->service_proxy,
+                                                     RSS_DDC_DCPDP_SERVICE_CORRELATION_OK, value,
+                                                     context->diagnostics);
+}
+
+static RSSDDCError reversible_settle(void *opaque) {
+    ReversibleSetContext *context = opaque;
+    char settle_message[64] = {};
+    snprintf(settle_message, sizeof(settle_message), "verification-settle=%ums",
+             RSS_DDC_DCPDP_SERVICE_SET_VERIFY_SETTLE_MS);
+    rss_macos_diagnostic(context->diagnostics, settle_message);
+    usleep(RSS_DDC_DCPDP_SERVICE_SET_VERIFY_SETTLE_MS * 1000u);
+    return RSS_DDC_OK;
+}
+
+static void reversible_log(void *opaque, const char *message) {
+    ReversibleSetContext *context = opaque;
+    rss_macos_diagnostic(context->diagnostics, message);
+}
+
 RSSDDCError rss_macos_validate_dcpdpservice_set(uint32_t list_index, const RSSDDCDiagnostics *diagnostics) {
     RSSMacOSBinding binding = {0};
     RSSDDCError error = rss_macos_resolve_binding(list_index, &binding);
@@ -766,7 +800,7 @@ RSSDDCError rss_macos_validate_dcpdpservice_set(uint32_t list_index, const RSSDD
         return RSS_DDC_ERROR_SAFETY_GATE;
     }
     snprintf(message, sizeof(message),
-             "display=%u product=%s provider=%s role=%s operation=ValidateSetVCP",
+             "display=%u product=%s provider=%s role=%s operation=ValidateReversibleSetVCP",
              binding.display.list_index, binding.display.product_name,
              RSS_DDC_REGISTRY_CLASS_DCPDP_SERVICE, role);
     rss_macos_diagnostic(diagnostics, message);
@@ -776,29 +810,37 @@ RSSDDCError rss_macos_validate_dcpdpservice_set(uint32_t list_index, const RSSDD
         return RSS_DDC_ERROR_SAFETY_GATE;
     }
 
-    RSSDDCVCPResult pre_get = {};
-    error = rss_macos_dcpdpservice_get_vcp(&binding, RSS_DDC_DCPDP_SERVICE_SET_VALIDATION_VCP, &pre_get, diagnostics);
-    if (error != RSS_DDC_OK) {
-        rss_macos_release_binding(&binding);
-        return error;
-    }
-    snprintf(message, sizeof(message), "pre-get vcp=0x%02x current=%u", pre_get.vcp_code, pre_get.current_value);
-    rss_macos_diagnostic(diagnostics, message);
-
-    error = rss_macos_run_dcpdpservice_set_validation(binding.service_proxy, RSS_DDC_DCPDP_SERVICE_CORRELATION_OK,
-                                                    pre_get.current_value, diagnostics);
-    if (error != RSS_DDC_OK) {
-        rss_macos_release_binding(&binding);
-        return error;
-    }
-
-    RSSDDCVCPResult post_get = {};
-    error = rss_macos_dcpdpservice_get_vcp(&binding, RSS_DDC_DCPDP_SERVICE_SET_VALIDATION_VCP, &post_get, diagnostics);
+    ReversibleSetContext context = {.binding = &binding, .diagnostics = diagnostics};
+    RSSDDCDCPDPServiceReversibleSetReport report = {};
+    const RSSDDCDCPDPServiceReversibleSetValidationCallbacks callbacks = {
+        .context = &context,
+        .get_vcp = reversible_get_vcp,
+        .set_vcp = reversible_set_vcp,
+        .verification_settle = reversible_settle,
+        .log = reversible_log,
+    };
+    error = rss_ddc_run_dcpdpservice_reversible_set_validation(RSS_DDC_DCPDP_SERVICE_CORRELATION_OK, &callbacks,
+                                                               &report);
     if (error == RSS_DDC_OK) {
-        snprintf(message, sizeof(message), "post-get vcp=0x%02x current=%u", post_get.vcp_code, post_get.current_value);
+        snprintf(message, sizeof(message),
+                 "validation-status=success original=%u target=%u restored=%u",
+                 report.original_value, report.target_value, report.original_value);
         rss_macos_diagnostic(diagnostics, message);
+        rss_macos_diagnostic(diagnostics,
+                             "DCPDPService reversible SET validation completed successfully; runtime SET capability remains disabled");
+    } else {
+        snprintf(message, sizeof(message),
+                 "validation-status=failure outcome=%u original=%u target=%u target-writes-completed=%s restore-attempted=%s restore-writes-completed=%s",
+                 (unsigned int)report.outcome, report.original_value, report.target_value,
+                 report.target_writes_completed ? "yes" : "no", report.restore_attempted ? "yes" : "no",
+                 report.restore_writes_completed ? "yes" : "no");
+        rss_macos_diagnostic(diagnostics, message);
+        if (report.outcome == RSS_DDC_REVERSIBLE_SET_OUTCOME_RESTORE_WRITE_FAILED ||
+            report.outcome == RSS_DDC_REVERSIBLE_SET_OUTCOME_RESTORE_VERIFY_FAILED) {
+            rss_macos_diagnostic(diagnostics, "CRITICAL: restoration failed or unverified after state-changing SET");
+        }
+        rss_macos_diagnostic(diagnostics, "runtime SET capability remains disabled for DCPDPService");
     }
-    rss_macos_diagnostic(diagnostics, "runtime SET capability remains disabled for DCPDPService");
     rss_macos_release_binding(&binding);
     return error;
 }

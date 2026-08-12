@@ -46,7 +46,7 @@ DDC GET uses the selected **`dcpav-service-epic` / `DCPAVServiceProxy`** object 
 | --- | --- |
 | GET VCP | **Hardware validated; runtime supported** |
 | DPCD read `0x00000`/16 | **Hardware validated; runtime supported** |
-| SET VCP | Validation hypothesis only — use `validate-dcpdpservice-set` |
+| SET VCP | Validation hypothesis only — same-state writes succeeded; reversible transition pending via `validate-dcpdpservice-set` |
 | EDID | Unsupported / unvalidated |
 
 ### Post-promotion commands

@@ -20,7 +20,7 @@ ports, cables, or firmware.
 | --- | --- | --- |
 | Get VCP | **Hardware validated; runtime supported** | Conventional Service-path IOAV GET. |
 | Read DPCD `0x00000` / 16 | **Hardware validated; runtime supported** | Same-role scoped `DCPDPDeviceProxy → IODPDevice → IODPDeviceReadDPCD`. |
-| Set VCP | Validation hypothesis only | Use `validate-dcpdpservice-set`; standard-DP two-write sequence **inferred** from DCPDP13/PS190. Normal `set` remains unsupported. |
+| Set VCP | Validation hypothesis only | Same-state writes succeeded; reversible transition pending via `validate-dcpdpservice-set`. Normal `set` remains unsupported. |
 | EDID | Unsupported / unvalidated | Normal `edid` fails closed. |
 
 rss-ddc capabilities on this topology: `0x09` (GET + DPCD).
@@ -98,21 +98,48 @@ Decode:
 
 ## SET validation (pending hardware proof)
 
-Hypothesis (**inferred** from validated DCPDP13/PS190 standard-DP SET):
+### Same-state experiment (observed, not validated)
 
-- payload `84 03 10 <hi> <lo> <checksum>`
-- chip `0x37`, data/subaddress `0x51`
-- two identical writes, 10 ms before each, no response read
+Earlier harness revision (write current back to itself):
 
-The harness performs one GET of VCP `0x10`, writes the captured current value
-back to itself, then optionally verifies with a post-GET:
+- Pre-GET: VCP `0x10`, maximum 100, current **62**
+- SET payload: `84 03 10 00 3e 96` (chip `0x37`, data `0x51`, two writes, 10 ms pre-delay each)
+- Write #1 and #2: `IOReturn=0x00000000`
+- Immediate post-SET GET (no settle): malformed reply `01 10 fd 3e 96 00 64 00 3e fe 04` → strict parser rejected (`invalid source/framing`)
+- Later normal `./rss-ddc --verbose get 2 0x10` succeeded with current **62**
+
+Classification:
+
+- IOAV construction and conventional SET **writes** succeeded
+- Immediate post-SET GET hit an **immediate post-SET malformed/transient reply window** (same class as documented LG/DCPDP13 post-SET transients; not proven stale-buffer data)
+- Same-state SET did **not** prove semantic state mutation
+
+SET is **not** hardware validated.
+
+### Reversible validation harness (current)
+
+Proves an adjacent reversible transition:
+
+```text
+current → adjacent target → verify target → restore original → verify original
+```
+
+Validation-only policy:
+
+- VCP `0x10` only
+- Target: `original - 1` when `original > 0`, else `original + 1` when below maximum
+- One **250 ms** verification settle before each verification GET (harness policy from LG/DCPDP13 evidence; not a universal requirement)
+- No retries
+- Restoration mandatory after successful state-changing SET, even if target verification fails
 
 ```sh
+./rss-ddc --verbose get 2 0x10
 ./rss-ddc --verbose validate-dcpdpservice-set 2
 ```
 
-Do not use `./rss-ddc set 2 ...` until SET is separately hardware validated and
-promoted.
+For brightness 62, expected flow: **62 → 61 → verify 61 → restore 62 → verify 62**.
+
+Do not use `./rss-ddc set 2 ...` until SET is separately hardware validated and promoted.
 
 ## Distinction from DCPDP13Service
 

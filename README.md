@@ -111,7 +111,7 @@ backend because the PS190 HDMI topology can also expose that class.
 
 1. EDID — current PS190 blocks 0–1 scope complete
 2. DPCD — current PS190 + DCPDP13 + DCPDPService read-only scope complete
-3. DCPDPService SET — validation harness only; promotion pending hardware proof
+3. DCPDPService SET — reversible validation harness; same-state writes observed; promotion pending hardware proof
 4. MCDP
 5. More monitor catalog coverage
 6. Machine-readable profiles later
