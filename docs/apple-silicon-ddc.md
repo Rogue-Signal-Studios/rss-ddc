@@ -68,6 +68,29 @@ payload and uses `UINT32_MAX` for both IOAV calls. Both use a 50 ms delay and
 the same strict 11-byte reply parser; framing is selected only by the proven
 provider identity.
 
+## Standard DP Set VCP (`DCPDP13Service`)
+
+`rss-ddc` implements, but has not yet hardware-validated, the conventional DP
+Set VCP transaction recovered from the original USB-C/DisplayPort-only m1ddc
+path (the parent of research commit `a561e56`). The common portable builder
+forms `84 03 <VCP> <value-high> <value-low> <checksum>`, where the checksum is
+`0x6e ^ 0x51 ^ 0x84 ^ 0x03 ^ VCP ^ value-high ^ value-low`. The DP backend uses
+the display-correlated `IOAVService` to issue exactly two writes:
+
+```text
+chip=0x37, data/subaddress=0x51, payload length=6
+pre-write delay=10 ms
+write count=2
+response/ack read=none
+```
+
+For input VCP `0x60`, values 15, 17, and 18 produce `84 03 60 00 0f d7`,
+`84 03 60 00 11 c9`, and `84 03 60 00 12 ca`. This transaction shape matches
+PS190 SET but not PS190 GET: PS190 GET is raw-framed with `UINT32_MAX`, while
+both SET paths use the conventional subaddress form. DP SET remains pending
+controlled hardware validation in `rss-ddc`; a successful write return alone
+does not establish visible monitor acceptance.
+
 ## PS190 Get VCP
 
 For `AppleDCPPS190`, a normal `IOAVServiceWriteI2C(..., data=0x51, ...)` uses register/subaddress preparation and is not the validated DDC/CI GET framing. The working request is raw-framed and uses `UINT32_MAX` for both calls:

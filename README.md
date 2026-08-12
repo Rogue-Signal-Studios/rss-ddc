@@ -8,7 +8,7 @@ This milestone provides real macOS display/provider discovery, strict DDC/CI par
 
 The project uses Apple-private macOS interfaces inside the macOS backend only. Behavior can vary by macOS release, display provider, cable/adapter topology, and monitor firmware.
 
-Validated `rss-ddc` hardware/OS scope is limited to macOS build `25F84` and an Odyssey G75F. On `AppleDCPPS190`, Get VCP `0x10`/`0x60` and Set VCP `0x60` were manually validated. On a USB-C → DisplayPort `DCPDP13Service` path, Get VCP `0x10`/`0x60` was manually validated. No portability beyond these exact setups is implied; DCPDP13 Set VCP remains unsupported.
+Validated `rss-ddc` hardware/OS scope is limited to macOS build `25F84` and an Odyssey G75F. On `AppleDCPPS190`, Get VCP `0x10`/`0x60` and Set VCP `0x60` were manually validated. On a USB-C → DisplayPort `DCPDP13Service` path, Get VCP `0x10`/`0x60` was manually validated. No portability beyond these exact setups is implied; DCPDP13 Set VCP is implemented from prior DP research and remains pending rss-ddc hardware validation.
 
 ## CLI
 
@@ -33,7 +33,7 @@ when a display fails closed.
 
 | Provider | Backend status | Capabilities |
 | --- | --- | --- |
-| `DCPDP13Service` | conventional Service-path GET hardware-validated on the documented USB-C → DP setup; Set VCP unsupported | Get VCP |
+| `DCPDP13Service` | conventional Service-path GET hardware-validated; SET implemented and pending validation | Get VCP, Set VCP |
 | `AppleDCPMCDP29XX` | classified; GET and SET unsupported | none |
 | `AppleDCPPS190` | raw GET and conventional SET hardware-validated on the documented 25F84 setup | Get VCP, Set VCP |
 | unknown | safe unsupported result | none |

@@ -16,9 +16,10 @@ int main(void) {
     assert(strcmp(rss_ddc_backend_name(RSS_DDC_BACKEND_DCPDP13), "DCPDP13Service") == 0);
     assert(rss_ddc_provider_capabilities(RSS_DDC_PROVIDER_PS190) ==
            (RSS_DDC_CAP_GET_VCP | RSS_DDC_CAP_SET_VCP));
-    assert(rss_ddc_provider_capabilities(RSS_DDC_PROVIDER_DCPDP13) == RSS_DDC_CAP_GET_VCP);
+    assert(rss_ddc_provider_capabilities(RSS_DDC_PROVIDER_DCPDP13) ==
+           (RSS_DDC_CAP_GET_VCP | RSS_DDC_CAP_SET_VCP));
     assert(rss_ddc_provider_capabilities(RSS_DDC_PROVIDER_MCDP29XX) == RSS_DDC_CAP_NONE);
-    assert((rss_ddc_provider_capabilities(RSS_DDC_PROVIDER_DCPDP13) & RSS_DDC_CAP_SET_VCP) == 0);
+    assert((rss_ddc_provider_capabilities(RSS_DDC_PROVIDER_DCPDP13) & RSS_DDC_CAP_SET_VCP) != 0);
     assert((rss_ddc_provider_capabilities(RSS_DDC_PROVIDER_MCDP29XX) & RSS_DDC_CAP_SET_VCP) == 0);
     assert((rss_ddc_provider_capabilities(RSS_DDC_PROVIDER_UNKNOWN) & RSS_DDC_CAP_SET_VCP) == 0);
     puts("test_provider: passed");

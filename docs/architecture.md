@@ -14,7 +14,7 @@ provider dispatcher
  DP      MCDP      PS190
 ```
 
-Capabilities are independent flags: Get VCP, Set VCP, EDID read, and DPCD read. A provider receives only the capabilities that have been separately enabled. PS190 Get VCP and Set VCP, plus DCPDP13 Get VCP, are hardware-validated in this project. MCDP, DCPDP13 Set VCP, EDID, and DPCD remain fail-closed.
+Capabilities are independent flags: Get VCP, Set VCP, EDID read, and DPCD read. A provider receives only the capabilities that have been separately enabled. PS190 Get VCP and Set VCP, plus DCPDP13 Get VCP, are hardware-validated in this project. DCPDP13 Set VCP is enabled from prior USB-C/DP research but remains pending standalone validation; MCDP, EDID, and DPCD remain fail-closed.
 
 Provider dispatch is a pure C mapping from the immediate EPIC provider class,
 which keeps classification testable without opening a display user client.
@@ -70,5 +70,13 @@ repeated twice after 10 ms pre-write delays, with no acknowledgement read.
 The common protocol layer only constructs DDC/CI bytes and checksums; it never
 branches on the provider. This keeps unusual IOAV mechanics contained inside
 the provider backend and makes each path independently testable.
+
+DCPDP13 GET is conventional (`data=0x51`, four-byte request, 50 ms, then an
+11-byte read). Its implemented Set VCP backend instead reuses the common
+six-byte conventional request builder and the same historical two-write,
+10-ms-prewrite, no-acknowledgement sequence as PS190 SET. This similarity does
+not make the providers interchangeable: the DP backend is selected only after
+the DCPDP13 per-display safety gate, and its rss-ddc Set behavior remains
+pending controlled hardware validation.
 
 The library currently supports numeric list indices. Stable system/EDID identifiers are a planned addition after their matching semantics are designed and tested.

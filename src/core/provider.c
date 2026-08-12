@@ -66,7 +66,7 @@ const char *rss_ddc_backend_name(RSSDDCBackend backend) {
 uint32_t rss_ddc_provider_capabilities(RSSDDCProvider provider) {
     switch (provider) {
         case RSS_DDC_PROVIDER_DCPDP13:
-            return RSS_DDC_CAP_GET_VCP;
+            return RSS_DDC_CAP_GET_VCP | RSS_DDC_CAP_SET_VCP;
         case RSS_DDC_PROVIDER_PS190:
             return RSS_DDC_CAP_GET_VCP | RSS_DDC_CAP_SET_VCP;
         case RSS_DDC_PROVIDER_UNKNOWN:
