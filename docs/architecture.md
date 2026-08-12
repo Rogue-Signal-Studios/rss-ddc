@@ -16,6 +16,31 @@ provider dispatcher
 
 Capabilities are independent flags: Get VCP, Set VCP, EDID read, and DPCD read. A provider receives only the capabilities that have been separately enabled. PS190 Get VCP and Set VCP, plus DCPDP13 Get VCP and Set VCP, are hardware-validated in this project. PS190 Device-path EDID and read-only DPCD, plus DCPDP13 read-only DPCD, are hardware-validated on their documented topologies. DCPDPService Get VCP, Set VCP, read-only DPCD, and Set-and-Verify are hardware-validated on the documented Mac Studio XL2730Z topology (`0x0b`). DCPDP13/MCDP/DCPDPService EDID and MCDP DPCD remain fail-closed.
 
+## Public API and private ABI boundaries
+
+The installed header is intentionally value-only. `rss_ddc_list_displays` uses
+a conventional two-call sizing contract: a zero-capacity query reports the
+total online-display count, and a subsequent call writes as many snapshots as
+fit while again reporting the observed total. The CLI retries once if the
+topology grows between those calls, then fails clearly instead of printing an
+ambiguous partial list. List indices remain ephemeral selection inputs, not
+stable monitor identities.
+
+Reconstructed Apple declarations are internal to
+`src/platform/macos/private/`: `ioav_private.h`, `iodp_private.h`, and
+`coredisplay_private.h`. Each has one canonical signature and records the
+observed Create/CFRelease ownership rule. Provider implementations include
+those headers rather than redeclaring symbols; public clients cannot see their
+types. The current provider switches remain preferable to a descriptor table:
+they are small, explicit evidence boundaries, and a table would not remove the
+provider-specific transport dispatch.
+
+Historical `get_validation.c` and `set_validation.c` runners are compiled only
+by their synthetic tests; the production archive explicitly excludes them.
+Their fixtures preserve the validation evidence without expanding the runtime
+surface. The former DPCD validation runner was renamed `dpcd/reader.c` because
+the same bounded one-read lifecycle is now used by normal DPCD runtime paths.
+
 ## EDID
 
 EDID parsing is portable C: it validates the 128-byte header/checksum, decodes
@@ -37,7 +62,7 @@ complete 256-byte EDID. Standard E-EDID maps that second block to segment 0,
 offset `0x80`; the private IOAV Device-path mapping is hardware validated for
 this provider/monitor/topology. Blocks 2+ require an E-EDID segment-pointer
 write; no PS190 IOAV mapping for that write is enabled, so they remain partial.
-DCPDP13 and MCDP EDID remain unsupported. EDID uses the same selected-display
+DCPDP13, DCPDPService, and MCDP EDID remain unsupported. EDID uses the same selected-display
 correlation and never scans global displays or borrows a sibling binding.
 
 The portable storage bound is eight 128-byte blocks (1024 bytes). It is a
@@ -79,8 +104,9 @@ no `BranchDeviceID`. Neither gate selects a provider from a generic
 DisplayPort-named registry node.
 
 `DCPDPService` uses a parallel gate with the same structural requirements but
-requires `EPICProviderClass = DCPDPService`. GET and read-only DPCD are
-enabled after separate hardware validation; SET and EDID remain fail-closed.
+requires `EPICProviderClass = DCPDPService`. GET, conventional write-only SET,
+read-only DPCD, and Set-and-Verify are enabled after separate hardware
+validation; EDID remains fail-closed.
 
 Correlation failures retain an internal predicate and can be surfaced by the
 diagnostic public API or `rss-ddc --verbose info`. This gives operators a
@@ -110,6 +136,13 @@ IODPDeviceCreateWithService → IODPDeviceReadDPCD(0x00000, 16)`, with
 global first match and never falls back to PS190. `probe-dpcd-path` remains a
 registry-only way to diagnose that correlation. The special construction/read
 harness was removed once the constrained normal runtime path was validated.
+
+`DCPDPService` uses the same one-role/one-device native read lifecycle only
+after its own provider gate succeeds. The documented BenQ XL2730Z / `DCPEXT2`
+runtime read at `0x00000`/16 returned `12 14 c4 01 01 00 01 c0 02 00 06 00 00
+00 01 00`. Shared mechanics do not make the providers interchangeable: their
+provider identity and safety correlation remain distinct, and DPCD writes are
+unsupported for both.
 
 ## Multi-monitor targeting
 
@@ -221,11 +254,12 @@ Exhausted mismatches return `RSS_DDC_ERROR_VERIFY_MISMATCH`; exhausted
 retryable GET failures return `RSS_DDC_ERROR_VERIFY_RETRY_EXHAUSTED`, while
 per-attempt diagnostics retain the underlying parser/read error.
 
-The feature is hardware-validated only on macOS `25F84` with the simultaneous
-Odyssey G75F/`AppleDCPPS190` and LG HDR QHD/`DCPDP13Service` topology. Default
-policy verification succeeded for PS190 brightness `50 → 49 → 50` and DP
-brightness `100 → 99 → 100`; each command remained scoped to its selected
-display/provider binding. The strongest DP retry evidence was a successful
+The feature is hardware-validated on the documented macOS `25F84` Mac mini
+mixed PS190/DCPDP13 topology and on the Mac Studio DCPDPService/XL2730Z
+topology. Default policy verification succeeded for PS190 brightness
+`50 → 49 → 50`, DP brightness `100 → 99 → 100`, and DCPDPService brightness
+`62 → 61 → 62`; each command remained scoped to its selected display/provider
+binding. The strongest DP retry evidence was a successful
 SET to `100`, an all-zero first verification reply rejected by the strict
 parser as source/framing failure, a retry after the configured 250 ms, and a
 valid matching reply on attempt two. Conversely, one LG zero-settle/zero-retry

@@ -8,7 +8,10 @@ This milestone provides real macOS display/provider discovery, strict DDC/CI par
 
 The project uses Apple-private macOS interfaces inside the macOS backend only. Behavior can vary by macOS release, display provider, cable/adapter topology, and monitor firmware.
 
-Validated `rss-ddc` hardware/OS scope is limited to macOS build `25F84` on a simultaneous two-display topology: an Odyssey G75F on HDMI/`AppleDCPPS190` and an LG HDR QHD on DisplayPort/`DCPDP13Service`. GET, write-only SET, and opt-in Set-and-Verify—including real brightness changes and the live retry path—were manually validated on each selected display without affecting its sibling. No portability beyond these exact setups is implied.
+Hardware validation is topology-specific. The authoritative matrix covers the
+Mac mini M4 Pro PS190/DCPDP13 mixed topology and the Mac Studio M2 Ultra
+DCPDPService topology; it is maintained in [Hardware validation](docs/hardware-validation.md).
+No portability beyond those documented setups is implied.
 
 ## CLI
 
@@ -44,8 +47,8 @@ Device-path mapping is now hardware validated. No segment-pointer write is
 needed for block 1. Blocks 2+ require one and remain unsupported. `--decode`
 is the default, `--hex` labels every acquired 128-byte block, and `--raw
 <file>` creates a new exact-byte file without overwriting an existing path.
-`extensions-complete` is the authoritative complete/partial state. DCPDP13
-and MCDP EDID remain explicitly unsupported.
+`extensions-complete` is the authoritative complete/partial state. DCPDP13,
+DCPDPService, and MCDP EDID remain explicitly unsupported.
 
 `dpcd` is a separate, read-only capability enabled for the documented PS190,
 DCPDP13, and DCPDPService topologies. It performs exactly one bounded native DPCD read
@@ -56,8 +59,8 @@ chunking, retry, scan, or write, and the allowed address space is the 20-bit
 DPCD range. PS190 uses its existing branch-correlated proxy. DCPDP13 uses the
 selected Service EPIC role to require exactly one same-role
 `dcpdp-device-epic` proxy; zero or multiple candidates fail closed. This
-runtime path is hardware validated only on the documented PS190/Odyssey and
-DCPDP13/LG topologies. `probe-dpcd-path` remains a registry-only correlation
+runtime path is hardware validated only on the documented PS190/Odyssey,
+DCPDP13/LG, and DCPDPService/XL2730Z topologies. `probe-dpcd-path` remains a registry-only correlation
 diagnostic; the one-shot validation harness was removed because normal `dpcd`
 now exercises the same constrained path.
 
@@ -99,7 +102,7 @@ hardware-validated plain GET or plain SET provider transactions.
 | --- | --- | --- |
 | `DCPDP13Service` | conventional Service-path GET/SET and opt-in Set-and-Verify, plus native read-only DPCD, hardware-validated on the documented LG DP setup; EDID unsupported | Get VCP, Set VCP, Read DPCD |
 | `DCPDPService` | distinct registry class; conventional Service-path GET/SET/DPCD and Set-and-Verify hardware-validated on documented XL2730Z path (`0x0b`); EDID unsupported | Get VCP, Set VCP, Read DPCD |
-| `AppleDCPMCDP29XX` | classified; GET and SET unsupported | none |
+| `AppleDCPMCDP29XX` | classified only; all runtime capabilities unsupported | none |
 | `AppleDCPPS190` | raw GET, conventional SET, Device-path EDID blocks 0–1, and native DPCD reads hardware validated on the documented Odyssey topology | Get VCP, Set VCP, Read EDID, Read DPCD |
 | unknown | safe unsupported result | none |
 
@@ -119,13 +122,34 @@ backend because the PS190 HDMI topology can also expose that class.
 
 Read [the architecture](docs/architecture.md), [Apple Silicon transport notes](docs/apple-silicon-ddc.md), and the [Monitor Compatibility & Quirks catalog](docs/monitors/README.md) before enabling another provider capability.
 
-## Development
+## Build, test, and library
 
 ```sh
+make              # CLI plus build/librss-ddc.a
 make test
+make library
 ```
 
-The test suite is synthetic and does not open display user clients or issue DDC, EDID, or DPCD requests.
+The static library is `build/librss-ddc.a`; its installed public interface is
+`include/rss_ddc.h`. The project is pre-1.0 (`0.1.0`): public API source
+compatibility may evolve as provider coverage matures. Private Apple ABI types
+never appear in the public header.
+
+```sh
+clang -I/some/prefix/include client.c /some/prefix/lib/librss-ddc.a \
+  -framework CoreDisplay -framework CoreGraphics -framework ColorSync \
+  -framework IOKit -framework Foundation
+```
+
+```sh
+make install PREFIX=/some/prefix
+make uninstall PREFIX=/some/prefix
+```
+
+`install` writes only `bin/rss-ddc`, `include/rss_ddc.h`, and
+`lib/librss-ddc.a` below the supplied prefix; `uninstall` removes only those
+three exact paths. The test suite and GitHub Actions are synthetic: they do
+not open display user clients or issue DDC, EDID, or DPCD requests.
 
 ## License
 

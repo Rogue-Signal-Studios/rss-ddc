@@ -25,7 +25,7 @@ unless maintainers reproduce them.
 - macOS version and build.
 - Connection path: built-in HDMI, native DisplayPort, USB-C → DisplayPort,
   USB-C → HDMI, or dock/adapter; identify the adapter/dock when relevant.
-- Exact runtime provider: `AppleDCPPS190`, `DCPDP13Service`,
+- Exact runtime provider: `AppleDCPPS190`, `DCPDP13Service`, `DCPDPService`,
   `AppleDCPMCDP29XX`, or `unknown`.
 
 ### Tested operations
