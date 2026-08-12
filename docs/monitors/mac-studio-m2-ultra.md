@@ -9,7 +9,7 @@ Host: Mac Studio (`Mac14,14`), Apple M2 Ultra, 128 GB RAM.
 | Index | Monitor | Link | EPIC role | Registry provider | rss-ddc provider | Capabilities |
 | --- | --- | --- | --- | --- | --- | --- |
 | 1 | BenQ EW3270U | DisplayPort | `DCPEXT1` | `DCPDP13Service` | `DCPDP13Service` | Get/Set/DPCD (`0x0b`) |
-| 2 | BenQ XL2730Z | DisplayPort | `DCPEXT2` | `DCPDPService` | `unknown` | none (`0x00`) |
+| 2 | BenQ XL2730Z | DisplayPort | `DCPEXT2` | `DCPDPService` | `DCPDPService` | Get/DPCD (`0x09`) |
 | 3 | ASUS PG349Q | HDMI / `pHDMIg` | `DCPEXT5` | `AppleDCPPS190` | `AppleDCPPS190` | Get/Set/EDID/DPCD (`0x0f`) |
 
 Crossbar addresses from `ConnectionMapping`: EW3270U `0.0.0`, XL2730Z `0.2.0`, PG349Q `1.4.0`.
@@ -21,12 +21,12 @@ No `AppleDCPMCDP29XX` provider was present in this tested live topology. This do
 ## DCPDPService (display 2)
 
 `DCPDPService` is a registry provider class distinct from `DCPDP13Service`.
-rss-ddc runtime capabilities remain **disabled** (`unknown`, `0x00`) until
-evidence and promotion are kept separate from validation harnesses.
+rss-ddc now recognizes it as a first-class provider with runtime GET and
+read-only DPCD only.
 
 See [BenQ XL2730Z](benq-xl2730z.md) for per-monitor evidence.
 
-### Structural correlation (read-only IORegistry)
+### Structural correlation
 
 Selected display **BenQ XL2730Z** correlates to:
 
@@ -36,7 +36,7 @@ Selected display **BenQ XL2730Z** correlates to:
 - active DisplayPort transport with `BranchDeviceID = Dp1.2`
 - parallel EPIC siblings on `DCPEXT2`: `dcpdp-device-epic` (`DCPDPDevice`), `dcpdp-service-epic` (`DCPDPService`), video/audio interfaces
 - one external `DCPDPDeviceProxy` with `BranchDeviceID = Dp1.2`
-- one external `DCPDPServiceProxy` on the sibling service EPIC path (topology evidence; not used by GET/DPCD harnesses)
+- one external `DCPDPServiceProxy` on the sibling service EPIC path (topology evidence; not used for GET/DPCD)
 
 DDC GET uses the selected **`dcpav-service-epic` / `DCPAVServiceProxy`** object via `IOAVServiceCreateWithService`. DPCD uses the separate same-role **`DCPDPDeviceProxy`** path. Do not substitute one for the other.
 
@@ -44,42 +44,25 @@ DDC GET uses the selected **`dcpav-service-epic` / `DCPAVServiceProxy`** object 
 
 | Capability | Status |
 | --- | --- |
-| DPCD read `0x00000`/16 | **Hardware validated** on this topology |
-| GET VCP `0x10` | **Validation hypothesis pending** — conventional framing inferred from DCPDP13; use `validate-dcpdpservice-get` |
-| SET VCP | Unknown |
-| EDID | Unknown |
+| GET VCP | **Hardware validated; runtime supported** |
+| DPCD read `0x00000`/16 | **Hardware validated; runtime supported** |
+| SET VCP | Validation hypothesis only — use `validate-dcpdpservice-set` |
+| EDID | Unsupported / unvalidated |
 
-### Hardware-validated DPCD
-
-```sh
-./rss-ddc --verbose validate-dcpdpservice-dpcd 2
-```
-
-Returned bytes:
-
-```text
-12 14 c4 01 01 00 01 c0 02 00 06 00 00 00 01 00
-```
-
-`IOReturn = 0x00000000`. Decode: revision `0x12`, HBR2 (`0x14`), 4 lanes, enhanced framing yes, downstream port no.
-
-Normal `./rss-ddc dpcd 2 ...` remains unsupported for `DCPDPService`.
-
-### GET validation (pending hardware proof)
-
-Hypothesis (**inferred** from DCPDP13 standard-DP behavior):
-
-- `IOAVServiceCreateWithService(selected DCPAVServiceProxy)`
-- write `0x37` / data `0x51` / payload `82 01 10 fd`
-- delay 50 ms
-- read 11 bytes from `0x37` / `0x51`
-- strict MCCS parser
+### Post-promotion commands
 
 ```sh
-./rss-ddc --verbose validate-dcpdpservice-get 2
+./rss-ddc list
+./rss-ddc --verbose get 2 0x10
+./rss-ddc --verbose dpcd 2 0x00000 16
 ```
 
-Normal `./rss-ddc get 2 0x10` remains unsupported.
+These remain unsupported:
+
+```sh
+./rss-ddc --verbose edid 2
+./rss-ddc --verbose set 2 0x10 62
+```
 
 ### Comparison to DCPDP13Service on this host (display 1)
 
@@ -87,10 +70,6 @@ Normal `./rss-ddc get 2 0x10` remains unsupported.
 | --- | --- | --- |
 | Service EPIC name | `dcpav-service-epic` | `dcpav-service-epic` |
 | Service provider class | `DCPDP13Service` | `DCPDPService` |
-| GET object | `DCPAVServiceProxy` → IOAVService | same structural object; **unvalidated for DDC** |
+| GET object | `DCPAVServiceProxy` → IOAVService | same structural object; **hardware validated** |
 | DPCD object | same-role `DCPDPDeviceProxy` → IODPDevice | same pattern; **hardware validated** |
-| rss-ddc runtime | enabled | fail-closed |
-
-## Promotion policy (not implemented)
-
-After GET hardware validation, a separate decision is required before enabling runtime GET/DPCD for `DCPDPService`. SET and EDID remain independently unknown.
+| rss-ddc runtime GET/SET/DPCD/EDID | GET/SET/DPCD | GET/DPCD only |

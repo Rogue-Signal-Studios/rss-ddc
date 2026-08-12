@@ -4,7 +4,7 @@
 
 ## Status
 
-This milestone provides real macOS display/provider discovery, strict DDC/CI parsing, and provider-specific Service-path operations. PS190 GET/SET and DCPDP13 GET/SET are hardware-validated in `rss-ddc`; read-only native DPCD is hardware-validated on their documented paths. Unsupported providers and capabilities return explicit errors rather than falling back to a guessed transport.
+This milestone provides real macOS display/provider discovery, strict DDC/CI parsing, and provider-specific Service-path operations. PS190 GET/SET and DCPDP13 GET/SET are hardware-validated in `rss-ddc`; read-only native DPCD is hardware-validated on their documented paths. DCPDPService GET and read-only DPCD are hardware-validated on the documented Mac Studio XL2730Z topology. Unsupported providers and capabilities return explicit errors rather than falling back to a guessed transport.
 
 The project uses Apple-private macOS interfaces inside the macOS backend only. Behavior can vary by macOS release, display provider, cable/adapter topology, and monitor firmware.
 
@@ -24,9 +24,9 @@ make
 ./rss-ddc --verbose dpcd 1 0x00000 16
 ./rss-ddc --verbose dpcd 1 0x00200 8
 ./rss-ddc --verbose probe-dpcd-path 2
-./rss-ddc --verbose validate-dcpdpservice-dpcd 2
-./rss-ddc --verbose validate-dcpdpservice-get 2
+./rss-ddc --verbose get 2 0x10
 ./rss-ddc --verbose dpcd 2 0x00000 16
+./rss-ddc --verbose validate-dcpdpservice-set 2
 ./rss-ddc --verbose get 1 0x10
 ./rss-ddc set 1 0x60 18
 ./rss-ddc set 1 0x10 50 --verify
@@ -46,8 +46,8 @@ is the default, `--hex` labels every acquired 128-byte block, and `--raw
 `extensions-complete` is the authoritative complete/partial state. DCPDP13
 and MCDP EDID remain explicitly unsupported.
 
-`dpcd` is a separate, read-only capability enabled for the documented PS190
-and DCPDP13 topologies. It performs exactly one bounded native DPCD read
+`dpcd` is a separate, read-only capability enabled for the documented PS190,
+DCPDP13, and DCPDPService topologies. It performs exactly one bounded native DPCD read
 through a selected, provider-specific `DCPDPDeviceProxy`,
 `IODPDeviceCreateWithService`, and `IODPDeviceReadDPCD`. The maximum is 16
 bytes—the largest transfer hardware validated in this project—there is no
@@ -97,8 +97,8 @@ hardware-validated plain GET or plain SET provider transactions.
 | Provider | Backend status | Capabilities |
 | --- | --- | --- |
 | `DCPDP13Service` | conventional Service-path GET/SET and opt-in Set-and-Verify, plus native read-only DPCD, hardware-validated on the documented LG DP setup; EDID unsupported | Get VCP, Set VCP, Read DPCD |
+| `DCPDPService` | distinct registry class; conventional Service-path GET and same-role read-only DPCD hardware-validated on documented XL2730Z path; SET validation-only; EDID unsupported | Get VCP, Read DPCD |
 | `AppleDCPMCDP29XX` | classified; GET and SET unsupported | none |
-| `DCPDPService` | newly observed; runtime fail-closed; DPCD hardware-validated on documented XL2730Z path; GET/DPCD validation harnesses only | none |
 | `AppleDCPPS190` | raw GET, conventional SET, Device-path EDID blocks 0–1, and native DPCD reads hardware validated on the documented Odyssey topology | Get VCP, Set VCP, Read EDID, Read DPCD |
 | unknown | safe unsupported result | none |
 
@@ -110,10 +110,11 @@ backend because the PS190 HDMI topology can also expose that class.
 ## Roadmap
 
 1. EDID — current PS190 blocks 0–1 scope complete
-2. DPCD — current PS190 + DCPDP13 read-only scope complete
-3. MCDP
-4. More monitor catalog coverage
-5. Machine-readable profiles later
+2. DPCD — current PS190 + DCPDP13 + DCPDPService read-only scope complete
+3. DCPDPService SET — validation harness only; promotion pending hardware proof
+4. MCDP
+5. More monitor catalog coverage
+6. Machine-readable profiles later
 
 Read [the architecture](docs/architecture.md), [Apple Silicon transport notes](docs/apple-silicon-ddc.md), and the [Monitor Compatibility & Quirks catalog](docs/monitors/README.md) before enabling another provider capability.
 

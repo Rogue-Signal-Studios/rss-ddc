@@ -14,7 +14,7 @@ provider dispatcher
  DP      MCDP      PS190
 ```
 
-Capabilities are independent flags: Get VCP, Set VCP, EDID read, and DPCD read. A provider receives only the capabilities that have been separately enabled. PS190 Get VCP and Set VCP, plus DCPDP13 Get VCP and Set VCP, are hardware-validated in this project. PS190 Device-path EDID and read-only DPCD, plus DCPDP13 read-only DPCD, are hardware-validated on their documented topologies. DCPDP13/MCDP EDID and MCDP DPCD remain fail-closed.
+Capabilities are independent flags: Get VCP, Set VCP, EDID read, and DPCD read. A provider receives only the capabilities that have been separately enabled. PS190 Get VCP and Set VCP, plus DCPDP13 Get VCP and Set VCP, are hardware-validated in this project. PS190 Device-path EDID and read-only DPCD, plus DCPDP13 read-only DPCD, are hardware-validated on their documented topologies. DCPDPService Get VCP and read-only DPCD are hardware-validated on the documented Mac Studio XL2730Z topology. DCPDP13/MCDP/DCPDPService EDID and MCDP DPCD remain fail-closed; DCPDPService SET remains validation-only.
 
 ## EDID
 
@@ -77,6 +77,10 @@ UI-disabled candidates. It does not require PS190's `BranchDeviceID` or
 `DCPDPDeviceProxy`: the live USB-C DP topology on the documented machine has
 no `BranchDeviceID`. Neither gate selects a provider from a generic
 DisplayPort-named registry node.
+
+`DCPDPService` uses a parallel gate with the same structural requirements but
+requires `EPICProviderClass = DCPDPService`. GET and read-only DPCD are
+enabled after separate hardware validation; SET and EDID remain fail-closed.
 
 Correlation failures retain an internal predicate and can be surfaced by the
 diagnostic public API or `rss-ddc --verbose info`. This gives operators a

@@ -13,6 +13,7 @@ extern "C" {
 typedef enum {
     RSS_DDC_PROVIDER_UNKNOWN = 0,
     RSS_DDC_PROVIDER_DCPDP13,
+    RSS_DDC_PROVIDER_DCPDP_SERVICE,
     RSS_DDC_PROVIDER_MCDP29XX,
     RSS_DDC_PROVIDER_PS190,
 } RSSDDCProvider;
@@ -25,6 +26,7 @@ typedef enum {
 typedef enum {
     RSS_DDC_BACKEND_UNSUPPORTED = 0,
     RSS_DDC_BACKEND_DCPDP13,
+    RSS_DDC_BACKEND_DCPDP_SERVICE,
     RSS_DDC_BACKEND_MCDP29XX,
     RSS_DDC_BACKEND_PS190,
 } RSSDDCBackend;
@@ -246,19 +248,12 @@ RSSDDCError rss_ddc_decode_dpcd_capabilities(uint32_t address, const uint8_t *by
 /** Registry-only diagnostic for the DCPDP13 same-role IODP candidate relationship. */
 RSSDDCError rss_ddc_probe_dpcd_path_with_diagnostics(uint32_t list_index, const RSSDDCDiagnostics *diagnostics);
 /**
- * Validation-only DCPDPService DPCD read at 0x00000 for exactly 16 bytes.
- * Requires the selected display's Service EPIC class to be DCPDPService, exactly
- * one same-role scoped DCPDPDeviceProxy, and one IODPDevice construction.
- * This does not enable DCPDPService runtime capabilities.
+ * Validation-only DCPDPService Set VCP for brightness (0x10): performs one GET
+ * to capture the current value, then two identical standard-DP write-only SET
+ * transactions writing that same value back. Normal runtime SET remains disabled
+ * until separately hardware validated and promoted.
  */
-RSSDDCError rss_ddc_validate_dcpdpservice_dpcd_with_diagnostics(uint32_t list_index, uint8_t *buffer,
-                                                                 const RSSDDCDiagnostics *diagnostics);
-/**
- * Validation-only DCPDPService conventional GET for VCP 0x10 through the
- * selected dcpav-service-epic IOAVService path. Runtime capabilities remain
- * disabled until separately promoted after hardware evidence.
- */
-RSSDDCError rss_ddc_validate_dcpdpservice_get_with_diagnostics(uint32_t list_index, RSSDDCVCPResult *result,
+RSSDDCError rss_ddc_validate_dcpdpservice_set_with_diagnostics(uint32_t list_index,
                                                                 const RSSDDCDiagnostics *diagnostics);
 /** Performs Get VCP with no diagnostics; equivalent to the diagnostic form with NULL options. */
 RSSDDCError rss_ddc_get_vcp(uint32_t list_index, uint8_t vcp_code, RSSDDCVCPResult *result);

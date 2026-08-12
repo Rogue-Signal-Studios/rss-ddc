@@ -100,8 +100,8 @@ typedef enum {
 } RSSDDCDCPDPServiceCorrelationResult;
 
 /**
- * Validation-only Service identity for DCPDPService. Normal capability dispatch
- * must remain unsupported until hardware evidence promotes this provider class.
+ * Selected-display Service identity for DCPDPService. Runtime GET and read-only
+ * DPCD use the same safety gate once the provider is promoted.
  */
 RSSDDCDCPDPServiceCorrelationResult rss_ddc_evaluate_dcpdpservice_correlation(
     const RSSDDCDCPDPServiceCorrelationFacts *facts);

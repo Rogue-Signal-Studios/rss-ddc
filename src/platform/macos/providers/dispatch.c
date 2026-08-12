@@ -12,6 +12,8 @@ RSSDDCError rss_macos_provider_get_vcp(RSSMacOSBinding *binding, uint8_t vcp_cod
             return rss_macos_ps190_get_vcp(binding, vcp_code, result, diagnostics);
         case RSS_DDC_BACKEND_DCPDP13:
             return rss_macos_dp_get_vcp(binding, vcp_code, result, diagnostics);
+        case RSS_DDC_BACKEND_DCPDP_SERVICE:
+            return rss_macos_dcpdpservice_get_vcp(binding, vcp_code, result, diagnostics);
         case RSS_DDC_BACKEND_MCDP29XX:
             return rss_macos_mcdp_get_vcp(binding, vcp_code, result, diagnostics);
         case RSS_DDC_BACKEND_UNSUPPORTED:
@@ -30,6 +32,9 @@ RSSDDCError rss_macos_provider_set_vcp(RSSMacOSBinding *binding, uint8_t vcp_cod
             return rss_macos_ps190_set_vcp(binding, vcp_code, value, diagnostics);
         case RSS_DDC_BACKEND_DCPDP13:
             return rss_macos_dp_set_vcp(binding, vcp_code, value, diagnostics);
+        case RSS_DDC_BACKEND_DCPDP_SERVICE:
+            rss_macos_diagnostic(diagnostics, "operation=SetVCP status=unsupported");
+            return RSS_DDC_ERROR_UNSUPPORTED_CAPABILITY;
         case RSS_DDC_BACKEND_MCDP29XX:
             rss_macos_diagnostic(diagnostics, "operation=SetVCP status=unsupported");
             return RSS_DDC_ERROR_UNSUPPORTED_CAPABILITY;
@@ -48,6 +53,7 @@ RSSDDCError rss_macos_provider_read_edid(RSSMacOSBinding *binding, RSSDDCEDID *e
         case RSS_DDC_BACKEND_PS190:
             return rss_macos_ps190_read_edid(binding, edid, diagnostics);
         case RSS_DDC_BACKEND_DCPDP13:
+        case RSS_DDC_BACKEND_DCPDP_SERVICE:
         case RSS_DDC_BACKEND_MCDP29XX:
             rss_macos_diagnostic(diagnostics, "operation=ReadEDID status=unsupported");
             return RSS_DDC_ERROR_UNSUPPORTED_CAPABILITY;
@@ -66,6 +72,7 @@ RSSDDCError rss_macos_provider_read_dpcd(RSSMacOSBinding *binding, uint32_t addr
         case RSS_DDC_BACKEND_PS190:
             return rss_macos_ps190_read_dpcd(binding, address, buffer, length, diagnostics);
         case RSS_DDC_BACKEND_DCPDP13:
+        case RSS_DDC_BACKEND_DCPDP_SERVICE:
             return rss_macos_dp_read_dpcd(binding, address, buffer, length, diagnostics);
         case RSS_DDC_BACKEND_MCDP29XX:
             rss_macos_diagnostic(diagnostics, "operation=ReadDPCD status=unsupported");

@@ -104,7 +104,9 @@ int main(void) {
     assert(rss_ddc_dcpdpservice_get_validation_ready(RSS_DDC_DCPDP_SERVICE_CORRELATION_OK));
     assert(!rss_ddc_dcpdpservice_get_validation_ready(RSS_DDC_DCPDP_SERVICE_CORRELATION_PROVIDER_MISMATCH));
     assert(rss_ddc_provider_capabilities(RSS_DDC_PROVIDER_UNKNOWN) == RSS_DDC_CAP_NONE);
-    assert(rss_ddc_provider_from_registry_class("DCPDPService") == RSS_DDC_PROVIDER_UNKNOWN);
+    assert(rss_ddc_provider_from_registry_class("DCPDPService") == RSS_DDC_PROVIDER_DCPDP_SERVICE);
+    assert(rss_ddc_provider_capabilities(RSS_DDC_PROVIDER_DCPDP_SERVICE) ==
+           (RSS_DDC_CAP_GET_VCP | RSS_DDC_CAP_READ_DPCD));
 
     RSSDDCVCPResult result = {};
     const RSSDDCConventionalGetValidationCallbacks callbacks = {

@@ -1,6 +1,7 @@
 #include <string.h>
 
 #include "rss_ddc.h"
+#include "correlation.h"
 
 const char *rss_ddc_error_string(RSSDDCError error) {
     switch (error) {
@@ -37,6 +38,7 @@ const char *rss_ddc_error_string(RSSDDCError error) {
 const char *rss_ddc_provider_string(RSSDDCProvider provider) {
     switch (provider) {
         case RSS_DDC_PROVIDER_DCPDP13: return "DCPDP13Service";
+        case RSS_DDC_PROVIDER_DCPDP_SERVICE: return "DCPDPService";
         case RSS_DDC_PROVIDER_MCDP29XX: return "AppleDCPMCDP29XX";
         case RSS_DDC_PROVIDER_PS190: return "AppleDCPPS190";
         case RSS_DDC_PROVIDER_UNKNOWN: return "unknown";
@@ -47,6 +49,7 @@ const char *rss_ddc_provider_string(RSSDDCProvider provider) {
 RSSDDCProvider rss_ddc_provider_from_registry_class(const char *provider_class) {
     if (provider_class == NULL) return RSS_DDC_PROVIDER_UNKNOWN;
     if (strcmp(provider_class, "DCPDP13Service") == 0) return RSS_DDC_PROVIDER_DCPDP13;
+    if (strcmp(provider_class, RSS_DDC_REGISTRY_CLASS_DCPDP_SERVICE) == 0) return RSS_DDC_PROVIDER_DCPDP_SERVICE;
     if (strcmp(provider_class, "AppleDCPMCDP29XX") == 0) return RSS_DDC_PROVIDER_MCDP29XX;
     if (strcmp(provider_class, "AppleDCPPS190") == 0) return RSS_DDC_PROVIDER_PS190;
     return RSS_DDC_PROVIDER_UNKNOWN;
@@ -55,6 +58,7 @@ RSSDDCProvider rss_ddc_provider_from_registry_class(const char *provider_class) 
 RSSDDCBackend rss_ddc_provider_backend(RSSDDCProvider provider) {
     switch (provider) {
         case RSS_DDC_PROVIDER_DCPDP13: return RSS_DDC_BACKEND_DCPDP13;
+        case RSS_DDC_PROVIDER_DCPDP_SERVICE: return RSS_DDC_BACKEND_DCPDP_SERVICE;
         case RSS_DDC_PROVIDER_MCDP29XX: return RSS_DDC_BACKEND_MCDP29XX;
         case RSS_DDC_PROVIDER_PS190: return RSS_DDC_BACKEND_PS190;
         case RSS_DDC_PROVIDER_UNKNOWN: return RSS_DDC_BACKEND_UNSUPPORTED;
@@ -65,6 +69,7 @@ RSSDDCBackend rss_ddc_provider_backend(RSSDDCProvider provider) {
 const char *rss_ddc_backend_name(RSSDDCBackend backend) {
     switch (backend) {
         case RSS_DDC_BACKEND_DCPDP13: return "DCPDP13Service";
+        case RSS_DDC_BACKEND_DCPDP_SERVICE: return "DCPDPService";
         case RSS_DDC_BACKEND_MCDP29XX: return "AppleDCPMCDP29XX";
         case RSS_DDC_BACKEND_PS190: return "AppleDCPPS190";
         case RSS_DDC_BACKEND_UNSUPPORTED: return "unsupported";
@@ -76,6 +81,8 @@ uint32_t rss_ddc_provider_capabilities(RSSDDCProvider provider) {
     switch (provider) {
         case RSS_DDC_PROVIDER_DCPDP13:
             return RSS_DDC_CAP_GET_VCP | RSS_DDC_CAP_SET_VCP | RSS_DDC_CAP_READ_DPCD;
+        case RSS_DDC_PROVIDER_DCPDP_SERVICE:
+            return RSS_DDC_CAP_GET_VCP | RSS_DDC_CAP_READ_DPCD;
         case RSS_DDC_PROVIDER_PS190:
             return RSS_DDC_CAP_GET_VCP | RSS_DDC_CAP_SET_VCP | RSS_DDC_CAP_READ_EDID | RSS_DDC_CAP_READ_DPCD;
         case RSS_DDC_PROVIDER_UNKNOWN:

@@ -112,16 +112,9 @@ RSSDDCError rss_ddc_probe_dpcd_path_with_diagnostics(uint32_t list_index, const 
     return rss_macos_probe_dpcd_path(list_index, diagnostics);
 }
 
-RSSDDCError rss_ddc_validate_dcpdpservice_dpcd_with_diagnostics(uint32_t list_index, uint8_t *buffer,
-                                                                 const RSSDDCDiagnostics *diagnostics) {
-    if (buffer == NULL) return RSS_DDC_ERROR_ARGUMENT;
-    return rss_macos_validate_dcpdpservice_dpcd(list_index, buffer, diagnostics);
-}
-
-RSSDDCError rss_ddc_validate_dcpdpservice_get_with_diagnostics(uint32_t list_index, RSSDDCVCPResult *result,
-                                                              const RSSDDCDiagnostics *diagnostics) {
-    if (result == NULL) return RSS_DDC_ERROR_ARGUMENT;
-    return rss_macos_validate_dcpdpservice_get(list_index, result, diagnostics);
+RSSDDCError rss_ddc_validate_dcpdpservice_set_with_diagnostics(uint32_t list_index,
+                                                                const RSSDDCDiagnostics *diagnostics) {
+    return rss_macos_validate_dcpdpservice_set(list_index, diagnostics);
 }
 
 /** Keeps the concise API free of diagnostics while sharing the same validation path. */

@@ -9,6 +9,7 @@
 
 #include "correlation.h"
 #include "dpcd.h"
+#include "set_validation.h"
 #include "validation.h"
 #include "macos_internal.h"
 
@@ -600,6 +601,13 @@ RSSDDCError rss_macos_resolve_binding(uint32_t list_index, RSSMacOSBinding *bind
             if (!binding->display.external) binding->correlation_failure = RSS_MACOS_CORRELATION_NOT_EXTERNAL;
             return RSS_DDC_ERROR_SAFETY_GATE;
         }
+    } else if (binding->display.provider == RSS_DDC_PROVIDER_DCPDP_SERVICE) {
+        binding->dp_safety_gate = binding->display.external &&
+            is_dcpdpservice_service_identity(binding->service_proxy, &binding->correlation_failure);
+        if (!binding->dp_safety_gate) {
+            if (!binding->display.external) binding->correlation_failure = RSS_MACOS_CORRELATION_NOT_EXTERNAL;
+            return RSS_DDC_ERROR_SAFETY_GATE;
+        }
     } else if (binding->display.provider == RSS_DDC_PROVIDER_PS190) {
         RSSMacOSCorrelationFailure branch_failure = RSS_MACOS_CORRELATION_NONE;
         char device_role[RSS_DDC_TEXT_MAX] = {};
@@ -637,11 +645,13 @@ RSSDDCError rss_macos_probe_dpcd_path(uint32_t list_index, const RSSDDCDiagnosti
         rss_macos_release_binding(&binding);
         return error;
     }
-    if (binding.display.provider != RSS_DDC_PROVIDER_DCPDP13) {
+    if (binding.display.provider != RSS_DDC_PROVIDER_DCPDP13 &&
+        binding.display.provider != RSS_DDC_PROVIDER_DCPDP_SERVICE) {
         rss_macos_diagnostic(diagnostics, "operation=ProbeDPCDPath status=unsupported-provider");
         rss_macos_release_binding(&binding);
         return RSS_DDC_ERROR_UNSUPPORTED_CAPABILITY;
     }
+    const char *backend = rss_ddc_backend_name(rss_ddc_provider_backend(binding.display.provider));
     char message[256] = {};
     char role[RSS_DDC_TEXT_MAX] = {};
     if (!service_epic_role(binding.service_proxy, role)) {
@@ -652,8 +662,8 @@ RSSDDCError rss_macos_probe_dpcd_path(uint32_t list_index, const RSSDDCDiagnosti
     unsigned int candidates = dp_device_candidates_for_role(role, NULL);
     RSSDDCDPCDPathStatus status = rss_ddc_dpcd_path_status_for_candidate_count(candidates);
     snprintf(message, sizeof(message),
-             "backend=DCPDP13Service operation=ProbeDPCDPath service-role=%s scoped-DCPDPDeviceProxy-candidates=%u IODP-construction=not-attempted",
-             role, candidates);
+             "backend=%s operation=ProbeDPCDPath service-role=%s scoped-DCPDPDeviceProxy-candidates=%u IODP-construction=not-attempted",
+             backend, role, candidates);
     rss_macos_diagnostic(diagnostics, message);
     rss_macos_release_binding(&binding);
     if (status == RSS_DDC_DPCD_PATH_CANDIDATE) return RSS_DDC_OK;
@@ -707,9 +717,10 @@ RSSDDCError rss_macos_dp_read_dpcd(RSSMacOSBinding *binding, uint32_t address, u
     if (!service_epic_role(binding->service_proxy, role)) return RSS_DDC_ERROR_SAFETY_GATE;
     io_service_t candidate = MACH_PORT_NULL;
     unsigned int candidates = dp_device_candidates_for_role(role, &candidate);
+    const char *backend = rss_ddc_backend_name(rss_ddc_provider_backend(binding->display.provider));
     snprintf(message, sizeof(message),
-             "backend=DCPDP13Service operation=ReadDPCD path=DCPDPDeviceProxy->IODPDevice service-role=%s scoped-DCPDPDeviceProxy-candidates=%u",
-             role, candidates);
+             "backend=%s operation=ReadDPCD path=DCPDPDeviceProxy->IODPDevice service-role=%s scoped-DCPDPDeviceProxy-candidates=%u",
+             backend, role, candidates);
     rss_macos_diagnostic(diagnostics, message);
     DPCDReadContext context = {.candidate = candidate, .diagnostics = diagnostics};
     const RSSDDCDPCDValidationCallbacks callbacks = {
@@ -727,13 +738,7 @@ RSSDDCError rss_macos_dp_read_dpcd(RSSMacOSBinding *binding, uint32_t address, u
     return error;
 }
 
-RSSDDCError rss_macos_validate_dcpdpservice_dpcd(uint32_t list_index, uint8_t *buffer,
-                                                 const RSSDDCDiagnostics *diagnostics) {
-    if (buffer == NULL) return RSS_DDC_ERROR_ARGUMENT;
-    RSSDDCError range_error = rss_ddc_validate_dpcd_request(RSS_DDC_DCPDP_SERVICE_DPCD_VALIDATION_ADDRESS, buffer,
-                                                            RSS_DDC_DCPDP_SERVICE_DPCD_VALIDATION_LENGTH);
-    if (range_error != RSS_DDC_OK) return range_error;
-
+RSSDDCError rss_macos_validate_dcpdpservice_set(uint32_t list_index, const RSSDDCDiagnostics *diagnostics) {
     RSSMacOSBinding binding = {0};
     RSSDDCError error = rss_macos_resolve_binding(list_index, &binding);
     if (error != RSS_DDC_OK) {
@@ -743,95 +748,27 @@ RSSDDCError rss_macos_validate_dcpdpservice_dpcd(uint32_t list_index, uint8_t *b
     }
 
     char provider_class[RSS_DDC_TEXT_MAX] = {};
-    char message[256] = {};
-    if (!service_epic_provider_class(binding.service_proxy, provider_class) ||
+    char message[512] = {};
+    char role[RSS_DDC_TEXT_MAX] = {};
+    if (binding.display.provider != RSS_DDC_PROVIDER_DCPDP_SERVICE ||
+        !service_epic_provider_class(binding.service_proxy, provider_class) ||
         strcmp(provider_class, RSS_DDC_REGISTRY_CLASS_DCPDP_SERVICE) != 0) {
         snprintf(message, sizeof(message),
-                 "operation=ValidateDCPDPServiceDPCD status=unsupported-provider registry-class=%s",
+                 "operation=ValidateDCPDPServiceSet status=unsupported-provider registry-class=%s",
                  provider_class[0] ? provider_class : "<missing>");
         rss_macos_diagnostic(diagnostics, message);
         rss_macos_release_binding(&binding);
         return RSS_DDC_ERROR_UNSUPPORTED_PROVIDER;
     }
-    if (!is_dcpdpservice_service_identity(binding.service_proxy, &binding.correlation_failure)) {
-        rss_macos_diagnostic(diagnostics, rss_macos_correlation_failure_string(binding.correlation_failure));
-        rss_macos_release_binding(&binding);
-        return RSS_DDC_ERROR_SAFETY_GATE;
-    }
-
-    char role[RSS_DDC_TEXT_MAX] = {};
     if (!service_epic_role(binding.service_proxy, role)) {
-        rss_macos_diagnostic(diagnostics, "operation=ValidateDCPDPServiceDPCD status=missing-service-role");
-        rss_macos_release_binding(&binding);
-        return RSS_DDC_ERROR_SAFETY_GATE;
-    }
-
-    io_service_t candidate = MACH_PORT_NULL;
-    unsigned int candidates = dp_device_candidates_for_role(role, &candidate);
-    snprintf(message, sizeof(message),
-             "backend=DCPDPService operation=ValidateDPCD path=DCPDPDeviceProxy->IODPDevice service-role=%s "
-             "scoped-DCPDPDeviceProxy-candidates=%u address=0x%05x length=%u",
-             role, candidates, RSS_DDC_DCPDP_SERVICE_DPCD_VALIDATION_ADDRESS,
-             RSS_DDC_DCPDP_SERVICE_DPCD_VALIDATION_LENGTH);
-    rss_macos_diagnostic(diagnostics, message);
-    if (!rss_ddc_dcpdpservice_dpcd_validation_ready(RSS_DDC_DCPDP_SERVICE_CORRELATION_OK, candidates)) {
-        rss_macos_release_binding(&binding);
-        if (candidate != MACH_PORT_NULL) IOObjectRelease(candidate);
-        return RSS_DDC_ERROR_SAFETY_GATE;
-    }
-
-    DPCDReadContext context = {.candidate = candidate, .diagnostics = diagnostics};
-    const RSSDDCDPCDValidationCallbacks callbacks = {
-        .context = &context,
-        .construct = dpcd_read_construct,
-        .read = dpcd_read_once,
-        .release = dpcd_read_release,
-    };
-    error = rss_ddc_run_dpcd_candidate_read(candidates, &callbacks, RSS_DDC_DCPDP_SERVICE_DPCD_VALIDATION_ADDRESS,
-                                            buffer, RSS_DDC_DCPDP_SERVICE_DPCD_VALIDATION_LENGTH);
-    if (candidate != MACH_PORT_NULL) IOObjectRelease(candidate);
-    rss_macos_release_binding(&binding);
-    return error;
-}
-
-RSSDDCError rss_macos_validate_dcpdpservice_get(uint32_t list_index, RSSDDCVCPResult *result,
-                                                const RSSDDCDiagnostics *diagnostics) {
-    if (result == NULL) return RSS_DDC_ERROR_ARGUMENT;
-
-    RSSMacOSBinding binding = {0};
-    RSSDDCError error = rss_macos_resolve_binding(list_index, &binding);
-    if (error != RSS_DDC_OK) {
-        rss_macos_diagnostic(diagnostics, rss_macos_correlation_failure_string(binding.correlation_failure));
-        rss_macos_release_binding(&binding);
-        return error;
-    }
-
-    char provider_class[RSS_DDC_TEXT_MAX] = {};
-    char message[256] = {};
-    if (!service_epic_provider_class(binding.service_proxy, provider_class) ||
-        strcmp(provider_class, RSS_DDC_REGISTRY_CLASS_DCPDP_SERVICE) != 0) {
-        snprintf(message, sizeof(message),
-                 "operation=ValidateDCPDPServiceGet status=unsupported-provider registry-class=%s",
-                 provider_class[0] ? provider_class : "<missing>");
-        rss_macos_diagnostic(diagnostics, message);
-        rss_macos_release_binding(&binding);
-        return RSS_DDC_ERROR_UNSUPPORTED_PROVIDER;
-    }
-    if (!is_dcpdpservice_service_identity(binding.service_proxy, &binding.correlation_failure)) {
-        rss_macos_diagnostic(diagnostics, rss_macos_correlation_failure_string(binding.correlation_failure));
-        rss_macos_release_binding(&binding);
-        return RSS_DDC_ERROR_SAFETY_GATE;
-    }
-
-    char role[RSS_DDC_TEXT_MAX] = {};
-    if (!service_epic_role(binding.service_proxy, role)) {
-        rss_macos_diagnostic(diagnostics, "operation=ValidateDCPDPServiceGet status=missing-service-role");
+        rss_macos_diagnostic(diagnostics, "operation=ValidateDCPDPServiceSet status=missing-service-role");
         rss_macos_release_binding(&binding);
         return RSS_DDC_ERROR_SAFETY_GATE;
     }
     snprintf(message, sizeof(message),
-             "backend=DCPDPService operation=ValidateGetVCP path=IOAVService service-role=%s",
-             role);
+             "display=%u product=%s provider=%s role=%s operation=ValidateSetVCP",
+             binding.display.list_index, binding.display.product_name,
+             RSS_DDC_REGISTRY_CLASS_DCPDP_SERVICE, role);
     rss_macos_diagnostic(diagnostics, message);
 
     if (!rss_ddc_dcpdpservice_get_validation_ready(RSS_DDC_DCPDP_SERVICE_CORRELATION_OK)) {
@@ -839,8 +776,29 @@ RSSDDCError rss_macos_validate_dcpdpservice_get(uint32_t list_index, RSSDDCVCPRe
         return RSS_DDC_ERROR_SAFETY_GATE;
     }
 
-    error = rss_macos_run_dcpdpservice_get_validation(binding.service_proxy,
-                                                      RSS_DDC_DCPDP_SERVICE_CORRELATION_OK, result, diagnostics);
+    RSSDDCVCPResult pre_get = {};
+    error = rss_macos_dcpdpservice_get_vcp(&binding, RSS_DDC_DCPDP_SERVICE_SET_VALIDATION_VCP, &pre_get, diagnostics);
+    if (error != RSS_DDC_OK) {
+        rss_macos_release_binding(&binding);
+        return error;
+    }
+    snprintf(message, sizeof(message), "pre-get vcp=0x%02x current=%u", pre_get.vcp_code, pre_get.current_value);
+    rss_macos_diagnostic(diagnostics, message);
+
+    error = rss_macos_run_dcpdpservice_set_validation(binding.service_proxy, RSS_DDC_DCPDP_SERVICE_CORRELATION_OK,
+                                                    pre_get.current_value, diagnostics);
+    if (error != RSS_DDC_OK) {
+        rss_macos_release_binding(&binding);
+        return error;
+    }
+
+    RSSDDCVCPResult post_get = {};
+    error = rss_macos_dcpdpservice_get_vcp(&binding, RSS_DDC_DCPDP_SERVICE_SET_VALIDATION_VCP, &post_get, diagnostics);
+    if (error == RSS_DDC_OK) {
+        snprintf(message, sizeof(message), "post-get vcp=0x%02x current=%u", post_get.vcp_code, post_get.current_value);
+        rss_macos_diagnostic(diagnostics, message);
+    }
+    rss_macos_diagnostic(diagnostics, "runtime SET capability remains disabled for DCPDPService");
     rss_macos_release_binding(&binding);
     return error;
 }

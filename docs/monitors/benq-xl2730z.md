@@ -5,7 +5,7 @@
 | Manufacturer | Unavailable in rss-ddc discovery output |
 | Product name | BenQ XL2730Z |
 | Connection | DisplayPort |
-| Provider | `DCPDPService` (registry); rss-ddc reports `unknown` |
+| Provider | `DCPDPService` |
 | EPIC role | `DCPEXT2` |
 | macOS build | `25F84` |
 | Host | Mac Studio M2 Ultra |
@@ -18,17 +18,55 @@ ports, cables, or firmware.
 
 | Capability | Status | Notes |
 | --- | --- | --- |
-| Read DPCD `0x00000` / 16 | **Hardware validated** | Same-role scoped `DCPDPDeviceProxy → IODPDevice → IODPDeviceReadDPCD`. |
-| Get VCP `0x10` | Validation hypothesis pending | Use `validate-dcpdpservice-get`; conventional framing inferred from DCPDP13. |
-| Set VCP | Unknown | Not validated. |
-| EDID | Unknown | Not validated. |
+| Get VCP | **Hardware validated; runtime supported** | Conventional Service-path IOAV GET. |
+| Read DPCD `0x00000` / 16 | **Hardware validated; runtime supported** | Same-role scoped `DCPDPDeviceProxy → IODPDevice → IODPDeviceReadDPCD`. |
+| Set VCP | Validation hypothesis only | Use `validate-dcpdpservice-set`; standard-DP two-write sequence **inferred** from DCPDP13/PS190. Normal `set` remains unsupported. |
+| EDID | Unsupported / unvalidated | Normal `edid` fails closed. |
+
+rss-ddc capabilities on this topology: `0x09` (GET + DPCD).
+
+## Hardware-validated GET
+
+Command:
+
+```sh
+./rss-ddc --verbose get 2 0x10
+```
+
+Path:
+
+```text
+selected BenQ XL2730Z
+→ registry provider DCPDPService / role DCPEXT2
+→ selected DCPAVServiceProxy
+→ IOAVServiceCreateWithService
+→ conventional MCCS Get VCP
+```
+
+Validated request (VCP `0x10`):
+
+| Field | Value |
+| --- | --- |
+| chip | `0x37` |
+| data/subaddress | `0x51` |
+| payload | `82 01 10 fd` |
+| delay | 50 ms |
+| read length | 11 |
+
+Validated reply:
+
+```text
+6e 88 02 00 10 00 00 64 00 3e fe
+```
+
+Decode: VCP `0x10`, maximum 100, current 62, checksum valid.
 
 ## Hardware-validated DPCD
 
 Command:
 
 ```sh
-./rss-ddc --verbose validate-dcpdpservice-dpcd 2
+./rss-ddc --verbose dpcd 2 0x00000 16
 ```
 
 Path:
@@ -58,24 +96,34 @@ Decode:
 | Enhanced framing | yes |
 | Downstream port present | no |
 
-Runtime `dpcd` remains disabled for `DCPDPService` until separately promoted.
+## SET validation (pending hardware proof)
 
-## GET validation (pending)
+Hypothesis (**inferred** from validated DCPDP13/PS190 standard-DP SET):
 
-Hypothesis: conventional Service-path IOAV GET identical to validated DCPDP13
-framing (`0x37`/`0x51`, payload `82 01 10 fd`, 50 ms delay, 11-byte strict parse).
+- payload `84 03 10 <hi> <lo> <checksum>`
+- chip `0x37`, data/subaddress `0x51`
+- two identical writes, 10 ms before each, no response read
+
+The harness performs one GET of VCP `0x10`, writes the captured current value
+back to itself, then optionally verifies with a post-GET:
 
 ```sh
-./rss-ddc list
-./rss-ddc --verbose validate-dcpdpservice-get 2
+./rss-ddc --verbose validate-dcpdpservice-set 2
 ```
 
-Do not use `./rss-ddc get 2 0x10` until GET is hardware validated and the
-provider is promoted.
+Do not use `./rss-ddc set 2 ...` until SET is separately hardware validated and
+promoted.
 
-## Next steps after successful GET validation
+## Distinction from DCPDP13Service
 
-1. Mark DCPDPService GET hardware validated on this topology.
-2. Decide runtime promotion (GET + validated DPCD) separately from SET.
-3. Validate SET independently; do not infer SET from GET.
-4. EDID remains unknown until separately tested.
+`DCPDPService` is a distinct registry provider class on this host (display 1
+uses `DCPDP13Service`). Transport framing for GET/DPCD currently overlaps, but
+capability states differ: DCPDPService has no runtime SET or EDID until
+independently validated.
+
+## Next steps after successful SET validation
+
+1. Mark DCPDPService SET hardware validated on this topology.
+2. Enable normal SET capability in a separate checkpoint.
+3. Validate a reversible brightness transition if needed.
+4. Keep EDID separate.

@@ -6,12 +6,12 @@ BUILD = build
 
 .DEFAULT_GOAL := $(NAME)
 
-CORE_SOURCES = src/core/correlation.c src/core/provider.c src/core/rss_ddc.c src/core/verify.c src/ddc/protocol.c src/ddc/edid.c src/ddc/get_validation.c src/dpcd/dpcd.c src/dpcd/validation.c src/platform/macos/providers/dispatch.c \
+CORE_SOURCES = src/core/correlation.c src/core/provider.c src/core/rss_ddc.c src/core/verify.c src/ddc/protocol.c src/ddc/edid.c src/ddc/get_validation.c src/ddc/set_validation.c src/dpcd/dpcd.c src/dpcd/validation.c src/platform/macos/providers/dispatch.c \
 	src/platform/macos/providers/mcdp/get_vcp.c
 MACOS_SOURCES = src/platform/macos/discovery.m src/platform/macos/providers/ps190.m \
 	src/platform/macos/providers/dp/get_vcp.m src/platform/macos/providers/dp/set_vcp.m
 CLI_SOURCE = cli/main.m
-TESTS = $(BUILD)/test_protocol $(BUILD)/test_provider $(BUILD)/test_correlation $(BUILD)/test_dispatch $(BUILD)/test_verify $(BUILD)/test_edid $(BUILD)/test_dpcd $(BUILD)/test_dcpdpservice $(BUILD)/test_dcpdpservice_get
+TESTS = $(BUILD)/test_protocol $(BUILD)/test_provider $(BUILD)/test_correlation $(BUILD)/test_dispatch $(BUILD)/test_verify $(BUILD)/test_edid $(BUILD)/test_dpcd $(BUILD)/test_dcpdpservice $(BUILD)/test_dcpdpservice_get $(BUILD)/test_dcpdpservice_set
 
 $(BUILD):
 	mkdir -p $(BUILD)
@@ -44,6 +44,7 @@ test: $(TESTS)
 	$(BUILD)/test_dpcd
 	$(BUILD)/test_dcpdpservice
 	$(BUILD)/test_dcpdpservice_get
+	$(BUILD)/test_dcpdpservice_set
 
 clean:
 	rm -rf $(BUILD) $(NAME)
@@ -61,3 +62,6 @@ $(BUILD)/test_dcpdpservice: $(BUILD) tests/test_dcpdpservice.c src/core/correlat
 
 $(BUILD)/test_dcpdpservice_get: $(BUILD) tests/test_dcpdpservice_get.c src/core/correlation.c src/core/provider.c src/ddc/get_validation.c src/ddc/protocol.c
 	$(CC) $(CFLAGS) -Isrc/core tests/test_dcpdpservice_get.c src/core/correlation.c src/core/provider.c src/ddc/get_validation.c src/ddc/protocol.c -o $@
+
+$(BUILD)/test_dcpdpservice_set: $(BUILD) tests/test_dcpdpservice_set.c src/core/correlation.c src/core/provider.c src/ddc/set_validation.c src/ddc/protocol.c
+	$(CC) $(CFLAGS) -Isrc/core tests/test_dcpdpservice_set.c src/core/correlation.c src/core/provider.c src/ddc/set_validation.c src/ddc/protocol.c -o $@
