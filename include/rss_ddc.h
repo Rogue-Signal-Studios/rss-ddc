@@ -100,14 +100,22 @@ typedef struct {
 /**
  * Caller-owned raw EDID storage. `length` is the number of bytes received or
  * supplied for parsing; it is always a multiple of 128 for a valid object.
- * Current hardware acquisition is deliberately base-block-only where prior
- * research proved that transaction. The parser can validate supplied extension
- * blocks without exposing platform allocation or IOKit ownership.
+ * Acquisition is provider-specific. A successful read can deliberately be
+ * partial when a monitor declares blocks requiring an unvalidated transport;
+ * callers must inspect RSSDDCEDIDInfo.extensions_complete before treating the
+ * result as a complete EDID image.
  */
 typedef struct {
     uint8_t bytes[RSS_DDC_EDID_MAX_BYTES];
     size_t length;
 } RSSDDCEDID;
+
+/** A conservative label for an acquired extension's tag byte; unknown tags remain raw data. */
+typedef enum {
+    RSS_DDC_EDID_EXTENSION_UNKNOWN = 0,
+    RSS_DDC_EDID_EXTENSION_CTA_861,
+    RSS_DDC_EDID_EXTENSION_DISPLAYID,
+} RSSDDCEDIDExtensionType;
 
 /** Strictly decoded base-block identity plus metadata for present extensions. */
 typedef struct {
@@ -127,6 +135,8 @@ typedef struct {
     uint8_t declared_extension_count;
     size_t received_block_count;
     uint8_t extension_tags[RSS_DDC_EDID_MAX_BLOCKS - 1];
+    RSSDDCEDIDExtensionType extension_types[RSS_DDC_EDID_MAX_BLOCKS - 1];
+    uint8_t extension_revisions[RSS_DDC_EDID_MAX_BLOCKS - 1];
     bool extensions_complete;
     bool present_extension_checksums_valid;
 } RSSDDCEDIDInfo;
@@ -198,6 +208,8 @@ RSSDDCError rss_ddc_read_edid_with_diagnostics(uint32_t list_index, RSSDDCEDID *
  * not silently treated as an extension checksum failure.
  */
 RSSDDCError rss_ddc_parse_edid(const RSSDDCEDID *edid, RSSDDCEDIDInfo *info);
+/** Returns a static label for an extension type classified by rss_ddc_parse_edid. */
+const char *rss_ddc_edid_extension_type_string(RSSDDCEDIDExtensionType type);
 /** Performs Get VCP with no diagnostics; equivalent to the diagnostic form with NULL options. */
 RSSDDCError rss_ddc_get_vcp(uint32_t list_index, uint8_t vcp_code, RSSDDCVCPResult *result);
 /**

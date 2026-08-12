@@ -36,7 +36,8 @@ int main(void) {
            info.manufacture_year == 2024 && info.version == 1 && info.revision == 4 &&
            strcmp(info.monitor_name, "Synth Panel") == 0 && strcmp(info.serial_text, "SERIAL 42") == 0 &&
            info.declared_extension_count == 1 && info.received_block_count == 2 && info.extensions_complete &&
-           info.extension_tags[0] == 0x02);
+           info.extension_tags[0] == 0x02 && info.extension_types[0] == RSS_DDC_EDID_EXTENSION_CTA_861 &&
+           info.extension_revisions[0] == 0);
     assert(rss_ddc_edid_block_checksum_valid(edid.bytes));
     RSSDDCEDID edid_13 = fixture(0, 1);
     edid_13.bytes[19] = 3; checksum(edid_13.bytes);
@@ -53,6 +54,21 @@ int main(void) {
     assert(rss_ddc_parse_edid(&edid, &info) == RSS_DDC_ERROR_EDID_LENGTH);
     edid = fixture(0, 1); edid.length = 256;
     assert(rss_ddc_parse_edid(&edid, &info) == RSS_DDC_ERROR_EDID_LENGTH);
+    edid = fixture(2, 2);
+    assert(rss_ddc_parse_edid(&edid, &info) == RSS_DDC_OK && !info.extensions_complete &&
+           info.received_block_count == 2 && info.declared_extension_count == 2);
+    edid = fixture(1, 2); edid.bytes[128] = 0x70; edid.bytes[129] = 0x20; checksum(edid.bytes + 128);
+    assert(rss_ddc_parse_edid(&edid, &info) == RSS_DDC_OK &&
+           info.extension_types[0] == RSS_DDC_EDID_EXTENSION_DISPLAYID && info.extension_revisions[0] == 0x20);
+    edid.bytes[128] = 0x99; checksum(edid.bytes + 128);
+    assert(rss_ddc_parse_edid(&edid, &info) == RSS_DDC_OK &&
+           info.extension_types[0] == RSS_DDC_EDID_EXTENSION_UNKNOWN &&
+           strcmp(rss_ddc_edid_extension_type_string(info.extension_types[0]), "unknown") == 0);
+    RSSDDCEDIDBlockAddress address = {};
+    assert(rss_ddc_edid_block_address(0, &address) && address.segment == 0 && address.offset == 0x00 && !address.requires_segment_pointer);
+    assert(rss_ddc_edid_block_address(1, &address) && address.segment == 0 && address.offset == 0x80 && !address.requires_segment_pointer);
+    assert(rss_ddc_edid_block_address(2, &address) && address.segment == 1 && address.offset == 0x00 && address.requires_segment_pointer);
+    assert(!rss_ddc_edid_block_address(RSS_DDC_EDID_MAX_BLOCKS, &address));
     edid = fixture(0, 1); edid.bytes[12] = edid.bytes[13] = edid.bytes[14] = edid.bytes[15] = 0; checksum(edid.bytes);
     assert(rss_ddc_parse_edid(&edid, &info) == RSS_DDC_OK && !info.serial_number_present);
     puts("test_edid: passed");

@@ -27,15 +27,18 @@ make
 ./rss-ddc --verbose set 2 0x10 100 --verify --settle-ms 100 --retries 3 --retry-delay-ms 250
 ```
 
-PS190 `set` is hardware-validated only in the documented 25F84/Odyssey G75F scope. Do not assume that GET or SET support implies EDID or DPCD support, or that either operation applies to another provider.
+PS190 `set` is hardware-validated only in the documented 25F84/Odyssey G75F scope. Do not assume that GET, SET, or base-block EDID support implies DPCD support, complete E-EDID support, or support for another provider.
 
 `edid` is a read-only, independently dispatched capability. Current rss-ddc
-implements only the research-backed PS190 Device-path base-block tuple; it is
-pending hardware validation in rss-ddc. `--decode` is the default, `--hex`
-prints 16-byte rows, and `--raw <file>` creates a new exact-byte file without
-overwriting an existing path. A declared extension is reported even when the
-evidence-backed base-block acquisition has not read it. DCPDP13 and MCDP EDID
-remain explicitly unsupported until provider-specific acquisition is proven.
+hardware-validates the PS190 Device-path base-block tuple on the documented
+macOS 25F84/Odyssey G75F topology. When the base declares one or more
+extensions, rss-ddc attempts only standard E-EDID block 1 (segment `0`, offset
+`0x80`) without a write; that new mapping is standards-backed but remains
+pending hardware validation. Blocks 2+ require a segment-pointer write and
+remain unsupported. `--decode` is the default, `--hex` labels every acquired
+128-byte block, and `--raw <file>` creates a new exact-byte file without
+overwriting an existing path. `extensions-complete` is the authoritative
+complete/partial state. DCPDP13 and MCDP EDID remain explicitly unsupported.
 
 Successful non-verbose `get` prints only the current value. `--verbose` writes the selected display/provider correlation, raw request/reply bytes, IOReturns, decoded values, and checksum status to standard error for controlled validation.
 For `info`, verbose mode emits a precise registry-correlation rejection reason
@@ -75,7 +78,7 @@ hardware-validated plain GET or plain SET provider transactions.
 | --- | --- | --- |
 | `DCPDP13Service` | conventional Service-path GET/SET and opt-in Set-and-Verify hardware-validated on the documented LG DP setup; EDID acquisition unproven | Get VCP, Set VCP |
 | `AppleDCPMCDP29XX` | classified; GET and SET unsupported | none |
-| `AppleDCPPS190` | raw GET, conventional SET, and opt-in Set-and-Verify hardware-validated; base-block EDID acquisition is research-backed/pending rss-ddc validation | Get VCP, Set VCP, Read EDID |
+| `AppleDCPPS190` | raw GET, conventional SET, opt-in Set-and-Verify, and Device-path base EDID hardware-validated; block-1 E-EDID acquisition is pending validation | Get VCP, Set VCP, Read EDID |
 | unknown | safe unsupported result | none |
 
 `DCPDP13Service` and `AppleDCPPS190` deliberately use different request

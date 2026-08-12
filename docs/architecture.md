@@ -14,24 +14,40 @@ provider dispatcher
  DP      MCDP      PS190
 ```
 
-Capabilities are independent flags: Get VCP, Set VCP, EDID read, and DPCD read. A provider receives only the capabilities that have been separately enabled. PS190 Get VCP and Set VCP, plus DCPDP13 Get VCP and Set VCP, are hardware-validated in this project. PS190 base-block EDID is enabled from predecessor research but awaits direct rss-ddc validation; DCPDP13/MCDP EDID and DPCD remain fail-closed.
+Capabilities are independent flags: Get VCP, Set VCP, EDID read, and DPCD read. A provider receives only the capabilities that have been separately enabled. PS190 Get VCP and Set VCP, plus DCPDP13 Get VCP and Set VCP, are hardware-validated in this project. PS190 Device-path base-block EDID is also hardware-validated on the documented topology; DCPDP13/MCDP EDID and DPCD remain fail-closed.
 
 ## EDID
 
 EDID parsing is portable C: it validates the 128-byte header/checksum, decodes
 base-block identity, validates every extension block that is present, and
-reports declared versus received extension count plus extension tags. Raw bytes
-remain caller-owned in `RSSDDCEDID`; no CoreFoundation or IOKit ownership leaks
-through the public API. A declared extension absent from a base-only read is
-reported as incomplete rather than fabricated or treated as checksum-valid.
+reports declared versus received extension count plus tag, recognized type, and
+revision for every acquired extension. Raw bytes remain caller-owned in
+`RSSDDCEDID`; no CoreFoundation or IOKit ownership leaks through the public
+API. A declared extension absent from acquisition is reported as incomplete
+rather than fabricated or treated as checksum-valid. A successful partial
+acquisition has a valid base block and `extensions_complete=false`; callers
+must use that state rather than assuming the declared count was read.
 
-Prior research hardware-validated only PS190's Device-path base-block tuple:
+rss-ddc hardware validation established PS190's Device-path base-block tuple:
 the branch-correlated `DCPAVDeviceProxy` creates `IOAVDevice`, then performs
 `IOAVDeviceReadI2C(device, 0x50, 0x00, buffer, 128)`. It returned a valid
-header/checksum in the research lab. rss-ddc enables that path only for PS190;
-DCPDP13, MCDP, extension block IOAV access, and all rss-ddc EDID hardware
-validation remain pending. EDID uses the same selected-display correlation and
-never scans global displays or borrows a sibling binding.
+header/checksum on macOS 25F84 with the documented Odyssey G75F. rss-ddc
+enables that path only for PS190. Standard E-EDID maps extension block 1 to
+segment 0, offset `0x80`; the implementation makes that one read when the base
+declares an extension. This is an evidence-backed IOAV subaddress inference,
+not a hardware-validation claim. Blocks 2+ require an E-EDID segment-pointer
+write; no PS190 IOAV mapping for that write is enabled, so they remain partial.
+DCPDP13 and MCDP EDID remain unsupported. EDID uses the same selected-display
+correlation and never scans global displays or borrows a sibling binding.
+
+The portable storage bound is eight 128-byte blocks (1024 bytes). It is a
+memory/validation bound, not a promise that a provider can acquire all eight.
+The standard E-EDID addressing model is: block 0 = segment 0/offset `0x00`,
+block 1 = segment 0/offset `0x80`, block 2 = segment 1/offset `0x00`, and
+block 3 = segment 1/offset `0x80`. The PS190 backend uses only the first two
+locations; it does not write the E-EDID segment pointer at I²C address `0x30`.
+This follows the [VESA E-EDID addressing table](https://glenwing.github.io/docs/VESA-EEDID-A2.pdf),
+while the private-IOAV mapping of block 1 remains pending hardware validation.
 
 EDID data may later help profile matching through manufacturer/product, name,
 serial, fingerprint, and provider/path context. No fingerprint is currently

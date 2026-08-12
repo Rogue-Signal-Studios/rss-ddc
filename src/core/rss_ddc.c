@@ -72,8 +72,10 @@ RSSDDCError rss_ddc_read_edid_with_diagnostics(uint32_t list_index, RSSDDCEDID *
                          info.extensions_complete ? "yes" : "no");
                 rss_macos_diagnostic(diagnostics, message);
                 for (size_t block = 1; block < info.received_block_count; ++block) {
-                    snprintf(message, sizeof(message), "edid extension=%zu tag=0x%02x checksum=valid", block,
-                             info.extension_tags[block - 1]);
+                    snprintf(message, sizeof(message), "edid extension=%zu tag=0x%02x type=%s revision=%u checksum=valid", block,
+                             info.extension_tags[block - 1],
+                             rss_ddc_edid_extension_type_string(info.extension_types[block - 1]),
+                             info.extension_revisions[block - 1]);
                     rss_macos_diagnostic(diagnostics, message);
                 }
             }

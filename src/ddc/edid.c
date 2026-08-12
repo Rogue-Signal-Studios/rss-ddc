@@ -29,6 +29,31 @@ bool rss_ddc_edid_block_checksum_valid(const uint8_t block[RSS_DDC_EDID_BLOCK_SI
     return sum == 0;
 }
 
+bool rss_ddc_edid_block_address(size_t block_index, RSSDDCEDIDBlockAddress *address) {
+    if (address == NULL || block_index >= RSS_DDC_EDID_MAX_BLOCKS) return false;
+    *address = (RSSDDCEDIDBlockAddress){
+        .segment = (uint8_t)(block_index / 2),
+        .offset = (uint8_t)((block_index % 2) == 0 ? 0x00 : 0x80),
+        .requires_segment_pointer = block_index >= 2,
+    };
+    return true;
+}
+
+const char *rss_ddc_edid_extension_type_string(RSSDDCEDIDExtensionType type) {
+    switch (type) {
+        case RSS_DDC_EDID_EXTENSION_CTA_861: return "CTA-861";
+        case RSS_DDC_EDID_EXTENSION_DISPLAYID: return "DisplayID";
+        case RSS_DDC_EDID_EXTENSION_UNKNOWN: return "unknown";
+    }
+    return "unknown";
+}
+
+static RSSDDCEDIDExtensionType extension_type(uint8_t tag) {
+    if (tag == 0x02) return RSS_DDC_EDID_EXTENSION_CTA_861;
+    if (tag == 0x70) return RSS_DDC_EDID_EXTENSION_DISPLAYID;
+    return RSS_DDC_EDID_EXTENSION_UNKNOWN;
+}
+
 /* Descriptor text is fixed-width binary data; retain printable ASCII only and trim EDID padding. */
 static void copy_descriptor_text(const uint8_t descriptor[RSS_EDID_DESCRIPTOR_SIZE], char output[RSS_DDC_TEXT_MAX]) {
     size_t written = 0;
@@ -59,7 +84,12 @@ RSSDDCError rss_ddc_parse_edid(const RSSDDCEDID *edid, RSSDDCEDIDInfo *info) {
     *info = (RSSDDCEDIDInfo){.received_block_count = blocks, .declared_extension_count = declared_extensions,
                               .extensions_complete = blocks == (size_t)declared_extensions + 1,
                               .present_extension_checksums_valid = true};
-    for (size_t block = 1; block < blocks; ++block) info->extension_tags[block - 1] = base[block * RSS_DDC_EDID_BLOCK_SIZE];
+    for (size_t block = 1; block < blocks; ++block) {
+        const uint8_t *extension = base + block * RSS_DDC_EDID_BLOCK_SIZE;
+        info->extension_tags[block - 1] = extension[0];
+        info->extension_types[block - 1] = extension_type(extension[0]);
+        info->extension_revisions[block - 1] = extension[1];
+    }
     uint16_t manufacturer = ((uint16_t)base[RSS_EDID_MANUFACTURER_OFFSET] << 8) | base[RSS_EDID_MANUFACTURER_OFFSET + 1];
     for (size_t index = 0; index < 3; ++index) {
         uint8_t letter = (manufacturer >> (10 - index * 5)) & 0x1f;

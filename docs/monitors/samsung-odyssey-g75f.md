@@ -71,10 +71,28 @@ codes. Only `17` and `18` have documented PS190 SET evidence in this catalog.
 
 ## EDID identity
 
-Pending rss-ddc hardware validation. Future results will record manufacturer
-ID, product code, serial presence, EDID version, extension count, checksum
-status, and any fingerprint. The current PS190 base-block acquisition is
-research-backed; no values are pre-filled here.
+The following identity was read by the rss-ddc PS190 **Device** path on macOS
+`25F84`. It describes EDID data, not the ordinary CoreGraphics display
+discovery fields above.
+
+| Field | Hardware-validated base-block value |
+| --- | --- |
+| Manufacturer ID | `SAM` |
+| Product code | `0x7967` |
+| Numeric serial | `825246545` |
+| Text serial | `HNTL501790` |
+| Monitor name | `Odyssey G75F` |
+| EDID version | `1.3` |
+| Physical size | `93 × 40 cm` |
+| Declared extensions | `1` |
+| Base-block checksum | Valid |
+
+The acquisition was `IOAVDeviceReadI2C(device, 0x50, 0x00, buffer, 128)` after
+the PS190 branch/device safety correlation. It performed no DDC/CI or
+segment-pointer write. Extension acquisition is separate: block 1 uses the
+standard segment-0/offset-`0x80` model in the current implementation but has
+not yet been hardware validated. No EDID identity is recorded for the LG
+sibling display.
 
 ## Notes
 

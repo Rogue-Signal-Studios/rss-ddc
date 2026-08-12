@@ -12,16 +12,32 @@ portability evidence.
 
 ## EDID acquisition evidence
 
-The predecessor research lab hardware-validated one PS190 **Device** path base
-read: the structurally paired `DCPAVDeviceProxy` was used to create
-`IOAVDevice`, then `IOAVDeviceReadI2C(device, 0x50, 0x00, buffer, 128)` returned
-a valid 128-byte EDID header/checksum. No write, segment-pointer operation, or
-extension-block read was involved. This is distinct from the Service APIs used
-by current PS190 GET/SET. Current rss-ddc preserves that distinction: only
-PS190 base-block EDID is enabled, through the same branch-correlated Device
-pairing; it remains pending direct rss-ddc hardware validation. The research
-does not establish DCPDP13 or MCDP EDID acquisition, extension access, timing,
-or a provider-wide EDID rule.
+rss-ddc has hardware-validated one PS190 **Device** path base read on macOS
+`25F84` with the Odyssey G75F: the structurally paired `DCPAVDeviceProxy` was
+used to create `IOAVDevice`, then
+`IOAVDeviceReadI2C(device, 0x50, 0x00, buffer, 128)` returned the valid base
+block below. No write, segment-pointer operation, or extension-block read was
+involved. This is distinct from the Service APIs used by PS190 GET/SET.
+
+```text
+00 ff ff ff ff ff ff 00 4c 2d 67 79 51 43 30 31
+16 24 01 03 80 5d 28 78 2a 50 25 ad 51 48 a8 27
+09 50 54 21 08 00 81 c0 81 00 81 80 95 00 a9 c0
+b3 00 d1 c0 01 01 e7 7c 70 a0 d0 a0 29 50 30 20
+3a 00 a2 90 31 00 00 1a 00 00 00 fd 00 30 b4 1e
+ff eb 00 0a 20 20 20 20 20 20 00 00 00 fc 00 4f
+64 79 73 73 65 79 20 47 37 35 46 0a 00 00 00 ff
+00 48 4e 54 4c 35 30 31 37 39 30 0a 20 20 01 91
+```
+
+It decodes as `SAM`, product `0x7967`, numeric serial `825246545`, text serial
+`HNTL501790`, `Odyssey G75F`, EDID `1.3`, `93 × 40 cm`, with one declared
+extension and a valid base checksum. The E-EDID standard places block 1 at
+segment 0/offset `0x80`; rss-ddc now issues that one IOAV Device read when the
+validated base declares it. That IOAV mapping is a standards-backed inference
+awaiting hardware validation. Blocks 2+ need a segment-pointer write, which is
+not implemented. DCPDP13/MCDP EDID acquisition, extension timing, and any
+provider-wide EDID rule remain unproven.
 
 ## Standard DP Get VCP (`DCPDP13Service`)
 

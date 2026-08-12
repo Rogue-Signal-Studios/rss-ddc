@@ -52,16 +52,22 @@ static void print_edid_decode(const RSSDDCEDIDInfo *info) {
     printf("edid-version: %u.%u\nsize-cm: %ux%u\nextensions: %u declared, %zu received\nchecksum: valid\n",
            info->version, info->revision, info->width_cm, info->height_cm, info->declared_extension_count,
            info->received_block_count > 0 ? info->received_block_count - 1 : 0);
-    if (!info->extensions_complete) printf("extensions-complete: no (base-block acquisition only)\n");
+    printf("extensions-complete: %s\n", info->extensions_complete ? "yes" : "no");
     for (size_t block = 1; block < info->received_block_count; ++block) {
-        printf("extension-%zu-tag: 0x%02x\n", block, info->extension_tags[block - 1]);
+        printf("extension-%zu-tag: 0x%02x type: %s revision: %u checksum: valid\n", block,
+               info->extension_tags[block - 1], rss_ddc_edid_extension_type_string(info->extension_types[block - 1]),
+               info->extension_revisions[block - 1]);
     }
 }
 
 static void print_edid_hex(const RSSDDCEDID *edid) {
-    for (size_t index = 0; index < edid->length; ++index) {
-        if (index % 16 == 0) printf("%04zx: ", index);
-        printf("%02x%s", edid->bytes[index], index % 16 == 15 || index + 1 == edid->length ? "\n" : " ");
+    for (size_t block = 0; block < edid->length / RSS_DDC_EDID_BLOCK_SIZE; ++block) {
+        printf("EDID block %zu\n", block);
+        for (size_t offset = 0; offset < RSS_DDC_EDID_BLOCK_SIZE; ++offset) {
+            size_t index = block * RSS_DDC_EDID_BLOCK_SIZE + offset;
+            if (offset % 16 == 0) printf("%04zx: ", index);
+            printf("%02x%s", edid->bytes[index], offset % 16 == 15 ? "\n" : " ");
+        }
     }
 }
 

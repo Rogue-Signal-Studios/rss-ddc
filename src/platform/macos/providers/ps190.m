@@ -5,6 +5,7 @@
 #include <string.h>
 
 #include "macos_internal.h"
+#include "edid.h"
 #include "protocol.h"
 
 /*
@@ -149,10 +150,11 @@ done:
 }
 
 /**
- * Prior PS190 research hardware-validated only this Device-path base-block
- * tuple: chip 0x50, subaddress 0x00, 128 bytes. Extension reads and Service
- * EDID transport were not established, so this backend neither guesses nor
- * enables them. The common parser reports any declared extension as incomplete.
+ * The base tuple is hardware-validated in rss-ddc. E-EDID assigns block 1 to
+ * segment 0/offset 0x80, so this backend makes one additional read only when
+ * the base declares it. That IOAV mapping is standards-backed but not yet
+ * hardware-validated. Blocks >= 2 require a 0x30 segment-pointer write whose
+ * PS190 IOAV semantics are unproven, so they remain explicitly incomplete.
  */
 RSSDDCError rss_macos_ps190_read_edid(RSSMacOSBinding *binding, RSSDDCEDID *edid,
                                       const RSSDDCDiagnostics *diagnostics) {
@@ -161,21 +163,50 @@ RSSDDCError rss_macos_ps190_read_edid(RSSMacOSBinding *binding, RSSDDCEDID *edid
     io_service_t av_device = ps190_paired_av_device(dcpdp_device);
     if (dcpdp_device != MACH_PORT_NULL) IOObjectRelease(dcpdp_device);
     if (av_device == MACH_PORT_NULL) return RSS_DDC_ERROR_SAFETY_GATE;
-    rss_macos_diagnostic(diagnostics, "backend=AppleDCPPS190 operation=ReadEDID path=IOAVDevice base-block-only");
+    rss_macos_diagnostic(diagnostics, "backend=AppleDCPPS190 operation=ReadEDID path=IOAVDevice base+block1-only");
     IOAVDeviceRef device = IOAVDeviceCreateWithService(kCFAllocatorDefault, av_device);
     IOObjectRelease(av_device);
     if (device == NULL || CFGetTypeID(device) != IOAVDeviceGetTypeID()) {
         if (device != NULL) CFRelease(device);
         return RSS_DDC_ERROR_SERVICE_CONSTRUCTION;
     }
-    memset(edid->bytes, 0xcc, RSS_DDC_EDID_BLOCK_SIZE);
+    memset(edid->bytes, 0xcc, sizeof(edid->bytes));
     IOReturn result = IOAVDeviceReadI2C(device, 0x50, 0x00, edid->bytes, RSS_DDC_EDID_BLOCK_SIZE);
-    CFRelease(device);
     char message[160] = {};
     snprintf(message, sizeof(message), "read chip=0x50 data=0x00000000 length=128 IOReturn=0x%08x", (unsigned int)result);
     rss_macos_diagnostic(diagnostics, message);
-    if (result != KERN_SUCCESS) return RSS_DDC_ERROR_READ;
+    if (result != KERN_SUCCESS) { CFRelease(device); return RSS_DDC_ERROR_READ; }
     edid->length = RSS_DDC_EDID_BLOCK_SIZE;
+    RSSDDCEDIDInfo base_info = {};
+    RSSDDCError base_parse = rss_ddc_parse_edid(edid, &base_info);
+    if (base_parse != RSS_DDC_OK) {
+        CFRelease(device);
+        return base_parse;
+    }
+    uint8_t declared_extensions = base_info.declared_extension_count;
+    if (declared_extensions != 0) {
+        RSSDDCEDIDBlockAddress block1 = {};
+        if (!rss_ddc_edid_block_address(1, &block1) || block1.requires_segment_pointer) {
+            CFRelease(device);
+            return RSS_DDC_ERROR_SYSTEM;
+        }
+        snprintf(message, sizeof(message),
+                 "extension=1 segment=0x%02x data=0x%08x length=128 acquisition=standards-backed-pending-validation",
+                 block1.segment, block1.offset);
+        rss_macos_diagnostic(diagnostics, message);
+        result = IOAVDeviceReadI2C(device, 0x50, block1.offset,
+                                   edid->bytes + RSS_DDC_EDID_BLOCK_SIZE, RSS_DDC_EDID_BLOCK_SIZE);
+        snprintf(message, sizeof(message), "read chip=0x50 data=0x%08x length=128 IOReturn=0x%08x",
+                 block1.offset, (unsigned int)result);
+        rss_macos_diagnostic(diagnostics, message);
+        if (result == KERN_SUCCESS) edid->length += RSS_DDC_EDID_BLOCK_SIZE;
+        else rss_macos_diagnostic(diagnostics, "extension=1 status=unread; returning validated base block as incomplete");
+        if (declared_extensions > 1) {
+            rss_macos_diagnostic(diagnostics,
+                                 "extension>=2 status=unread; PS190 segment-pointer writes are intentionally unsupported");
+        }
+    }
+    CFRelease(device);
     return RSS_DDC_OK;
 }
 
