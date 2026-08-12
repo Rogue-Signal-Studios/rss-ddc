@@ -69,6 +69,13 @@ codes. Only `17` and `18` have documented PS190 SET evidence in this catalog.
 | `0x10` brightness | PS190 path reported maximum/current `50/50`; Set-and-Verify demonstrated `50 → 49 → 50`. |
 | `0x60` input source | PS190 path reported maximum/current `18/18`; USB-C → DP path reported `18/15`. |
 
+## EDID identity
+
+Pending rss-ddc hardware validation. Future results will record manufacturer
+ID, product code, serial presence, EDID version, extension count, checksum
+status, and any fingerprint. The current PS190 base-block acquisition is
+research-backed; no values are pre-filled here.
+
 ## Notes
 
 Connection provider, not product name, chooses GET transport framing. See the

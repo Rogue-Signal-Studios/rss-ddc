@@ -56,6 +56,9 @@ typedef enum {
     RSS_DDC_ERROR_REPLY_STATUS,
     RSS_DDC_ERROR_REPLY_VCP,
     RSS_DDC_ERROR_REPLY_CHECKSUM,
+    RSS_DDC_ERROR_EDID_LENGTH,
+    RSS_DDC_ERROR_EDID_HEADER,
+    RSS_DDC_ERROR_EDID_CHECKSUM,
     RSS_DDC_ERROR_VERIFY_MISMATCH,
     RSS_DDC_ERROR_VERIFY_RETRY_EXHAUSTED,
     RSS_DDC_ERROR_VERIFY_UNAVAILABLE,
@@ -64,6 +67,9 @@ typedef enum {
 
 enum {
     RSS_DDC_TEXT_MAX = 128,
+    RSS_DDC_EDID_BLOCK_SIZE = 128,
+    RSS_DDC_EDID_MAX_BLOCKS = 8,
+    RSS_DDC_EDID_MAX_BYTES = RSS_DDC_EDID_BLOCK_SIZE * RSS_DDC_EDID_MAX_BLOCKS,
 };
 
 /**
@@ -90,6 +96,40 @@ typedef struct {
     uint16_t maximum_value;
     uint16_t current_value;
 } RSSDDCVCPResult;
+
+/**
+ * Caller-owned raw EDID storage. `length` is the number of bytes received or
+ * supplied for parsing; it is always a multiple of 128 for a valid object.
+ * Current hardware acquisition is deliberately base-block-only where prior
+ * research proved that transaction. The parser can validate supplied extension
+ * blocks without exposing platform allocation or IOKit ownership.
+ */
+typedef struct {
+    uint8_t bytes[RSS_DDC_EDID_MAX_BYTES];
+    size_t length;
+} RSSDDCEDID;
+
+/** Strictly decoded base-block identity plus metadata for present extensions. */
+typedef struct {
+    char manufacturer_id[4];
+    uint16_t product_code;
+    uint32_t serial_number;
+    bool serial_number_present;
+    uint8_t manufacture_week;
+    uint16_t manufacture_year;
+    bool manufacture_date_present;
+    uint8_t version;
+    uint8_t revision;
+    uint8_t width_cm;
+    uint8_t height_cm;
+    char monitor_name[RSS_DDC_TEXT_MAX];
+    char serial_text[RSS_DDC_TEXT_MAX];
+    uint8_t declared_extension_count;
+    size_t received_block_count;
+    uint8_t extension_tags[RSS_DDC_EDID_MAX_BLOCKS - 1];
+    bool extensions_complete;
+    bool present_extension_checksums_valid;
+} RSSDDCEDIDInfo;
 
 /**
  * Explicit policy for the optional high-level Set-and-Verify operation.
@@ -146,6 +186,18 @@ RSSDDCError rss_ddc_get_display(uint32_t list_index, RSSDDCDisplay *display);
  */
 RSSDDCError rss_ddc_get_display_with_diagnostics(uint32_t list_index, RSSDDCDisplay *display,
                                                   const RSSDDCDiagnostics *diagnostics);
+/** Reads the evidence-backed provider EDID acquisition path into caller-owned storage. */
+RSSDDCError rss_ddc_read_edid(uint32_t list_index, RSSDDCEDID *edid);
+/** Diagnostic form of rss_ddc_read_edid; it remains independent of GET/SET/verify timing. */
+RSSDDCError rss_ddc_read_edid_with_diagnostics(uint32_t list_index, RSSDDCEDID *edid,
+                                                const RSSDDCDiagnostics *diagnostics);
+/**
+ * Validates the base block and every extension block present in `edid`, then
+ * decodes portable identity metadata. A declared extension may be absent from
+ * a base-only acquisition; that is reported as `extensions_complete=false`,
+ * not silently treated as an extension checksum failure.
+ */
+RSSDDCError rss_ddc_parse_edid(const RSSDDCEDID *edid, RSSDDCEDIDInfo *info);
 /** Performs Get VCP with no diagnostics; equivalent to the diagnostic form with NULL options. */
 RSSDDCError rss_ddc_get_vcp(uint32_t list_index, uint8_t vcp_code, RSSDDCVCPResult *result);
 /**

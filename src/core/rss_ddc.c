@@ -1,6 +1,7 @@
 #include "rss_ddc.h"
 #include "macos_internal.h"
 #include "verify.h"
+#include "edid.h"
 
 #include <stdio.h>
 #include <unistd.h>
@@ -43,6 +44,42 @@ RSSDDCError rss_ddc_get_display_with_diagnostics(uint32_t list_index, RSSDDCDisp
         rss_macos_diagnostic(diagnostics, rss_macos_correlation_failure_string(binding.correlation_failure));
         const char *detail = rss_macos_correlation_detail_string(&binding);
         if (detail != NULL) rss_macos_diagnostic(diagnostics, detail);
+    }
+    rss_macos_release_binding(&binding);
+    return error;
+}
+
+RSSDDCError rss_ddc_read_edid(uint32_t list_index, RSSDDCEDID *edid) {
+    return rss_ddc_read_edid_with_diagnostics(list_index, edid, NULL);
+}
+
+RSSDDCError rss_ddc_read_edid_with_diagnostics(uint32_t list_index, RSSDDCEDID *edid,
+                                                const RSSDDCDiagnostics *diagnostics) {
+    if (edid == NULL) return RSS_DDC_ERROR_ARGUMENT;
+    *edid = (RSSDDCEDID){};
+    RSSMacOSBinding binding = {0};
+    RSSDDCError error = rss_macos_resolve_binding(list_index, &binding);
+    if (error == RSS_DDC_OK) {
+        diagnostic_binding(&binding, diagnostics);
+        error = rss_macos_provider_read_edid(&binding, edid, diagnostics);
+        if (error == RSS_DDC_OK) {
+            RSSDDCEDIDInfo info = {};
+            error = rss_ddc_parse_edid(edid, &info);
+            if (error == RSS_DDC_OK) {
+                char message[256] = {};
+                snprintf(message, sizeof(message), "edid bytes=%zu blocks=%zu extensions=%u complete=%s",
+                         edid->length, info.received_block_count, info.declared_extension_count,
+                         info.extensions_complete ? "yes" : "no");
+                rss_macos_diagnostic(diagnostics, message);
+                for (size_t block = 1; block < info.received_block_count; ++block) {
+                    snprintf(message, sizeof(message), "edid extension=%zu tag=0x%02x checksum=valid", block,
+                             info.extension_tags[block - 1]);
+                    rss_macos_diagnostic(diagnostics, message);
+                }
+            }
+        }
+    } else {
+        rss_macos_diagnostic(diagnostics, rss_macos_correlation_failure_string(binding.correlation_failure));
     }
     rss_macos_release_binding(&binding);
     return error;

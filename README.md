@@ -18,6 +18,9 @@ make
 ./rss-ddc info 1
 ./rss-ddc --verbose info 1
 ./rss-ddc get 1 0x10
+./rss-ddc edid 1 --decode
+./rss-ddc edid 1 --hex
+./rss-ddc edid 1 --raw odyssey.edid
 ./rss-ddc --verbose get 1 0x10
 ./rss-ddc set 1 0x60 18
 ./rss-ddc set 1 0x10 50 --verify
@@ -25,6 +28,14 @@ make
 ```
 
 PS190 `set` is hardware-validated only in the documented 25F84/Odyssey G75F scope. Do not assume that GET or SET support implies EDID or DPCD support, or that either operation applies to another provider.
+
+`edid` is a read-only, independently dispatched capability. Current rss-ddc
+implements only the research-backed PS190 Device-path base-block tuple; it is
+pending hardware validation in rss-ddc. `--decode` is the default, `--hex`
+prints 16-byte rows, and `--raw <file>` creates a new exact-byte file without
+overwriting an existing path. A declared extension is reported even when the
+evidence-backed base-block acquisition has not read it. DCPDP13 and MCDP EDID
+remain explicitly unsupported until provider-specific acquisition is proven.
 
 Successful non-verbose `get` prints only the current value. `--verbose` writes the selected display/provider correlation, raw request/reply bytes, IOReturns, decoded values, and checksum status to standard error for controlled validation.
 For `info`, verbose mode emits a precise registry-correlation rejection reason
@@ -62,9 +73,9 @@ hardware-validated plain GET or plain SET provider transactions.
 
 | Provider | Backend status | Capabilities |
 | --- | --- | --- |
-| `DCPDP13Service` | conventional Service-path GET/SET and opt-in Set-and-Verify hardware-validated on the documented LG DP setup | Get VCP, Set VCP |
+| `DCPDP13Service` | conventional Service-path GET/SET and opt-in Set-and-Verify hardware-validated on the documented LG DP setup; EDID acquisition unproven | Get VCP, Set VCP |
 | `AppleDCPMCDP29XX` | classified; GET and SET unsupported | none |
-| `AppleDCPPS190` | raw GET, conventional SET, and opt-in Set-and-Verify hardware-validated on the documented 25F84 setup | Get VCP, Set VCP |
+| `AppleDCPPS190` | raw GET, conventional SET, and opt-in Set-and-Verify hardware-validated; base-block EDID acquisition is research-backed/pending rss-ddc validation | Get VCP, Set VCP, Read EDID |
 | unknown | safe unsupported result | none |
 
 `DCPDP13Service` and `AppleDCPPS190` deliberately use different request

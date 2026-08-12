@@ -10,6 +10,19 @@ conclusions** cover the PS190 no-offset transport sentinel. Provider
 classification and safety correlation are implementation architecture, not
 portability evidence.
 
+## EDID acquisition evidence
+
+The predecessor research lab hardware-validated one PS190 **Device** path base
+read: the structurally paired `DCPAVDeviceProxy` was used to create
+`IOAVDevice`, then `IOAVDeviceReadI2C(device, 0x50, 0x00, buffer, 128)` returned
+a valid 128-byte EDID header/checksum. No write, segment-pointer operation, or
+extension-block read was involved. This is distinct from the Service APIs used
+by current PS190 GET/SET. Current rss-ddc preserves that distinction: only
+PS190 base-block EDID is enabled, through the same branch-correlated Device
+pairing; it remains pending direct rss-ddc hardware validation. The research
+does not establish DCPDP13 or MCDP EDID acquisition, extension access, timing,
+or a provider-wide EDID rule.
+
 ## Standard DP Get VCP (`DCPDP13Service`)
 
 `DCPDP13Service` is a distinct provider backend. `rss-ddc` Get VCP was

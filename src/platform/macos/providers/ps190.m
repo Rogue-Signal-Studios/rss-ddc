@@ -13,10 +13,14 @@
  * CreateWithService returns a retained CF object released with CFRelease.
  */
 typedef CFTypeRef IOAVServiceRef;
+typedef CFTypeRef IOAVDeviceRef;
 extern IOAVServiceRef IOAVServiceCreateWithService(CFAllocatorRef, io_service_t);
 extern CFTypeID IOAVServiceGetTypeID(void);
 extern IOReturn IOAVServiceReadI2C(IOAVServiceRef, uint32_t, uint32_t, void *, uint32_t);
 extern IOReturn IOAVServiceWriteI2C(IOAVServiceRef, uint32_t, uint32_t, void *, uint32_t);
+extern IOAVDeviceRef IOAVDeviceCreateWithService(CFAllocatorRef, io_service_t);
+extern CFTypeID IOAVDeviceGetTypeID(void);
+extern IOReturn IOAVDeviceReadI2C(IOAVDeviceRef, uint32_t, uint32_t, void *, uint32_t);
 
 enum {
     RSS_PS190_SET_WRITE_COUNT = 2,
@@ -33,6 +37,146 @@ static void diagnostic_bytes(const RSSDDCDiagnostics *diagnostics, const char *l
                             index == 0 ? "=" : " ", bytes[index]);
     }
     rss_macos_diagnostic(diagnostics, message);
+}
+
+static bool device_is_external(io_service_t service) {
+    CFTypeRef value = IORegistryEntryCreateCFProperty(service, CFSTR("Location"), kCFAllocatorDefault, 0);
+    bool result = value != NULL && CFGetTypeID(value) == CFStringGetTypeID() &&
+        CFStringCompare(value, CFSTR("External"), 0) == kCFCompareEqualTo;
+    if (value != NULL) CFRelease(value);
+    return result;
+}
+
+/* Finds the one branch-anchored DCPDP device proxy established by PS190 research. */
+static io_service_t ps190_dcpdp_device_for_branch(const char *branch) {
+    if (branch == NULL || branch[0] == '\0') return MACH_PORT_NULL;
+    CFStringRef expected = CFStringCreateWithCString(kCFAllocatorDefault, branch, kCFStringEncodingUTF8);
+    io_registry_entry_t root = IORegistryGetRootEntry(kIOMainPortDefault);
+    io_iterator_t iterator = MACH_PORT_NULL;
+    if (expected == NULL || root == MACH_PORT_NULL || IORegistryEntryCreateIterator(root, kIOServicePlane,
+        kIORegistryIterateRecursively, &iterator) != KERN_SUCCESS) {
+        if (root != MACH_PORT_NULL) IOObjectRelease(root);
+        if (expected != NULL) CFRelease(expected);
+        return MACH_PORT_NULL;
+    }
+    IOObjectRelease(root);
+    io_service_t match = MACH_PORT_NULL;
+    bool ambiguous = false;
+    io_service_t entry = MACH_PORT_NULL;
+    while ((entry = IOIteratorNext(iterator)) != MACH_PORT_NULL) {
+        io_name_t class_name = {};
+        IOObjectGetClass(entry, class_name);
+        CFTypeRef candidate = strcmp(class_name, "DCPDPDeviceProxy") == 0 ?
+            IORegistryEntryCreateCFProperty(entry, CFSTR("BranchDeviceID"), kCFAllocatorDefault, 0) : NULL;
+        bool matches = candidate != NULL && CFEqual(candidate, expected) && device_is_external(entry);
+        if (candidate != NULL) CFRelease(candidate);
+        if (!matches || match != MACH_PORT_NULL || ambiguous) {
+            if (matches && match != MACH_PORT_NULL) { IOObjectRelease(match); ambiguous = true; }
+            IOObjectRelease(entry);
+            if (ambiguous) match = MACH_PORT_NULL; /* Scoped ambiguity fails closed. */
+        } else {
+            match = entry;
+        }
+    }
+    IOObjectRelease(iterator);
+    CFRelease(expected);
+    return match;
+}
+
+/* Matches the sibling AV endpoint structurally instead of by a global proxy count. */
+static io_service_t ps190_paired_av_device(io_service_t dcpdp_device) {
+    io_registry_entry_t dp_epic = MACH_PORT_NULL;
+    io_registry_entry_t interface = MACH_PORT_NULL;
+    io_service_t match = MACH_PORT_NULL;
+    bool ambiguous = false;
+    if (dcpdp_device == MACH_PORT_NULL || IORegistryEntryGetParentEntry(dcpdp_device, kIOServicePlane, &dp_epic) != KERN_SUCCESS ||
+        IORegistryEntryGetParentEntry(dp_epic, kIOServicePlane, &interface) != KERN_SUCCESS) {
+        if (dp_epic != MACH_PORT_NULL) IOObjectRelease(dp_epic);
+        return MACH_PORT_NULL;
+    }
+    CFTypeRef location = IORegistryEntryCreateCFProperty(dp_epic, CFSTR("EPICLocation"), kCFAllocatorDefault, 0);
+    CFTypeRef unit = IORegistryEntryCreateCFProperty(dp_epic, CFSTR("EPICUnit"), kCFAllocatorDefault, 0);
+    CFTypeRef role = IORegistryEntryCreateCFProperty(dp_epic, CFSTR("role"), kCFAllocatorDefault, 0);
+    IOObjectRelease(dp_epic);
+    if (location == NULL || unit == NULL || role == NULL) goto done;
+    io_iterator_t epics = MACH_PORT_NULL;
+    if (IORegistryEntryGetChildIterator(interface, kIOServicePlane, &epics) != KERN_SUCCESS) goto done;
+    io_registry_entry_t epic = MACH_PORT_NULL;
+    while ((epic = IOIteratorNext(epics)) != MACH_PORT_NULL) {
+        CFTypeRef name = IORegistryEntryCreateCFProperty(epic, CFSTR("EPICName"), kCFAllocatorDefault, 0);
+        CFTypeRef provider = IORegistryEntryCreateCFProperty(epic, CFSTR("EPICProviderClass"), kCFAllocatorDefault, 0);
+        CFTypeRef candidate_location = IORegistryEntryCreateCFProperty(epic, CFSTR("EPICLocation"), kCFAllocatorDefault, 0);
+        CFTypeRef candidate_unit = IORegistryEntryCreateCFProperty(epic, CFSTR("EPICUnit"), kCFAllocatorDefault, 0);
+        CFTypeRef candidate_role = IORegistryEntryCreateCFProperty(epic, CFSTR("role"), kCFAllocatorDefault, 0);
+        bool paired = name != NULL && provider != NULL && candidate_location != NULL && candidate_unit != NULL && candidate_role != NULL &&
+            CFStringCompare(name, CFSTR("dcpav-device-epic"), 0) == kCFCompareEqualTo &&
+            CFStringCompare(provider, CFSTR("DCPDPDevice"), 0) == kCFCompareEqualTo &&
+            CFEqual(candidate_location, location) && CFEqual(candidate_unit, unit) && CFEqual(candidate_role, role);
+        if (candidate_role != NULL) CFRelease(candidate_role);
+        if (candidate_unit != NULL) CFRelease(candidate_unit);
+        if (candidate_location != NULL) CFRelease(candidate_location);
+        if (provider != NULL) CFRelease(provider);
+        if (name != NULL) CFRelease(name);
+        if (paired) {
+            io_iterator_t children = MACH_PORT_NULL;
+            if (IORegistryEntryGetChildIterator(epic, kIOServicePlane, &children) == KERN_SUCCESS) {
+                io_service_t child = MACH_PORT_NULL;
+                while ((child = IOIteratorNext(children)) != MACH_PORT_NULL) {
+                    io_name_t class_name = {};
+                    IOObjectGetClass(child, class_name);
+                    CFTypeRef supported = IORegistryEntryCreateCFProperty(child, CFSTR("IOAVDeviceUserInterfaceSupported"), kCFAllocatorDefault, 0);
+                    bool candidate = strcmp(class_name, "DCPAVDeviceProxy") == 0 && device_is_external(child) &&
+                        supported != NULL && CFGetTypeID(supported) == CFBooleanGetTypeID() && CFBooleanGetValue(supported);
+                    if (supported != NULL) CFRelease(supported);
+                    if (candidate && match == MACH_PORT_NULL && !ambiguous) match = child;
+                    else {
+                        if (candidate && match != MACH_PORT_NULL) { IOObjectRelease(match); match = MACH_PORT_NULL; ambiguous = true; }
+                        IOObjectRelease(child);
+                    }
+                }
+                IOObjectRelease(children);
+            }
+        }
+        IOObjectRelease(epic);
+    }
+    IOObjectRelease(epics);
+done:
+    if (role != NULL) CFRelease(role);
+    if (unit != NULL) CFRelease(unit);
+    if (location != NULL) CFRelease(location);
+    if (interface != MACH_PORT_NULL) IOObjectRelease(interface);
+    return match;
+}
+
+/**
+ * Prior PS190 research hardware-validated only this Device-path base-block
+ * tuple: chip 0x50, subaddress 0x00, 128 bytes. Extension reads and Service
+ * EDID transport were not established, so this backend neither guesses nor
+ * enables them. The common parser reports any declared extension as incomplete.
+ */
+RSSDDCError rss_macos_ps190_read_edid(RSSMacOSBinding *binding, RSSDDCEDID *edid,
+                                      const RSSDDCDiagnostics *diagnostics) {
+    if (binding == NULL || edid == NULL || !binding->ps190_safety_gate) return RSS_DDC_ERROR_SAFETY_GATE;
+    io_service_t dcpdp_device = ps190_dcpdp_device_for_branch(binding->display.branch_device_id);
+    io_service_t av_device = ps190_paired_av_device(dcpdp_device);
+    if (dcpdp_device != MACH_PORT_NULL) IOObjectRelease(dcpdp_device);
+    if (av_device == MACH_PORT_NULL) return RSS_DDC_ERROR_SAFETY_GATE;
+    rss_macos_diagnostic(diagnostics, "backend=AppleDCPPS190 operation=ReadEDID path=IOAVDevice base-block-only");
+    IOAVDeviceRef device = IOAVDeviceCreateWithService(kCFAllocatorDefault, av_device);
+    IOObjectRelease(av_device);
+    if (device == NULL || CFGetTypeID(device) != IOAVDeviceGetTypeID()) {
+        if (device != NULL) CFRelease(device);
+        return RSS_DDC_ERROR_SERVICE_CONSTRUCTION;
+    }
+    memset(edid->bytes, 0xcc, RSS_DDC_EDID_BLOCK_SIZE);
+    IOReturn result = IOAVDeviceReadI2C(device, 0x50, 0x00, edid->bytes, RSS_DDC_EDID_BLOCK_SIZE);
+    CFRelease(device);
+    char message[160] = {};
+    snprintf(message, sizeof(message), "read chip=0x50 data=0x00000000 length=128 IOReturn=0x%08x", (unsigned int)result);
+    rss_macos_diagnostic(diagnostics, message);
+    if (result != KERN_SUCCESS) return RSS_DDC_ERROR_READ;
+    edid->length = RSS_DDC_EDID_BLOCK_SIZE;
+    return RSS_DDC_OK;
 }
 
 /**

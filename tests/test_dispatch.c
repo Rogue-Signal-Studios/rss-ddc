@@ -7,6 +7,7 @@ static unsigned int ps190_set_calls;
 static unsigned int dp_set_calls;
 static unsigned int ps190_get_calls;
 static unsigned int dp_get_calls;
+static unsigned int ps190_edid_calls;
 
 void rss_macos_diagnostic(const RSSDDCDiagnostics *diagnostics, const char *message) {
     (void)diagnostics;
@@ -47,6 +48,13 @@ RSSDDCError rss_macos_dp_set_vcp(RSSMacOSBinding *binding, uint8_t vcp_code, uin
     return RSS_DDC_OK;
 }
 
+RSSDDCError rss_macos_ps190_read_edid(RSSMacOSBinding *binding, RSSDDCEDID *edid,
+                                      const RSSDDCDiagnostics *diagnostics) {
+    (void)binding; (void)edid; (void)diagnostics;
+    ++ps190_edid_calls;
+    return RSS_DDC_OK;
+}
+
 int main(void) {
     RSSMacOSBinding selected_dp = {.display.provider = RSS_DDC_PROVIDER_DCPDP13};
     RSSDDCVCPResult result = {};
@@ -60,6 +68,11 @@ int main(void) {
     assert(dp_get_calls == 1 && ps190_get_calls == 1 && dp_set_calls == 1 && ps190_set_calls == 1);
 
     RSSMacOSBinding selected_mcdp = {.display.provider = RSS_DDC_PROVIDER_MCDP29XX};
+    RSSDDCEDID edid = {};
+    assert(rss_macos_provider_read_edid(&selected_ps190, &edid, NULL) == RSS_DDC_OK);
+    assert(ps190_edid_calls == 1 && ps190_get_calls == 1 && dp_get_calls == 1);
+    assert(rss_macos_provider_read_edid(&selected_dp, &edid, NULL) == RSS_DDC_ERROR_UNSUPPORTED_CAPABILITY);
+    assert(dp_get_calls == 1 && ps190_edid_calls == 1); /* DP cannot fall through to PS190/sibling EDID. */
     assert(rss_macos_provider_set_vcp(&selected_mcdp, 0x60, 18, NULL) == RSS_DDC_ERROR_UNSUPPORTED_CAPABILITY);
     RSSMacOSBinding selected_unknown = {.display.provider = RSS_DDC_PROVIDER_UNKNOWN};
     assert(rss_macos_provider_set_vcp(&selected_unknown, 0x60, 18, NULL) == RSS_DDC_ERROR_UNSUPPORTED_PROVIDER);

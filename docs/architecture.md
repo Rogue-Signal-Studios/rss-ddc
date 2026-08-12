@@ -14,7 +14,31 @@ provider dispatcher
  DP      MCDP      PS190
 ```
 
-Capabilities are independent flags: Get VCP, Set VCP, EDID read, and DPCD read. A provider receives only the capabilities that have been separately enabled. PS190 Get VCP and Set VCP, plus DCPDP13 Get VCP and Set VCP, are hardware-validated in this project. MCDP, EDID, and DPCD remain fail-closed.
+Capabilities are independent flags: Get VCP, Set VCP, EDID read, and DPCD read. A provider receives only the capabilities that have been separately enabled. PS190 Get VCP and Set VCP, plus DCPDP13 Get VCP and Set VCP, are hardware-validated in this project. PS190 base-block EDID is enabled from predecessor research but awaits direct rss-ddc validation; DCPDP13/MCDP EDID and DPCD remain fail-closed.
+
+## EDID
+
+EDID parsing is portable C: it validates the 128-byte header/checksum, decodes
+base-block identity, validates every extension block that is present, and
+reports declared versus received extension count plus extension tags. Raw bytes
+remain caller-owned in `RSSDDCEDID`; no CoreFoundation or IOKit ownership leaks
+through the public API. A declared extension absent from a base-only read is
+reported as incomplete rather than fabricated or treated as checksum-valid.
+
+Prior research hardware-validated only PS190's Device-path base-block tuple:
+the branch-correlated `DCPAVDeviceProxy` creates `IOAVDevice`, then performs
+`IOAVDeviceReadI2C(device, 0x50, 0x00, buffer, 128)`. It returned a valid
+header/checksum in the research lab. rss-ddc enables that path only for PS190;
+DCPDP13, MCDP, extension block IOAV access, and all rss-ddc EDID hardware
+validation remain pending. EDID uses the same selected-display correlation and
+never scans global displays or borrows a sibling binding.
+
+EDID data may later help profile matching through manufacturer/product, name,
+serial, fingerprint, and provider/path context. No fingerprint is currently
+added: a portable SHA-256 implementation would be a new dependency without a
+current runtime consumer. EDID alone can be duplicated or altered by adapters,
+so any future automatic profile selection must combine strong identity evidence
+and fail closed on ambiguity.
 
 Provider dispatch is a pure C mapping from the immediate EPIC provider class,
 which keeps classification testable without opening a display user client.

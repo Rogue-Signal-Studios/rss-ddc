@@ -58,6 +58,11 @@ automatic policy is applied at runtime.
 | `0x10` brightness | Maximum `100`; verified current values included `100` and `99`. |
 | `0x60` input source | Maximum `18`, current `0`; no input-code interpretation or SET claim is recorded. |
 
+## EDID identity
+
+Pending provider-specific acquisition and hardware validation. No EDID identity
+is inferred from the generic `LG HDR QHD` product name.
+
 For conventional DP transport details, see the
 [Apple Silicon transport notes](../apple-silicon-ddc.md). For evidence scope,
 see the [catalog index](README.md).

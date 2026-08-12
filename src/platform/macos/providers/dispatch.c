@@ -39,3 +39,21 @@ RSSDDCError rss_macos_provider_set_vcp(RSSMacOSBinding *binding, uint8_t vcp_cod
     }
     return RSS_DDC_ERROR_UNSUPPORTED_PROVIDER;
 }
+
+/** EDID remains an independent capability; unsupported providers never borrow another backend's path. */
+RSSDDCError rss_macos_provider_read_edid(RSSMacOSBinding *binding, RSSDDCEDID *edid,
+                                         const RSSDDCDiagnostics *diagnostics) {
+    if (binding == NULL || edid == NULL) return RSS_DDC_ERROR_ARGUMENT;
+    switch (rss_ddc_provider_backend(binding->display.provider)) {
+        case RSS_DDC_BACKEND_PS190:
+            return rss_macos_ps190_read_edid(binding, edid, diagnostics);
+        case RSS_DDC_BACKEND_DCPDP13:
+        case RSS_DDC_BACKEND_MCDP29XX:
+            rss_macos_diagnostic(diagnostics, "operation=ReadEDID status=unsupported");
+            return RSS_DDC_ERROR_UNSUPPORTED_CAPABILITY;
+        case RSS_DDC_BACKEND_UNSUPPORTED:
+            rss_macos_diagnostic(diagnostics, "backend=unknown operation=ReadEDID status=unsupported");
+            return RSS_DDC_ERROR_UNSUPPORTED_PROVIDER;
+    }
+    return RSS_DDC_ERROR_UNSUPPORTED_PROVIDER;
+}

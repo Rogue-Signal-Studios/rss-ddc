@@ -1,9 +1,11 @@
 @import Foundation;
 
 #include <errno.h>
+#include <fcntl.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <unistd.h>
 
 #include "rss_ddc.h"
 
@@ -12,11 +14,12 @@ static void usage(const char *program) {
             "Usage:\n"
             "  %s list\n"
             "  %s [--verbose] info <display-index>\n"
+            "  %s [--verbose] edid <display-index> [--decode|--hex|--raw <file>]\n"
             "  %s [--verbose] get <display-index> <vcp>\n"
             "  %s [--verbose] set <display-index> <vcp> <value>\n"
             "  %s [--verbose] set <display-index> <vcp> <value> --verify [--settle-ms <ms>] "
             "[--retries <count>] [--retry-delay-ms <ms>]\n",
-            program, program, program, program, program);
+            program, program, program, program, program, program);
 }
 
 static bool parse_unsigned(const char *text, unsigned long maximum, unsigned long *value) {
@@ -40,7 +43,29 @@ static void write_diagnostic(void *context, const char *message) {
     fprintf(stderr, "rss-ddc: %s\n", message);
 }
 
-/** Parses the small public CLI surface; hardware access is limited to explicit GET/SET commands. */
+static void print_edid_decode(const RSSDDCEDIDInfo *info) {
+    printf("manufacturer: %s\nproduct-code: 0x%04x\n", info->manufacturer_id, info->product_code);
+    printf("serial: %s\n", info->serial_number_present ? "present" : "unavailable");
+    if (info->serial_number_present) printf("serial-number: %u\n", info->serial_number);
+    if (info->serial_text[0] != '\0') printf("serial-text: %s\n", info->serial_text);
+    if (info->monitor_name[0] != '\0') printf("monitor-name: %s\n", info->monitor_name);
+    printf("edid-version: %u.%u\nsize-cm: %ux%u\nextensions: %u declared, %zu received\nchecksum: valid\n",
+           info->version, info->revision, info->width_cm, info->height_cm, info->declared_extension_count,
+           info->received_block_count > 0 ? info->received_block_count - 1 : 0);
+    if (!info->extensions_complete) printf("extensions-complete: no (base-block acquisition only)\n");
+    for (size_t block = 1; block < info->received_block_count; ++block) {
+        printf("extension-%zu-tag: 0x%02x\n", block, info->extension_tags[block - 1]);
+    }
+}
+
+static void print_edid_hex(const RSSDDCEDID *edid) {
+    for (size_t index = 0; index < edid->length; ++index) {
+        if (index % 16 == 0) printf("%04zx: ", index);
+        printf("%02x%s", edid->bytes[index], index % 16 == 15 || index + 1 == edid->length ? "\n" : " ");
+    }
+}
+
+/** Parses the small public CLI surface; hardware access is limited to explicit GET/SET/EDID commands. */
 int main(int argc, char **argv) {
     bool verbose = false;
     int argument = 1;
@@ -80,6 +105,35 @@ int main(int argc, char **argv) {
         print_display(&display);
         printf("online=%s external=%s branch=%s transport=%s\n", display.online ? "yes" : "no",
                display.external ? "yes" : "no", display.branch_device_id, display.transport);
+        return EXIT_SUCCESS;
+    }
+    if (strcmp(argv[argument], "edid") == 0) {
+        bool hex = false;
+        const char *raw_path = NULL;
+        if (argc > argument + 4 || (argc == argument + 4 &&
+            strcmp(argv[argument + 2], "--raw") != 0)) { usage(argv[0]); return EXIT_FAILURE; }
+        if (argc == argument + 3) {
+            if (strcmp(argv[argument + 2], "--hex") == 0) hex = true;
+            else if (strcmp(argv[argument + 2], "--decode") != 0) { usage(argv[0]); return EXIT_FAILURE; }
+        } else if (argc == argument + 4) raw_path = argv[argument + 3];
+        RSSDDCEDID edid = {};
+        RSSDDCDiagnostics diagnostics = {.callback = write_diagnostic, .context = NULL};
+        RSSDDCError error = rss_ddc_read_edid_with_diagnostics((uint32_t)display_index, &edid,
+                                                                verbose ? &diagnostics : NULL);
+        if (error != RSS_DDC_OK) { fprintf(stderr, "rss-ddc: %s\n", rss_ddc_error_string(error)); return EXIT_FAILURE; }
+        RSSDDCEDIDInfo info = {};
+        error = rss_ddc_parse_edid(&edid, &info);
+        if (error != RSS_DDC_OK) { fprintf(stderr, "rss-ddc: %s\n", rss_ddc_error_string(error)); return EXIT_FAILURE; }
+        if (raw_path != NULL) {
+            int file = open(raw_path, O_WRONLY | O_CREAT | O_EXCL, 0600);
+            if (file < 0 || write(file, edid.bytes, edid.length) != (ssize_t)edid.length || close(file) != 0) {
+                if (file >= 0) close(file);
+                fprintf(stderr, "rss-ddc: could not create raw EDID file\n");
+                return EXIT_FAILURE;
+            }
+            printf("wrote %zu bytes to %s\n", edid.length, raw_path);
+        } else if (hex) print_edid_hex(&edid);
+        else print_edid_decode(&info);
         return EXIT_SUCCESS;
     }
     unsigned long vcp = 0;
