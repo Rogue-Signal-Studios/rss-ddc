@@ -1,0 +1,20 @@
+name: synthetic-ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  build-and-test:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build library and CLI
+        run: |
+          make clean
+          make
+      - name: Run synthetic tests
+        run: make test
+      - name: Check whitespace
+        run: git diff --check
