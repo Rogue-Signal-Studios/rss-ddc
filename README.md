@@ -128,29 +128,91 @@ Read [the architecture](docs/architecture.md), [Apple Silicon transport notes](d
 make              # CLI plus build/librss-ddc.a
 make test
 make library
+make consumer-test  # compile/link an installed-prefix consumer; never runs it
 ```
 
-The static library is `build/librss-ddc.a`; its installed public interface is
-`include/rss_ddc.h`. The project is pre-1.0 (`0.1.0`): public API source
-compatibility may evolve as provider coverage matures. Private Apple ABI types
-never appear in the public header.
+## Using rss-ddc as a library
+
+`rss-ddc` can be consumed as a static C library without the CLI, test suite,
+or any source-tree headers. The public API is [include/rss_ddc.h](include/rss_ddc.h).
+It intentionally contains only C standard-library types; it exposes no
+CoreFoundation, IOKit, CoreDisplay, or reconstructed Apple-private handles.
+It is safe to include from C++ as well as C.
+
+Build and stage the library into a private prefix:
 
 ```sh
-clang -I/some/prefix/include client.c /some/prefix/lib/librss-ddc.a \
-  -framework CoreDisplay -framework CoreGraphics -framework ColorSync \
-  -framework IOKit -framework Foundation
+make library
+make install-library PREFIX=/some/prefix
 ```
+
+The staged consumer contract is exactly:
+
+```text
+/some/prefix/include/rss_ddc.h
+/some/prefix/lib/librss-ddc.a
+```
+
+For example, an unrelated application can compile and link with no `src/`
+include paths and no loose rss-ddc objects or source files:
+
+```sh
+clang -std=c11 -I/some/prefix/include client.c /some/prefix/lib/librss-ddc.a \
+  -framework CoreDisplay -o client
+```
+
+`CoreDisplay` is the minimum explicit framework link requirement proven by the
+current macOS build. It re-exports the CoreGraphics, ColorSync, IOKit,
+CoreFoundation, and Objective-C dependencies used by the backend, so consumers
+need not link them separately. The static archive includes all rss-ddc
+implementation objects needed by the public API: portable core/protocol/EDID/
+DPCD code, provider dispatch and backends, and macOS discovery. It deliberately
+excludes `cli/main.m`, every `tests/` source, and the historical GET/SET
+validation runners. Static linking does not remove the macOS-private-interface
+or runtime-compatibility risk described above. An application must still select
+only providers and capabilities validated for its own macOS, topology, and
+monitor firmware; consult the provider model and [hardware matrix](docs/hardware-validation.md).
+
+```c
+#include <rss_ddc.h>
+
+int main(void) {
+    size_t count = 0;
+    RSSDDCError error = rss_ddc_list_displays(NULL, 0, &count);
+
+    return error == RSS_DDC_OK ? 0 : 1;
+}
+```
+
+The zero-capacity call is the first half of the documented two-call display
+snapshot pattern. It returns the observed count but does not open an IOAV
+client. GET, SET, EDID, and DPCD requests are explicit separate API calls.
+
+The public API is pre-1.0 (`0.1.0`), so source/API compatibility may evolve as
+provider coverage matures. Consumers should pin an exact release or commit;
+the planned external consumer will pin rss-ddc rather than track `main`. No
+stable ABI promise is made before 1.0.
 
 ```sh
 make install PREFIX=/some/prefix
 make uninstall PREFIX=/some/prefix
 ```
 
-`install` writes only `bin/rss-ddc`, `include/rss_ddc.h`, and
-`lib/librss-ddc.a` below the supplied prefix; `uninstall` removes only those
-three exact paths. The test suite and GitHub Actions are synthetic: they do
-not open display user clients or issue DDC, EDID, or DPCD requests.
+`make install PREFIX=/some/prefix` adds the separate CLI at
+`/some/prefix/bin/rss-ddc` in addition to the library artifacts. `make
+uninstall PREFIX=/some/prefix` removes only those three exact project-owned
+files. `DESTDIR` is supported for staged packaging, e.g. `make install
+DESTDIR=/package-root PREFIX=/usr/local` writes below
+`/package-root/usr/local`; no internal/private headers are installed.
+
+For a pinned git submodule, build and stage a private prefix, then compile
+against only that prefix's `include/` and `lib/` directories. This is preferred
+over direct source-tree paths because it exercises the same install boundary
+as an unrelated application. The test suite and GitHub Actions are synthetic:
+they do not open display user clients or issue DDC, EDID, or DPCD requests.
 
 ## License
 
-MIT. See [LICENSE](LICENSE).
+rss-ddc is MIT licensed; see [LICENSE](LICENSE). Applications that statically
+link and redistribute rss-ddc should preserve the MIT copyright and permission
+notice in their redistribution materials.

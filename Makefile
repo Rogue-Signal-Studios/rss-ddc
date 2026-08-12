@@ -1,13 +1,20 @@
 NAME = rss-ddc
 LIBRARY = build/librss-ddc.a
 CC = clang
+CXX = clang++
 AR ?= ar
 BUILD = build
 PREFIX ?= /usr/local
 DESTDIR ?=
+CONSUMER_TEST_PREFIX = $(abspath $(BUILD)/consumer-prefix)
+CONSUMER_TEST_BINARY = $(BUILD)/consumer
+CONSUMER_TEST_CPP_BINARY = $(BUILD)/consumer-cpp
 
 CFLAGS = -std=c11 -Wall -Wextra -Werror -Wformat=2 -fmodules -Iinclude -Isrc/core -Isrc/ddc -Isrc/dpcd -Isrc/platform/macos
-LDLIBS = -framework CoreDisplay -framework CoreGraphics -framework ColorSync -framework IOKit -framework Foundation
+# On the current supported macOS SDK, CoreDisplay re-exports the CoreGraphics,
+# ColorSync, IOKit, CoreFoundation, and Objective-C dependencies used by the
+# private backend. Keep the external consumer contract to this proven minimum.
+LDLIBS = -framework CoreDisplay
 
 PORTABLE_CORE_SOURCES = \
 	src/core/correlation.c src/core/enumeration.c src/core/provider.c src/core/rss_ddc.c src/core/verify.c \
@@ -87,7 +94,7 @@ $(BUILD)/test_dcpdpservice_set: tests/test_dcpdpservice_set.c src/core/correlati
 	$(CC) $(CFLAGS) $^ -o $@
 
 check-library-sources: $(LIBRARY) $(TEST_SUPPORT_SOURCES)
-	@! $(AR) t $(LIBRARY) | grep -E '(get_validation|set_validation)'
+	@! $(AR) t $(LIBRARY) | grep -E '(get_validation|set_validation|(^|/)tests/|(^|/)cli/)'
 
 test: $(TESTS) check-library-sources
 	$(BUILD)/test_protocol
@@ -102,16 +109,42 @@ test: $(TESTS) check-library-sources
 	$(BUILD)/test_dcpdpservice_get
 	$(BUILD)/test_dcpdpservice_set
 
-install: $(NAME) $(LIBRARY)
-	install -d $(DESTDIR)$(PREFIX)/bin $(DESTDIR)$(PREFIX)/include $(DESTDIR)$(PREFIX)/lib
-	install -m 755 $(NAME) $(DESTDIR)$(PREFIX)/bin/$(NAME)
+install-library: $(LIBRARY)
+	install -d $(DESTDIR)$(PREFIX)/include $(DESTDIR)$(PREFIX)/lib
 	install -m 644 include/rss_ddc.h $(DESTDIR)$(PREFIX)/include/rss_ddc.h
 	install -m 644 $(LIBRARY) $(DESTDIR)$(PREFIX)/lib/librss-ddc.a
 
-uninstall:
-	rm -f $(DESTDIR)$(PREFIX)/bin/$(NAME) $(DESTDIR)$(PREFIX)/include/rss_ddc.h $(DESTDIR)$(PREFIX)/lib/librss-ddc.a
+install-cli: $(NAME)
+	install -d $(DESTDIR)$(PREFIX)/bin
+	install -m 755 $(NAME) $(DESTDIR)$(PREFIX)/bin/$(NAME)
+
+install: install-library install-cli
+
+uninstall-library:
+	rm -f $(DESTDIR)$(PREFIX)/include/rss_ddc.h $(DESTDIR)$(PREFIX)/lib/librss-ddc.a
+
+uninstall-cli:
+	rm -f $(DESTDIR)$(PREFIX)/bin/$(NAME)
+
+uninstall: uninstall-library uninstall-cli
+
+# Builds against staged, installed artifacts only. Fixtures are compiled and
+# linked but never run, so they cannot enumerate displays or open user clients.
+consumer-test: $(LIBRARY) examples/consumer.c examples/consumer.cpp | $(BUILD)
+	rm -rf $(CONSUMER_TEST_PREFIX) $(CONSUMER_TEST_BINARY) $(CONSUMER_TEST_CPP_BINARY)
+	$(MAKE) install-library PREFIX=$(CONSUMER_TEST_PREFIX)
+	$(CC) -std=c11 -Wall -Wextra -Werror -Wformat=2 -I$(CONSUMER_TEST_PREFIX)/include examples/consumer.c $(CONSUMER_TEST_PREFIX)/lib/librss-ddc.a -o $(CONSUMER_TEST_BINARY) $(LDLIBS)
+	$(CXX) -std=c++17 -Wall -Wextra -Werror -Wformat=2 -I$(CONSUMER_TEST_PREFIX)/include examples/consumer.cpp $(CONSUMER_TEST_PREFIX)/lib/librss-ddc.a -o $(CONSUMER_TEST_CPP_BINARY) $(LDLIBS)
+	test -x $(CONSUMER_TEST_BINARY)
+	test -x $(CONSUMER_TEST_CPP_BINARY)
+	$(MAKE) uninstall-library PREFIX=$(CONSUMER_TEST_PREFIX)
+	test ! -e $(CONSUMER_TEST_PREFIX)/include/rss_ddc.h
+	test ! -e $(CONSUMER_TEST_PREFIX)/lib/librss-ddc.a
+	rmdir $(CONSUMER_TEST_PREFIX)/include $(CONSUMER_TEST_PREFIX)/lib $(CONSUMER_TEST_PREFIX)
+	rm -f $(CONSUMER_TEST_BINARY) $(CONSUMER_TEST_CPP_BINARY)
 
 clean:
 	rm -rf $(BUILD) $(NAME)
 
-.PHONY: all library check-library-sources test install uninstall clean
+.PHONY: all library check-library-sources test install-library install-cli install \
+	uninstall-library uninstall-cli uninstall consumer-test clean

@@ -16,5 +16,7 @@ jobs:
           make
       - name: Run synthetic tests
         run: make test
+      - name: Verify installed-library consumer contract
+        run: make consumer-test
       - name: Check whitespace
         run: git diff --check
