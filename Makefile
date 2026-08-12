@@ -11,7 +11,7 @@ CORE_SOURCES = src/core/correlation.c src/core/provider.c src/core/rss_ddc.c src
 MACOS_SOURCES = src/platform/macos/discovery.m src/platform/macos/providers/ps190.m \
 	src/platform/macos/providers/dp/get_vcp.m src/platform/macos/providers/dp/set_vcp.m
 CLI_SOURCE = cli/main.m
-TESTS = $(BUILD)/test_protocol $(BUILD)/test_provider $(BUILD)/test_correlation $(BUILD)/test_dispatch $(BUILD)/test_verify $(BUILD)/test_edid $(BUILD)/test_dpcd
+TESTS = $(BUILD)/test_protocol $(BUILD)/test_provider $(BUILD)/test_correlation $(BUILD)/test_dispatch $(BUILD)/test_verify $(BUILD)/test_edid $(BUILD)/test_dpcd $(BUILD)/test_dcpdpservice
 
 $(BUILD):
 	mkdir -p $(BUILD)
@@ -42,6 +42,7 @@ test: $(TESTS)
 	$(BUILD)/test_verify
 	$(BUILD)/test_edid
 	$(BUILD)/test_dpcd
+	$(BUILD)/test_dcpdpservice
 
 clean:
 	rm -rf $(BUILD) $(NAME)
@@ -53,3 +54,6 @@ $(BUILD)/test_edid: $(BUILD) tests/test_edid.c src/ddc/edid.c
 
 $(BUILD)/test_dpcd: $(BUILD) tests/test_dpcd.c src/dpcd/dpcd.c src/dpcd/validation.c
 	$(CC) $(CFLAGS) tests/test_dpcd.c src/dpcd/dpcd.c src/dpcd/validation.c -o $@
+
+$(BUILD)/test_dcpdpservice: $(BUILD) tests/test_dcpdpservice.c src/core/correlation.c src/dpcd/validation.c src/dpcd/dpcd.c
+	$(CC) $(CFLAGS) -Isrc/core tests/test_dcpdpservice.c src/core/correlation.c src/dpcd/validation.c src/dpcd/dpcd.c -o $@

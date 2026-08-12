@@ -1,5 +1,6 @@
 @import CoreGraphics;
 @import ColorSync;
+
 @import Foundation;
 @import IOKit;
 
@@ -261,6 +262,51 @@ static bool is_dp_service_identity(io_service_t service, RSSMacOSCorrelationFail
     if (provider != NULL) CFRelease(provider);
     if (parent != MACH_PORT_NULL) IOObjectRelease(parent);
     return result == RSS_DDC_DP_CORRELATION_OK;
+}
+
+/** Reads the immediate EPIC provider class string for validation-only provider checks. */
+static bool service_epic_provider_class(io_service_t service, char provider_class[RSS_DDC_TEXT_MAX]) {
+    io_registry_entry_t parent = MACH_PORT_NULL;
+    provider_class[0] = '\0';
+    if (IORegistryEntryGetParentEntry(service, kIOServicePlane, &parent) != KERN_SUCCESS) return false;
+    CFTypeRef provider = IORegistryEntryCreateCFProperty(parent, CFSTR("EPICProviderClass"), kCFAllocatorDefault, 0);
+    bool copied = copyCFString(provider, provider_class);
+    if (provider != NULL) CFRelease(provider);
+    IOObjectRelease(parent);
+    return copied;
+}
+
+static bool is_dcpdpservice_service_identity(io_service_t service, RSSMacOSCorrelationFailure *failure) {
+    io_registry_entry_t parent = MACH_PORT_NULL;
+    RSSDDCDCPDPServiceCorrelationFacts facts = {.service_candidate_count = 1, .service_external = is_external(service)};
+    char provider_text[RSS_DDC_TEXT_MAX] = {};
+    if (IORegistryEntryGetParentEntry(service, kIOServicePlane, &parent) == KERN_SUCCESS) facts.epic_parent_present = true;
+    CFTypeRef provider = parent == MACH_PORT_NULL ? NULL :
+        IORegistryEntryCreateCFProperty(parent, CFSTR("EPICProviderClass"), kCFAllocatorDefault, 0);
+    CFTypeRef ui_supported = IORegistryEntryCreateCFProperty(service, CFSTR("IOAVServiceUserInterfaceSupported"),
+                                                              kCFAllocatorDefault, 0);
+    if (copyCFString(provider, provider_text)) facts.epic_provider_class = provider_text;
+    facts.ui_supported = ui_supported != NULL && CFGetTypeID(ui_supported) == CFBooleanGetTypeID() &&
+        CFBooleanGetValue(ui_supported);
+    RSSDDCDCPDPServiceCorrelationResult result = rss_ddc_evaluate_dcpdpservice_correlation(&facts);
+    switch (result) {
+        case RSS_DDC_DCPDP_SERVICE_CORRELATION_OK: break;
+        case RSS_DDC_DCPDP_SERVICE_CORRELATION_NO_SERVICE: *failure = RSS_MACOS_CORRELATION_NO_SERVICE_PROXY; break;
+        case RSS_DDC_DCPDP_SERVICE_CORRELATION_AMBIGUOUS_SERVICE:
+            *failure = RSS_MACOS_CORRELATION_AMBIGUOUS_SERVICE_PROXY;
+            break;
+        case RSS_DDC_DCPDP_SERVICE_CORRELATION_NOT_EXTERNAL: *failure = RSS_MACOS_CORRELATION_NOT_EXTERNAL; break;
+        case RSS_DDC_DCPDP_SERVICE_CORRELATION_NO_EPIC_PARENT: *failure = RSS_MACOS_CORRELATION_UNEXPECTED_EPIC_PARENT; break;
+        case RSS_DDC_DCPDP_SERVICE_CORRELATION_PROVIDER_MISMATCH:
+            *failure = provider == NULL ? RSS_MACOS_CORRELATION_MISSING_SERVICE_PROVIDER :
+                RSS_MACOS_CORRELATION_PROVIDER_MISMATCH;
+            break;
+        case RSS_DDC_DCPDP_SERVICE_CORRELATION_UI_UNSUPPORTED: *failure = RSS_MACOS_CORRELATION_UI_UNSUPPORTED; break;
+    }
+    if (ui_supported != NULL) CFRelease(ui_supported);
+    if (provider != NULL) CFRelease(provider);
+    if (parent != MACH_PORT_NULL) IOObjectRelease(parent);
+    return result == RSS_DDC_DCPDP_SERVICE_CORRELATION_OK;
 }
 
 /**
@@ -678,5 +724,72 @@ RSSDDCError rss_macos_dp_read_dpcd(RSSMacOSBinding *binding, uint32_t address, u
         snprintf(message, sizeof(message), "dpcd bytes=%zu", length);
         rss_macos_diagnostic(diagnostics, message);
     }
+    return error;
+}
+
+RSSDDCError rss_macos_validate_dcpdpservice_dpcd(uint32_t list_index, uint8_t *buffer,
+                                                 const RSSDDCDiagnostics *diagnostics) {
+    if (buffer == NULL) return RSS_DDC_ERROR_ARGUMENT;
+    RSSDDCError range_error = rss_ddc_validate_dpcd_request(RSS_DDC_DCPDP_SERVICE_DPCD_VALIDATION_ADDRESS, buffer,
+                                                            RSS_DDC_DCPDP_SERVICE_DPCD_VALIDATION_LENGTH);
+    if (range_error != RSS_DDC_OK) return range_error;
+
+    RSSMacOSBinding binding = {0};
+    RSSDDCError error = rss_macos_resolve_binding(list_index, &binding);
+    if (error != RSS_DDC_OK) {
+        rss_macos_diagnostic(diagnostics, rss_macos_correlation_failure_string(binding.correlation_failure));
+        rss_macos_release_binding(&binding);
+        return error;
+    }
+
+    char provider_class[RSS_DDC_TEXT_MAX] = {};
+    char message[256] = {};
+    if (!service_epic_provider_class(binding.service_proxy, provider_class) ||
+        strcmp(provider_class, RSS_DDC_REGISTRY_CLASS_DCPDP_SERVICE) != 0) {
+        snprintf(message, sizeof(message),
+                 "operation=ValidateDCPDPServiceDPCD status=unsupported-provider registry-class=%s",
+                 provider_class[0] ? provider_class : "<missing>");
+        rss_macos_diagnostic(diagnostics, message);
+        rss_macos_release_binding(&binding);
+        return RSS_DDC_ERROR_UNSUPPORTED_PROVIDER;
+    }
+    if (!is_dcpdpservice_service_identity(binding.service_proxy, &binding.correlation_failure)) {
+        rss_macos_diagnostic(diagnostics, rss_macos_correlation_failure_string(binding.correlation_failure));
+        rss_macos_release_binding(&binding);
+        return RSS_DDC_ERROR_SAFETY_GATE;
+    }
+
+    char role[RSS_DDC_TEXT_MAX] = {};
+    if (!service_epic_role(binding.service_proxy, role)) {
+        rss_macos_diagnostic(diagnostics, "operation=ValidateDCPDPServiceDPCD status=missing-service-role");
+        rss_macos_release_binding(&binding);
+        return RSS_DDC_ERROR_SAFETY_GATE;
+    }
+
+    io_service_t candidate = MACH_PORT_NULL;
+    unsigned int candidates = dp_device_candidates_for_role(role, &candidate);
+    snprintf(message, sizeof(message),
+             "backend=DCPDPService operation=ValidateDPCD path=DCPDPDeviceProxy->IODPDevice service-role=%s "
+             "scoped-DCPDPDeviceProxy-candidates=%u address=0x%05x length=%u",
+             role, candidates, RSS_DDC_DCPDP_SERVICE_DPCD_VALIDATION_ADDRESS,
+             RSS_DDC_DCPDP_SERVICE_DPCD_VALIDATION_LENGTH);
+    rss_macos_diagnostic(diagnostics, message);
+    if (!rss_ddc_dcpdpservice_dpcd_validation_ready(RSS_DDC_DCPDP_SERVICE_CORRELATION_OK, candidates)) {
+        rss_macos_release_binding(&binding);
+        if (candidate != MACH_PORT_NULL) IOObjectRelease(candidate);
+        return RSS_DDC_ERROR_SAFETY_GATE;
+    }
+
+    DPCDReadContext context = {.candidate = candidate, .diagnostics = diagnostics};
+    const RSSDDCDPCDValidationCallbacks callbacks = {
+        .context = &context,
+        .construct = dpcd_read_construct,
+        .read = dpcd_read_once,
+        .release = dpcd_read_release,
+    };
+    error = rss_ddc_run_dpcd_candidate_read(candidates, &callbacks, RSS_DDC_DCPDP_SERVICE_DPCD_VALIDATION_ADDRESS,
+                                            buffer, RSS_DDC_DCPDP_SERVICE_DPCD_VALIDATION_LENGTH);
+    if (candidate != MACH_PORT_NULL) IOObjectRelease(candidate);
+    rss_macos_release_binding(&binding);
     return error;
 }

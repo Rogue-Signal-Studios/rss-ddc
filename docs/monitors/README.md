@@ -25,6 +25,7 @@ providers, or displays with the same product name.
 | --- | --- | --- | --- | --- | --- | --- | --- | --- |
 | Samsung | Odyssey G75F | Built-in HDMI / `AppleDCPPS190`; USB-C → DisplayPort / `DCPDP13Service` | Hardware validated | Hardware validated on HDMI/PS190; see path details | Hardware validated on HDMI/PS190 only | PS190 EDID blocks 0–1 hardware validated; GET framing differs by provider path | `25F84` | [Odyssey G75F](samsung-odyssey-g75f.md) |
 | Unavailable | LG HDR QHD | DisplayPort / `DCPDP13Service` | Hardware validated | Hardware validated (`0x10`) | Hardware validated (`0x10`) | Read-only DPCD `0x00000`/16 hardware validated; intermittent immediate post-SET all-zero reply | `25F84` | [LG HDR QHD](lg-hdr-qhd.md) |
+| BenQ | XL2730Z | DisplayPort / `DCPDPService` / `DCPEXT2` | Unverified | Unverified | Unverified | Newly observed provider; runtime fail-closed; DPCD validation harness only | `25F84` | [Mac Studio M2 Ultra topology](mac-studio-m2-ultra.md) |
 
 `LG HDR QHD` is the exact product name currently reported by rss-ddc; no retail
 model number, manufacturer string, or serial is recorded in the validated

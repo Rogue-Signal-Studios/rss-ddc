@@ -46,6 +46,28 @@ int main(void) {
     assert(rss_ddc_evaluate_dp_correlation(&no_ui) == RSS_DDC_DP_CORRELATION_UI_UNSUPPORTED);
     assert(rss_ddc_evaluate_dp_correlation(NULL) == RSS_DDC_DP_CORRELATION_NO_SERVICE);
 
+    const RSSDDCDCPDPServiceCorrelationFacts valid_dcpdpservice = {
+        .service_candidate_count = 1,
+        .service_external = true,
+        .epic_parent_present = true,
+        .epic_provider_class = RSS_DDC_REGISTRY_CLASS_DCPDP_SERVICE,
+        .ui_supported = true,
+    };
+    assert(rss_ddc_evaluate_dcpdpservice_correlation(&valid_dcpdpservice) ==
+           RSS_DDC_DCPDP_SERVICE_CORRELATION_OK);
+    assert(rss_ddc_dcpdpservice_dpcd_validation_ready(RSS_DDC_DCPDP_SERVICE_CORRELATION_OK, 1));
+    assert(!rss_ddc_dcpdpservice_dpcd_validation_ready(RSS_DDC_DCPDP_SERVICE_CORRELATION_OK, 0));
+    assert(!rss_ddc_dcpdpservice_dpcd_validation_ready(RSS_DDC_DCPDP_SERVICE_CORRELATION_OK, 2));
+    RSSDDCDCPDPServiceCorrelationFacts dcpdpservice_wrong_provider = valid_dcpdpservice;
+    dcpdpservice_wrong_provider.epic_provider_class = "DCPDP13Service";
+    assert(rss_ddc_evaluate_dcpdpservice_correlation(&dcpdpservice_wrong_provider) ==
+           RSS_DDC_DCPDP_SERVICE_CORRELATION_PROVIDER_MISMATCH);
+    assert(!rss_ddc_dcpdpservice_dpcd_validation_ready(RSS_DDC_DCPDP_SERVICE_CORRELATION_PROVIDER_MISMATCH, 1));
+    RSSDDCDCPDPServiceCorrelationFacts dcpdpservice_ambiguous = valid_dcpdpservice;
+    dcpdpservice_ambiguous.service_candidate_count = 2;
+    assert(rss_ddc_evaluate_dcpdpservice_correlation(&dcpdpservice_ambiguous) ==
+           RSS_DDC_DCPDP_SERVICE_CORRELATION_AMBIGUOUS_SERVICE);
+
     /* Mixed providers are valid when each independently selected display has one scoped path. */
     const RSSDDCPS190CorrelationFacts ps190_on_ext1 = {
         .service_candidate_count = 1,

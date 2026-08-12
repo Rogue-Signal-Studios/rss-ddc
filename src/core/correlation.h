@@ -37,7 +37,7 @@ typedef enum {
 RSSDDCDPCorrelationResult rss_ddc_evaluate_dp_correlation(const RSSDDCDPCorrelationFacts *facts);
 
 /**
- * Narrows a native-DP proxy to the selected DCPDP13 Service role. This is a
+ * Narrows a native-DP proxy to the selected Service EPIC role. This is a
  * structural predicate, not a global uniqueness test: callers must count all
  * matches and reject anything other than exactly one.
  */
@@ -77,5 +77,42 @@ typedef enum {
 
 /** Evaluates only selected-display PS190 facts; global provider counts are intentionally absent. */
 RSSDDCPS190CorrelationResult rss_ddc_evaluate_ps190_correlation(const RSSDDCPS190CorrelationFacts *facts);
+
+/** Registry EPIC provider class observed on the Mac Studio XL2730Z path; not a public runtime provider yet. */
+#define RSS_DDC_REGISTRY_CLASS_DCPDP_SERVICE "DCPDPService"
+
+typedef struct {
+    unsigned int service_candidate_count;
+    bool service_external;
+    bool epic_parent_present;
+    const char *epic_provider_class;
+    bool ui_supported;
+} RSSDDCDCPDPServiceCorrelationFacts;
+
+typedef enum {
+    RSS_DDC_DCPDP_SERVICE_CORRELATION_OK = 0,
+    RSS_DDC_DCPDP_SERVICE_CORRELATION_NO_SERVICE,
+    RSS_DDC_DCPDP_SERVICE_CORRELATION_AMBIGUOUS_SERVICE,
+    RSS_DDC_DCPDP_SERVICE_CORRELATION_NOT_EXTERNAL,
+    RSS_DDC_DCPDP_SERVICE_CORRELATION_NO_EPIC_PARENT,
+    RSS_DDC_DCPDP_SERVICE_CORRELATION_PROVIDER_MISMATCH,
+    RSS_DDC_DCPDP_SERVICE_CORRELATION_UI_UNSUPPORTED,
+} RSSDDCDCPDPServiceCorrelationResult;
+
+/**
+ * Validation-only Service identity for DCPDPService. Normal capability dispatch
+ * must remain unsupported until hardware evidence promotes this provider class.
+ */
+RSSDDCDCPDPServiceCorrelationResult rss_ddc_evaluate_dcpdpservice_correlation(
+    const RSSDDCDCPDPServiceCorrelationFacts *facts);
+
+/** True only when Service correlation succeeded and exactly one same-role device proxy exists. */
+bool rss_ddc_dcpdpservice_dpcd_validation_ready(RSSDDCDCPDPServiceCorrelationResult correlation,
+                                                unsigned int scoped_device_proxy_candidates);
+
+enum {
+    RSS_DDC_DCPDP_SERVICE_DPCD_VALIDATION_ADDRESS = 0x00000u,
+    RSS_DDC_DCPDP_SERVICE_DPCD_VALIDATION_LENGTH = 16u,
+};
 
 #endif

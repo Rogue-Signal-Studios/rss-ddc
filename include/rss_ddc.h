@@ -245,6 +245,14 @@ RSSDDCError rss_ddc_decode_dpcd_capabilities(uint32_t address, const uint8_t *by
                                               RSSDDCDPCDCapabilities *capabilities);
 /** Registry-only diagnostic for the DCPDP13 same-role IODP candidate relationship. */
 RSSDDCError rss_ddc_probe_dpcd_path_with_diagnostics(uint32_t list_index, const RSSDDCDiagnostics *diagnostics);
+/**
+ * Validation-only DCPDPService DPCD read at 0x00000 for exactly 16 bytes.
+ * Requires the selected display's Service EPIC class to be DCPDPService, exactly
+ * one same-role scoped DCPDPDeviceProxy, and one IODPDevice construction.
+ * This does not enable DCPDPService runtime capabilities.
+ */
+RSSDDCError rss_ddc_validate_dcpdpservice_dpcd_with_diagnostics(uint32_t list_index, uint8_t *buffer,
+                                                                 const RSSDDCDiagnostics *diagnostics);
 /** Performs Get VCP with no diagnostics; equivalent to the diagnostic form with NULL options. */
 RSSDDCError rss_ddc_get_vcp(uint32_t list_index, uint8_t vcp_code, RSSDDCVCPResult *result);
 /**

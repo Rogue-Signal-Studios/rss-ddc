@@ -154,6 +154,13 @@ still cannot select this backend: PS190 HDMI has presented the same
 transport-state class. This validation does not establish behavior for other
 DP adapters, Apple Silicon systems, macOS releases, or monitors.
 
+On a Mac Studio M2 Ultra (macOS `25F84`, three external displays), display
+index 2 (BenQ XL2730Z) reported registry class `DCPDPService` on `DCPEXT2`.
+No `AppleDCPMCDP29XX` provider was present in that tested live topology.
+`DCPDPService` remains runtime-unsupported; use `validate-dcpdpservice-dpcd`
+for a bounded read-only DPCD probe. See
+[Mac Studio topology notes](monitors/mac-studio-m2-ultra.md).
+
 Unlike this conventional DP form, PS190 GET includes `0x51` in a five-byte raw
 payload and uses `UINT32_MAX` for both IOAV calls. Both use a 50 ms delay and
 the same strict 11-byte reply parser; framing is selected only by the proven

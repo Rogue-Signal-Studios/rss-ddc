@@ -32,3 +32,22 @@ RSSDDCPS190CorrelationResult rss_ddc_evaluate_ps190_correlation(const RSSDDCPS19
     if (!facts->service_role_matches_branch_device) return RSS_DDC_PS190_CORRELATION_ROLE_MISMATCH;
     return RSS_DDC_PS190_CORRELATION_OK;
 }
+
+RSSDDCDCPDPServiceCorrelationResult rss_ddc_evaluate_dcpdpservice_correlation(
+    const RSSDDCDCPDPServiceCorrelationFacts *facts) {
+    if (facts == NULL || facts->service_candidate_count == 0) return RSS_DDC_DCPDP_SERVICE_CORRELATION_NO_SERVICE;
+    if (facts->service_candidate_count != 1) return RSS_DDC_DCPDP_SERVICE_CORRELATION_AMBIGUOUS_SERVICE;
+    if (!facts->service_external) return RSS_DDC_DCPDP_SERVICE_CORRELATION_NOT_EXTERNAL;
+    if (!facts->epic_parent_present) return RSS_DDC_DCPDP_SERVICE_CORRELATION_NO_EPIC_PARENT;
+    if (facts->epic_provider_class == NULL ||
+        strcmp(facts->epic_provider_class, RSS_DDC_REGISTRY_CLASS_DCPDP_SERVICE) != 0) {
+        return RSS_DDC_DCPDP_SERVICE_CORRELATION_PROVIDER_MISMATCH;
+    }
+    if (!facts->ui_supported) return RSS_DDC_DCPDP_SERVICE_CORRELATION_UI_UNSUPPORTED;
+    return RSS_DDC_DCPDP_SERVICE_CORRELATION_OK;
+}
+
+bool rss_ddc_dcpdpservice_dpcd_validation_ready(RSSDDCDCPDPServiceCorrelationResult correlation,
+                                                unsigned int scoped_device_proxy_candidates) {
+    return correlation == RSS_DDC_DCPDP_SERVICE_CORRELATION_OK && scoped_device_proxy_candidates == 1u;
+}
