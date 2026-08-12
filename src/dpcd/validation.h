@@ -4,9 +4,9 @@
 #include "rss_ddc.h"
 
 /**
- * Internal testable harness for the one fixed DCPDP13 validation transaction.
- * It owns neither the candidate nor the constructed private object; callbacks
- * make those ownership rules explicit and let tests prove there is no retry.
+ * Internal testable lifecycle for a correlated DCPDP13 DPCD read. It owns
+ * neither the candidate nor the constructed private object; callbacks make
+ * those ownership rules explicit and let tests prove there is no retry.
  */
 typedef struct {
     void *context;
@@ -15,7 +15,8 @@ typedef struct {
     void (*release)(void *context, void *device);
 } RSSDDCDPCDValidationCallbacks;
 
-RSSDDCError rss_ddc_run_dpcd_validation(unsigned int candidate_count,
-                                        const RSSDDCDPCDValidationCallbacks *callbacks, uint8_t bytes[16]);
+RSSDDCError rss_ddc_run_dpcd_candidate_read(unsigned int candidate_count,
+                                            const RSSDDCDPCDValidationCallbacks *callbacks, uint32_t address,
+                                            uint8_t *bytes, size_t length);
 
 #endif

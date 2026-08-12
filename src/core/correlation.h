@@ -36,6 +36,14 @@ typedef enum {
  */
 RSSDDCDPCorrelationResult rss_ddc_evaluate_dp_correlation(const RSSDDCDPCorrelationFacts *facts);
 
+/**
+ * Narrows a native-DP proxy to the selected DCPDP13 Service role. This is a
+ * structural predicate, not a global uniqueness test: callers must count all
+ * matches and reject anything other than exactly one.
+ */
+bool rss_ddc_dp_device_proxy_matches(bool external, const char *epic_name, const char *candidate_role,
+                                     const char *selected_service_role);
+
 /*
  * PS190 binds its AV Service role to the role of the selected display's unique
  * BranchDeviceID-matched DCPDP device. The role is deliberately a relationship

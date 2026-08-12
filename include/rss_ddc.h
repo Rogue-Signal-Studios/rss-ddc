@@ -243,17 +243,8 @@ RSSDDCError rss_ddc_read_dpcd_with_diagnostics(uint32_t list_index, uint32_t add
  */
 RSSDDCError rss_ddc_decode_dpcd_capabilities(uint32_t address, const uint8_t *bytes, size_t length,
                                               RSSDDCDPCDCapabilities *capabilities);
-/** Registry-only diagnostic for the unvalidated DCPDP13 IODP candidate relationship. */
+/** Registry-only diagnostic for the DCPDP13 same-role IODP candidate relationship. */
 RSSDDCError rss_ddc_probe_dpcd_path_with_diagnostics(uint32_t list_index, const RSSDDCDiagnostics *diagnostics);
-/**
- * Developer validation harness for a DCPDP13 candidate, not general runtime
- * support. On an exactly-one scoped candidate it constructs one IODPDevice and
- * performs exactly one fixed read at DPCD 0x00000 for 16 bytes. `bytes` is
- * caller-owned. It never retries, scans, chunks, or writes.
- */
-RSSDDCError rss_ddc_validate_dpcd_path_with_diagnostics(uint32_t list_index,
-                                                        uint8_t bytes[RSS_DDC_DPCD_MAX_READ_BYTES],
-                                                        const RSSDDCDiagnostics *diagnostics);
 /** Performs Get VCP with no diagnostics; equivalent to the diagnostic form with NULL options. */
 RSSDDCError rss_ddc_get_vcp(uint32_t list_index, uint8_t vcp_code, RSSDDCVCPResult *result);
 /**

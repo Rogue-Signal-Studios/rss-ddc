@@ -12,6 +12,10 @@ int main(void) {
         .ui_supported = true,
     };
     assert(rss_ddc_evaluate_dp_correlation(&valid_dp) == RSS_DDC_DP_CORRELATION_OK);
+    assert(rss_ddc_dp_device_proxy_matches(true, "dcpdp-device-epic", "DCPEXT0", "DCPEXT0"));
+    assert(!rss_ddc_dp_device_proxy_matches(true, "dcpdp-device-epic", "DCPEXT1", "DCPEXT0"));
+    assert(!rss_ddc_dp_device_proxy_matches(true, "dcpav-device-epic", "DCPEXT0", "DCPEXT0"));
+    assert(!rss_ddc_dp_device_proxy_matches(false, "dcpdp-device-epic", "DCPEXT0", "DCPEXT0"));
 
     /* Two independently selected DP displays are valid; no global count enters this decision. */
     RSSDDCDPCorrelationFacts second_selected_dp = valid_dp;

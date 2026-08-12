@@ -14,7 +14,7 @@ provider dispatcher
  DP      MCDP      PS190
 ```
 
-Capabilities are independent flags: Get VCP, Set VCP, EDID read, and DPCD read. A provider receives only the capabilities that have been separately enabled. PS190 Get VCP and Set VCP, plus DCPDP13 Get VCP and Set VCP, are hardware-validated in this project. PS190 Device-path EDID and read-only DPCD are also hardware-validated on the documented topology. DCPDP13/MCDP EDID and DPCD remain fail-closed.
+Capabilities are independent flags: Get VCP, Set VCP, EDID read, and DPCD read. A provider receives only the capabilities that have been separately enabled. PS190 Get VCP and Set VCP, plus DCPDP13 Get VCP and Set VCP, are hardware-validated in this project. PS190 Device-path EDID and read-only DPCD, plus DCPDP13 read-only DPCD, are hardware-validated on their documented topologies. DCPDP13/MCDP EDID and MCDP DPCD remain fail-closed.
 
 ## EDID
 
@@ -87,21 +87,25 @@ opening a user client.
 
 The public DPCD API uses caller-owned bytes and an explicit 20-bit DPCD
 register address. It accepts only a single 1–16 byte read: 16 bytes is the
-largest guarded PS190 transfer validated in prior research, so the backend
-does not split, retry, scan, or write. The PS190 binding retains the exact
-branch-matched `DCPDPDeviceProxy`, constructs an `IODPDevice`, and invokes the
-private `IODPDeviceReadDPCD(device, uint32_t address, void *buffer, uint32_t
-length)` ABI. IODP creation follows Create ownership and is released with
-`CFRelease`; it is never exposed from the portable API.
+largest guarded transfer validated in this project, so the backend does not
+split, retry, scan, or write. Each enabled backend constructs an `IODPDevice`
+and invokes the private `IODPDeviceReadDPCD(device, uint32_t address, void
+*buffer, uint32_t length)` ABI exactly once. IODP creation follows Create
+ownership and is released with `CFRelease`; it is never exposed from the
+portable API.
 
 This is an independent capability from EDID and DDC/CI. The PS190 runtime
-reproduced the two prior research reads exactly on the documented topology.
-DCPDP13 has a registry-only `probe-dpcd-path` diagnostic, which found one
-same-role `dcpdp-device-epic` candidate for the current LG setup. Its separate
-`validate-dpcd-path` harness performs exactly one IODP construction and, only
-on success, one fixed `0x00000`/16-byte read. It does not make DCPDP13 runtime
-support available: a unique candidate and an unrun harness are not evidence
-that a native read works, so the capability remains disabled.
+reproduced its two prior research reads exactly on the documented topology.
+For DCPDP13, normal runtime reads derive the Service EPIC role from the
+selected display and accept only one external `DCPDPDeviceProxy` whose
+immediate parent is `dcpdp-device-epic` with that same role. The validated LG
+path was `DCPDP13Service → DCPEXT0 → one scoped DCPDPDeviceProxy →
+IODPDeviceCreateWithService → IODPDeviceReadDPCD(0x00000, 16)`, with
+`IOReturn=0x00000000` and bytes `12 14 c4 01 01 00 01 80 02 00 06 00 00 00 83
+00`. Zero or multiple scoped candidates fail closed; the backend never picks a
+global first match and never falls back to PS190. `probe-dpcd-path` remains a
+registry-only way to diagnose that correlation. The special construction/read
+harness was removed once the constrained normal runtime path was validated.
 
 ## Multi-monitor targeting
 

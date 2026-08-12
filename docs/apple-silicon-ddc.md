@@ -71,15 +71,23 @@ rss-ddc reproduced both reads exactly on the Mac mini M4 Pro / macOS Tahoe
 `IOReturn = 0x00000000`, the base-capability decode was revision `0x11`, HBR
 raw code `0x0a`, four lanes, enhanced framing, and downstream-port-present.
 The selected display remained isolated in the simultaneous PS190 + DCPDP13
-topology, while DCPDP13 `dpcd` correctly returned unsupported with no fallback.
+topology. PS190 continues to use its existing branch-correlated proxy path.
 
-rss-ddc permits one PS190 read of at most 16 bytes and performs no chunking or
-DPCD writes. The evidence does not establish larger transfers, boundary
-crossing, retries, or any DCPDP13/MCDP DPCD transport. The current DCPDP13
-probe found exactly one same-role scoped `DCPDPDeviceProxy` candidate for the
-LG; `validate-dpcd-path` is a separate user-run harness that will construct it
-once and issue only `0x00000`/16 if construction succeeds. It does not enable
-DCPDP13 runtime DPCD.
+rss-ddc permits one PS190 or DCPDP13 read of at most 16 bytes and performs no
+chunking or DPCD writes. The evidence does not establish larger transfers,
+boundary crossing, or retries. DCPDP13 runtime DPCD is hardware validated only
+on the LG HDR QHD / `DCPEXT0` topology: the selected Service role resolved one
+same-role `dcpdp-device-epic` `DCPDPDeviceProxy`, construction succeeded, and
+one `0x00000`/16 read returned `IOReturn = 0x00000000` with:
+
+```text
+12 14 c4 01 01 00 01 80 02 00 06 00 00 00 83 00
+```
+
+The portable decoder identifies revision `0x12`, raw link rate `0x14` (HBR2),
+four lanes, enhanced framing, and no downstream-port-present bit. This does
+not generalize to another DCPDP13 display or to MCDP. Zero or multiple scoped
+candidates fail closed, and DCPDP13 never borrows PS190's proxy.
 
 ## Standard DP Get VCP (`DCPDP13Service`)
 
@@ -304,4 +312,4 @@ succeeded; acceptance of other values or monitor configurations is not
 implied. This behavior derives from `m1ddc-rss` commit `a561e56` and its
 current `sources/i2c.m`/`sources/m1ddc.m` Service-write path.
 
-No out-of-bounds or canary corruption was observed in the predecessor research lab's guarded request/reply buffers. This does not establish behavior on different providers, monitors, cables/adapters, firmware revisions, or macOS releases. DCPDP13 Set VCP, DCPDP13/MCDP EDID and DPCD, MCDP GET/SET, and broader provider/hardware coverage remain unsupported or unvalidated.
+No out-of-bounds or canary corruption was observed in the predecessor research lab's guarded request/reply buffers. This does not establish behavior on different providers, monitors, cables/adapters, firmware revisions, or macOS releases. DCPDP13 Set VCP and read-only DPCD are hardware validated only on their documented paths; DCPDP13/MCDP EDID, MCDP DPCD, MCDP GET/SET, and broader provider/hardware coverage remain unsupported or unvalidated.

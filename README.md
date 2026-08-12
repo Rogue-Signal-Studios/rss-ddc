@@ -4,7 +4,7 @@
 
 ## Status
 
-This milestone provides real macOS display/provider discovery, strict DDC/CI parsing, and provider-specific Service-path operations. PS190 GET/SET and DCPDP13 GET/SET are hardware-validated in `rss-ddc`; unsupported providers and capabilities return explicit errors rather than falling back to a guessed transport.
+This milestone provides real macOS display/provider discovery, strict DDC/CI parsing, and provider-specific Service-path operations. PS190 GET/SET and DCPDP13 GET/SET are hardware-validated in `rss-ddc`; read-only native DPCD is hardware-validated on their documented paths. Unsupported providers and capabilities return explicit errors rather than falling back to a guessed transport.
 
 The project uses Apple-private macOS interfaces inside the macOS backend only. Behavior can vary by macOS release, display provider, cable/adapter topology, and monitor firmware.
 
@@ -24,7 +24,7 @@ make
 ./rss-ddc --verbose dpcd 1 0x00000 16
 ./rss-ddc --verbose dpcd 1 0x00200 8
 ./rss-ddc --verbose probe-dpcd-path 2
-./rss-ddc --verbose validate-dpcd-path 2
+./rss-ddc --verbose dpcd 2 0x00000 16
 ./rss-ddc --verbose get 1 0x10
 ./rss-ddc set 1 0x60 18
 ./rss-ddc set 1 0x10 50 --verify
@@ -44,15 +44,19 @@ is the default, `--hex` labels every acquired 128-byte block, and `--raw
 `extensions-complete` is the authoritative complete/partial state. DCPDP13
 and MCDP EDID remain explicitly unsupported.
 
-`dpcd` is a separate, read-only capability currently enabled only for PS190.
-It performs exactly one bounded native DPCD read through the selected display's
-branch-correlated `DCPDPDeviceProxy`, `IODPDeviceCreateWithService`, and
-`IODPDeviceReadDPCD`. The maximum is 16 bytes—the largest transfer previously
-validated in research—there is no chunking, and the allowed address space is
-the 20-bit DPCD range. This runtime path is hardware validated only on the
-documented PS190/Odyssey topology. DCPDP13 DPCD remains disabled;
-`probe-dpcd-path` is registry-only, while `validate-dpcd-path` is the separate
-fixed `0x00000`/16-byte user-run construction/read harness—not runtime support.
+`dpcd` is a separate, read-only capability enabled for the documented PS190
+and DCPDP13 topologies. It performs exactly one bounded native DPCD read
+through a selected, provider-specific `DCPDPDeviceProxy`,
+`IODPDeviceCreateWithService`, and `IODPDeviceReadDPCD`. The maximum is 16
+bytes—the largest transfer hardware validated in this project—there is no
+chunking, retry, scan, or write, and the allowed address space is the 20-bit
+DPCD range. PS190 uses its existing branch-correlated proxy. DCPDP13 uses the
+selected Service EPIC role to require exactly one same-role
+`dcpdp-device-epic` proxy; zero or multiple candidates fail closed. This
+runtime path is hardware validated only on the documented PS190/Odyssey and
+DCPDP13/LG topologies. `probe-dpcd-path` remains a registry-only correlation
+diagnostic; the one-shot validation harness was removed because normal `dpcd`
+now exercises the same constrained path.
 
 Successful non-verbose `get` prints only the current value. `--verbose` writes the selected display/provider correlation, raw request/reply bytes, IOReturns, decoded values, and checksum status to standard error for controlled validation.
 For `info`, verbose mode emits a precise registry-correlation rejection reason
@@ -90,7 +94,7 @@ hardware-validated plain GET or plain SET provider transactions.
 
 | Provider | Backend status | Capabilities |
 | --- | --- | --- |
-| `DCPDP13Service` | conventional Service-path GET/SET and opt-in Set-and-Verify hardware-validated on the documented LG DP setup; EDID/DPCD runtime unsupported | Get VCP, Set VCP |
+| `DCPDP13Service` | conventional Service-path GET/SET and opt-in Set-and-Verify, plus native read-only DPCD, hardware-validated on the documented LG DP setup; EDID unsupported | Get VCP, Set VCP, Read DPCD |
 | `AppleDCPMCDP29XX` | classified; GET and SET unsupported | none |
 | `AppleDCPPS190` | raw GET, conventional SET, Device-path EDID blocks 0–1, and native DPCD reads hardware validated on the documented Odyssey topology | Get VCP, Set VCP, Read EDID, Read DPCD |
 | unknown | safe unsupported result | none |
@@ -103,7 +107,7 @@ backend because the PS190 HDMI topology can also expose that class.
 ## Roadmap
 
 1. EDID — current PS190 blocks 0–1 scope complete
-2. DPCD — PS190 read-only runtime hardware validated; DCPDP13 construction/read validation next
+2. DPCD — current PS190 + DCPDP13 read-only scope complete
 3. MCDP
 4. More monitor catalog coverage
 5. Machine-readable profiles later

@@ -14,10 +14,11 @@ retail model.
 
 ## Tested environment
 
-User-run hardware validation occurred on macOS build `25F84`, using a
-DisplayPort path classified as `DCPDP13Service`. An Odyssey G75F/PS190 HDMI
-display was connected simultaneously; each selected command remained scoped to
-its own display/provider binding.
+User-run hardware validation occurred on a Mac mini M4 Pro running macOS Tahoe
+26.5.2 build `25F84`, using a DisplayPort path classified as
+`DCPDP13Service`. An Odyssey G75F/PS190 HDMI display was connected
+simultaneously; each selected command remained scoped to its own
+display/provider binding.
 
 ## Validated capabilities
 
@@ -27,6 +28,7 @@ its own display/provider binding.
 | Get VCP `0x60` input source | Hardware validated | Maximum `18`, current `0`. Value `0` is not interpreted here as a known safe or settable input code. |
 | Set VCP `0x10` brightness | Hardware validated | Same-state `100` and real change/restore `100 → 99 → 100`. |
 | Set-and-Verify `0x10` | Hardware validated | Default policy verified same-state and real changes; the retry path was also validated. |
+| Read DPCD `0x00000` / 16 | Hardware validated | One native read through the same-role scoped `DCPDPDeviceProxy` returned valid bytes. |
 
 No broader VCP support, input-source SET semantics, or behavior on other LG
 products is implied.
@@ -65,13 +67,22 @@ is inferred from the generic `LG HDR QHD` product name.
 
 ## DPCD
 
-Runtime DPCD support remains unsupported for `DCPDP13Service`. The user-run
-registry-only probe found exactly one same-role scoped `DCPDPDeviceProxy`
-candidate for this selected `DCPEXT0` display. That is correlation evidence,
-not a construction or transport result. `validate-dpcd-path` is the separate
-user-run harness that will construct that one candidate and, only if successful,
-read `0x00000` for 16 bytes exactly once. No DPCD revision, link rate, lane
-count, or other capability value is inferred until it succeeds.
+Hardware validation on macOS build `25F84` established a read-only DPCD path
+for this `DCPDP13Service` / `DCPEXT0` display. The selected Service role
+resolved exactly one same-role `dcpdp-device-epic` `DCPDPDeviceProxy`;
+`IODPDeviceCreateWithService` succeeded and one
+`IODPDeviceReadDPCD(0x00000, ..., 16)` returned `IOReturn=0x00000000`:
+
+```text
+12 14 c4 01 01 00 01 80 02 00 06 00 00 00 83 00
+```
+
+The portable decoder safely reports DPCD revision `0x12`, max link-rate raw
+`0x14` (`HBR2 (5.40 Gbps/lane)`), four lanes, enhanced framing present, and no
+downstream-port-present bit. These are observations from this one read, not a
+claim about all LG monitors or DCPDP13 paths. Runtime access remains one
+1–16-byte, 20-bit-address read with no retries, chunking, scans, or writes.
+LG EDID remains unsupported.
 
 For conventional DP transport details, see the
 [Apple Silicon transport notes](../apple-silicon-ddc.md). For evidence scope,

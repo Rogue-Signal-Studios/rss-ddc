@@ -94,6 +94,9 @@ RSSDDCError rss_macos_ps190_read_edid(RSSMacOSBinding *binding, RSSDDCEDID *edid
                                       const RSSDDCDiagnostics *diagnostics);
 RSSDDCError rss_macos_ps190_read_dpcd(RSSMacOSBinding *binding, uint32_t address, uint8_t *buffer,
                                       size_t length, const RSSDDCDiagnostics *diagnostics);
+/** Reads DPCD through the one same-role scoped DCPDPDeviceProxy correlation. */
+RSSDDCError rss_macos_dp_read_dpcd(RSSMacOSBinding *binding, uint32_t address, uint8_t *buffer,
+                                   size_t length, const RSSDDCDiagnostics *diagnostics);
 RSSDDCError rss_macos_dp_get_vcp(RSSMacOSBinding *binding, uint8_t vcp_code, RSSDDCVCPResult *result,
                                   const RSSDDCDiagnostics *diagnostics);
 RSSDDCError rss_macos_dp_set_vcp(RSSMacOSBinding *binding, uint8_t vcp_code, uint16_t value,
@@ -110,7 +113,5 @@ RSSDDCError rss_macos_provider_read_dpcd(RSSMacOSBinding *binding, uint32_t addr
                                          size_t length, const RSSDDCDiagnostics *diagnostics);
 /** Registry-only DCPDP13 candidate reporting; it never creates IODP/IOAV objects. */
 RSSDDCError rss_macos_probe_dpcd_path(uint32_t list_index, const RSSDDCDiagnostics *diagnostics);
-RSSDDCError rss_macos_validate_dpcd_path(uint32_t list_index, uint8_t bytes[RSS_DDC_DPCD_MAX_READ_BYTES],
-                                         const RSSDDCDiagnostics *diagnostics);
 
 #endif

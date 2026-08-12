@@ -58,7 +58,7 @@ RSSDDCError rss_macos_provider_read_edid(RSSMacOSBinding *binding, RSSDDCEDID *e
     return RSS_DDC_ERROR_UNSUPPORTED_PROVIDER;
 }
 
-/** DPCD is independently dispatched; DP/MCDP must never borrow PS190's IODP path. */
+/** DPCD is independently dispatched; enabled providers never borrow a sibling path. */
 RSSDDCError rss_macos_provider_read_dpcd(RSSMacOSBinding *binding, uint32_t address, uint8_t *buffer,
                                          size_t length, const RSSDDCDiagnostics *diagnostics) {
     if (binding == NULL || buffer == NULL) return RSS_DDC_ERROR_ARGUMENT;
@@ -66,6 +66,7 @@ RSSDDCError rss_macos_provider_read_dpcd(RSSMacOSBinding *binding, uint32_t addr
         case RSS_DDC_BACKEND_PS190:
             return rss_macos_ps190_read_dpcd(binding, address, buffer, length, diagnostics);
         case RSS_DDC_BACKEND_DCPDP13:
+            return rss_macos_dp_read_dpcd(binding, address, buffer, length, diagnostics);
         case RSS_DDC_BACKEND_MCDP29XX:
             rss_macos_diagnostic(diagnostics, "operation=ReadDPCD status=unsupported");
             return RSS_DDC_ERROR_UNSUPPORTED_CAPABILITY;
