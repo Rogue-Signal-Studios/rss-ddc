@@ -15,11 +15,13 @@ static void usage(const char *program) {
             "  %s list\n"
             "  %s [--verbose] info <display-index>\n"
             "  %s [--verbose] edid <display-index> [--decode|--hex|--raw <file>]\n"
+            "  %s [--verbose] dpcd <display-index> <address> <length>\n"
+            "  %s [--verbose] probe-dpcd-path <display-index>\n"
             "  %s [--verbose] get <display-index> <vcp>\n"
             "  %s [--verbose] set <display-index> <vcp> <value>\n"
             "  %s [--verbose] set <display-index> <vcp> <value> --verify [--settle-ms <ms>] "
             "[--retries <count>] [--retry-delay-ms <ms>]\n",
-            program, program, program, program, program, program);
+            program, program, program, program, program, program, program, program);
 }
 
 static bool parse_unsigned(const char *text, unsigned long maximum, unsigned long *value) {
@@ -69,6 +71,22 @@ static void print_edid_hex(const RSSDDCEDID *edid) {
             printf("%02x%s", edid->bytes[index], offset % 16 == 15 ? "\n" : " ");
         }
     }
+}
+
+static void print_dpcd_hex(uint32_t address, const uint8_t *bytes, size_t length) {
+    for (size_t index = 0; index < length; ++index) {
+        if (index % 16 == 0) printf("%05x: ", address + (uint32_t)index);
+        printf("%02x%s", bytes[index], index % 16 == 15 || index + 1 == length ? "\n" : " ");
+    }
+}
+
+static void print_dpcd_decode(uint32_t address, const uint8_t *bytes, size_t length) {
+    RSSDDCDPCDCapabilities capabilities = {};
+    if (rss_ddc_decode_dpcd_capabilities(address, bytes, length, &capabilities) != RSS_DDC_OK) return;
+    printf("dpcd-revision: 0x%02x\nmax-link-rate-raw: 0x%02x\nmax-link-rate: %s\n", capabilities.revision,
+           capabilities.max_link_rate_raw, capabilities.max_link_rate_name);
+    printf("max-lane-count: %u\nenhanced-framing: %s\ndownstream-port-present: %s\n", capabilities.max_lane_count,
+           capabilities.enhanced_framing ? "yes" : "no", capabilities.downstream_port_present ? "yes" : "no");
 }
 
 /** Parses the small public CLI surface; hardware access is limited to explicit GET/SET/EDID commands. */
@@ -140,6 +158,32 @@ int main(int argc, char **argv) {
             printf("wrote %zu bytes to %s\n", edid.length, raw_path);
         } else if (hex) print_edid_hex(&edid);
         else print_edid_decode(&info);
+        return EXIT_SUCCESS;
+    }
+    if (strcmp(argv[argument], "probe-dpcd-path") == 0) {
+        if (argc != argument + 2) { usage(argv[0]); return EXIT_FAILURE; }
+        RSSDDCDiagnostics diagnostics = {.callback = write_diagnostic, .context = NULL};
+        RSSDDCError error = rss_ddc_probe_dpcd_path_with_diagnostics((uint32_t)display_index,
+                                                                       verbose ? &diagnostics : NULL);
+        if (error != RSS_DDC_OK) { fprintf(stderr, "rss-ddc: %s\n", rss_ddc_error_string(error)); return EXIT_FAILURE; }
+        printf("DPCD path candidate correlation completed; no IODP construction or DPCD read was performed.\n");
+        return EXIT_SUCCESS;
+    }
+    if (strcmp(argv[argument], "dpcd") == 0) {
+        if (argc != argument + 4) { usage(argv[0]); return EXIT_FAILURE; }
+        unsigned long address = 0;
+        unsigned long length = 0;
+        if (!parse_unsigned(argv[argument + 2], RSS_DDC_DPCD_MAX_ADDRESS, &address) ||
+            !parse_unsigned(argv[argument + 3], RSS_DDC_DPCD_MAX_READ_BYTES, &length)) {
+            usage(argv[0]); return EXIT_FAILURE;
+        }
+        uint8_t bytes[RSS_DDC_DPCD_MAX_READ_BYTES] = {};
+        RSSDDCDiagnostics diagnostics = {.callback = write_diagnostic, .context = NULL};
+        RSSDDCError error = rss_ddc_read_dpcd_with_diagnostics((uint32_t)display_index, (uint32_t)address,
+                                                                bytes, (size_t)length, verbose ? &diagnostics : NULL);
+        if (error != RSS_DDC_OK) { fprintf(stderr, "rss-ddc: %s\n", rss_ddc_error_string(error)); return EXIT_FAILURE; }
+        print_dpcd_hex((uint32_t)address, bytes, (size_t)length);
+        print_dpcd_decode((uint32_t)address, bytes, (size_t)length);
         return EXIT_SUCCESS;
     }
     unsigned long vcp = 0;

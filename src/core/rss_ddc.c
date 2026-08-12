@@ -2,6 +2,7 @@
 #include "macos_internal.h"
 #include "verify.h"
 #include "edid.h"
+#include "dpcd.h"
 
 #include <stdio.h>
 #include <unistd.h>
@@ -85,6 +86,30 @@ RSSDDCError rss_ddc_read_edid_with_diagnostics(uint32_t list_index, RSSDDCEDID *
     }
     rss_macos_release_binding(&binding);
     return error;
+}
+
+RSSDDCError rss_ddc_read_dpcd(uint32_t list_index, uint32_t address, uint8_t *buffer, size_t length) {
+    return rss_ddc_read_dpcd_with_diagnostics(list_index, address, buffer, length, NULL);
+}
+
+RSSDDCError rss_ddc_read_dpcd_with_diagnostics(uint32_t list_index, uint32_t address, uint8_t *buffer,
+                                                size_t length, const RSSDDCDiagnostics *diagnostics) {
+    RSSDDCError error = rss_ddc_validate_dpcd_request(address, buffer, length);
+    if (error != RSS_DDC_OK) return error;
+    RSSMacOSBinding binding = {0};
+    error = rss_macos_resolve_binding(list_index, &binding);
+    if (error == RSS_DDC_OK) {
+        diagnostic_binding(&binding, diagnostics);
+        error = rss_macos_provider_read_dpcd(&binding, address, buffer, length, diagnostics);
+    } else {
+        rss_macos_diagnostic(diagnostics, rss_macos_correlation_failure_string(binding.correlation_failure));
+    }
+    rss_macos_release_binding(&binding);
+    return error;
+}
+
+RSSDDCError rss_ddc_probe_dpcd_path_with_diagnostics(uint32_t list_index, const RSSDDCDiagnostics *diagnostics) {
+    return rss_macos_probe_dpcd_path(list_index, diagnostics);
 }
 
 /** Keeps the concise API free of diagnostics while sharing the same validation path. */

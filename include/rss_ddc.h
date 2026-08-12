@@ -59,6 +59,9 @@ typedef enum {
     RSS_DDC_ERROR_EDID_LENGTH,
     RSS_DDC_ERROR_EDID_HEADER,
     RSS_DDC_ERROR_EDID_CHECKSUM,
+    RSS_DDC_ERROR_DPCD_LENGTH,
+    RSS_DDC_ERROR_DPCD_RANGE,
+    RSS_DDC_ERROR_DPCD_READ,
     RSS_DDC_ERROR_VERIFY_MISMATCH,
     RSS_DDC_ERROR_VERIFY_RETRY_EXHAUSTED,
     RSS_DDC_ERROR_VERIFY_UNAVAILABLE,
@@ -70,6 +73,10 @@ enum {
     RSS_DDC_EDID_BLOCK_SIZE = 128,
     RSS_DDC_EDID_MAX_BLOCKS = 8,
     RSS_DDC_EDID_MAX_BYTES = RSS_DDC_EDID_BLOCK_SIZE * RSS_DDC_EDID_MAX_BLOCKS,
+    /** Largest single DPCD read proven by the current PS190 research. No chunking is performed. */
+    RSS_DDC_DPCD_MAX_READ_BYTES = 16,
+    /** DisplayPort DPCD uses a 20-bit register address. */
+    RSS_DDC_DPCD_MAX_ADDRESS = 0x000fffff,
 };
 
 /**
@@ -141,6 +148,16 @@ typedef struct {
     bool present_extension_checksums_valid;
 } RSSDDCEDIDInfo;
 
+/** A deliberately small decode of the standard receiver-capability registers at DPCD 0x00000. */
+typedef struct {
+    uint8_t revision;
+    uint8_t max_link_rate_raw;
+    const char *max_link_rate_name;
+    uint8_t max_lane_count;
+    bool enhanced_framing;
+    bool downstream_port_present;
+} RSSDDCDPCDCapabilities;
+
 /**
  * Explicit policy for the optional high-level Set-and-Verify operation.
  * All delays are milliseconds. `retry_count` means additional verification
@@ -210,6 +227,24 @@ RSSDDCError rss_ddc_read_edid_with_diagnostics(uint32_t list_index, RSSDDCEDID *
 RSSDDCError rss_ddc_parse_edid(const RSSDDCEDID *edid, RSSDDCEDIDInfo *info);
 /** Returns a static label for an extension type classified by rss_ddc_parse_edid. */
 const char *rss_ddc_edid_extension_type_string(RSSDDCEDIDExtensionType type);
+/**
+ * Reads one bounded DPCD register range into caller-owned storage. `buffer`
+ * remains owned by the caller; `length` must be 1..RSS_DDC_DPCD_MAX_READ_BYTES
+ * and the inclusive range must fit the 20-bit DPCD address space. This API
+ * performs exactly one provider read and never scans, chunks, or writes.
+ */
+RSSDDCError rss_ddc_read_dpcd(uint32_t list_index, uint32_t address, uint8_t *buffer, size_t length);
+/** Diagnostic form of rss_ddc_read_dpcd; callback data is transient as usual. */
+RSSDDCError rss_ddc_read_dpcd_with_diagnostics(uint32_t list_index, uint32_t address, uint8_t *buffer,
+                                                size_t length, const RSSDDCDiagnostics *diagnostics);
+/**
+ * Decodes only the standard receiver-capability bytes when `address` is zero
+ * and at least six bytes are supplied. It never alters the raw caller bytes.
+ */
+RSSDDCError rss_ddc_decode_dpcd_capabilities(uint32_t address, const uint8_t *bytes, size_t length,
+                                              RSSDDCDPCDCapabilities *capabilities);
+/** Registry-only diagnostic for the unvalidated DCPDP13 IODP candidate relationship. */
+RSSDDCError rss_ddc_probe_dpcd_path_with_diagnostics(uint32_t list_index, const RSSDDCDiagnostics *diagnostics);
 /** Performs Get VCP with no diagnostics; equivalent to the diagnostic form with NULL options. */
 RSSDDCError rss_ddc_get_vcp(uint32_t list_index, uint8_t vcp_code, RSSDDCVCPResult *result);
 /**

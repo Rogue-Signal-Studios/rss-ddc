@@ -63,6 +63,16 @@ automatic policy is applied at runtime.
 Pending provider-specific acquisition and hardware validation. No EDID identity
 is inferred from the generic `LG HDR QHD` product name.
 
+## DPCD
+
+Runtime DPCD support is currently unsupported for `DCPDP13Service`. rss-ddc
+offers a registry-only `probe-dpcd-path` diagnostic to report whether this
+selected display has zero, one, or multiple structurally scoped
+`DCPDPDeviceProxy` candidates. It does not create an IODP object or read DPCD.
+No DPCD revision, link rate, lane count, or other capability value is inferred
+until a separately authorized user-run construction and small capability read
+succeeds.
+
 For conventional DP transport details, see the
 [Apple Silicon transport notes](../apple-silicon-ddc.md). For evidence scope,
 see the [catalog index](README.md).

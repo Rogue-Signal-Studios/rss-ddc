@@ -23,6 +23,9 @@ const char *rss_ddc_error_string(RSSDDCError error) {
         case RSS_DDC_ERROR_EDID_LENGTH: return "EDID length is invalid";
         case RSS_DDC_ERROR_EDID_HEADER: return "EDID header or manufacturer encoding is invalid";
         case RSS_DDC_ERROR_EDID_CHECKSUM: return "EDID block checksum is invalid";
+        case RSS_DDC_ERROR_DPCD_LENGTH: return "DPCD read length is unsupported";
+        case RSS_DDC_ERROR_DPCD_RANGE: return "DPCD address range is invalid";
+        case RSS_DDC_ERROR_DPCD_READ: return "DPCD read failed";
         case RSS_DDC_ERROR_VERIFY_MISMATCH: return "verification value did not match after all attempts";
         case RSS_DDC_ERROR_VERIFY_RETRY_EXHAUSTED: return "verification retries exhausted after transient GET failures";
         case RSS_DDC_ERROR_VERIFY_UNAVAILABLE: return "SET completed but the original display is unavailable for safe verification";
@@ -74,7 +77,7 @@ uint32_t rss_ddc_provider_capabilities(RSSDDCProvider provider) {
         case RSS_DDC_PROVIDER_DCPDP13:
             return RSS_DDC_CAP_GET_VCP | RSS_DDC_CAP_SET_VCP;
         case RSS_DDC_PROVIDER_PS190:
-            return RSS_DDC_CAP_GET_VCP | RSS_DDC_CAP_SET_VCP | RSS_DDC_CAP_READ_EDID;
+            return RSS_DDC_CAP_GET_VCP | RSS_DDC_CAP_SET_VCP | RSS_DDC_CAP_READ_EDID | RSS_DDC_CAP_READ_DPCD;
         case RSS_DDC_PROVIDER_UNKNOWN:
         case RSS_DDC_PROVIDER_MCDP29XX:
             return RSS_DDC_CAP_NONE;

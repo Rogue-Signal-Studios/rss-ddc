@@ -52,6 +52,27 @@ which remains unimplemented and unvalidated. DCPDP13/MCDP EDID acquisition,
 extension timing beyond block 1, and any provider-wide EDID rule remain
 unproven.
 
+## Native DPCD evidence and current scope
+
+Prior guarded hardware research on the selected PS190 HDMI path established a
+different private object path from DDC/CI and EDID: the exact
+branch-correlated `DCPDPDeviceProxy` was passed to
+`IODPDeviceCreateWithService`, then `IODPDeviceReadDPCD` was called with a
+20-bit DPCD register address, a caller destination, and a 32-bit byte count.
+Both reads returned `IOReturn = 0x00000000` with intact canaries:
+
+| Address / length | Bytes |
+| --- | --- |
+| `0x00000` / 16 | `11 0a c4 83 01 1d 01 c1 2a 4b 04 00 4f 00 84 00` |
+| `0x00200` / 8 | `41 00 77 77 01 07 00 00` |
+
+rss-ddc now reproduces only that selected-display-safe, read-only PS190 path.
+It permits one read of at most 16 bytes and performs no chunking or DPCD
+writes. This runtime implementation remains pending manual validation. The
+evidence does not establish larger transfers, boundary crossing, retries, or
+any DCPDP13/MCDP DPCD transport. DCPDP13 currently exposes only a registry
+correlation diagnostic; it does not construct `IODPDevice` or perform DPCD.
+
 ## Standard DP Get VCP (`DCPDP13Service`)
 
 `DCPDP13Service` is a distinct provider backend. `rss-ddc` Get VCP was
@@ -275,4 +296,4 @@ succeeded; acceptance of other values or monitor configurations is not
 implied. This behavior derives from `m1ddc-rss` commit `a561e56` and its
 current `sources/i2c.m`/`sources/m1ddc.m` Service-write path.
 
-No out-of-bounds or canary corruption was observed in the predecessor research lab's guarded request/reply buffers. This does not establish behavior on different providers, monitors, cables/adapters, firmware revisions, or macOS releases. DCPDP13 Set VCP, DCPDP13/MCDP EDID, DPCD operations, MCDP GET/SET, and broader provider/hardware coverage remain unsupported or unvalidated.
+No out-of-bounds or canary corruption was observed in the predecessor research lab's guarded request/reply buffers. This does not establish behavior on different providers, monitors, cables/adapters, firmware revisions, or macOS releases. DCPDP13 Set VCP, DCPDP13/MCDP EDID and DPCD, MCDP GET/SET, and broader provider/hardware coverage remain unsupported or unvalidated.

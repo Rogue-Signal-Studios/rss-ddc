@@ -110,6 +110,17 @@ EDID identity is recorded for the LG sibling display.
 4. More monitor catalog coverage
 5. Machine-readable profiles later
 
+## DPCD
+
+Prior guarded PS190 research hardware-validated the selected-display native
+path `DCPDPDeviceProxy → IODPDeviceCreateWithService → IODPDeviceReadDPCD`.
+Reads of `0x00000`/16 and `0x00200`/8 succeeded with intact canaries; the raw
+bytes are recorded in the [Apple Silicon transport notes](../apple-silicon-ddc.md).
+rss-ddc implements only those evidence-backed constraints: one read, maximum
+16 bytes, no chunking, and no writes. Its runtime reproduction remains pending
+manual validation. This is PS190-path evidence, not an Odyssey-wide or
+cross-provider DPCD claim.
+
 ## Notes
 
 Connection provider, not product name, chooses GET transport framing. See the

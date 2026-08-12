@@ -42,6 +42,15 @@ intermittent behavior precisely. Include the explicit verification policy
 (`settle_ms`, retry count, and retry delay) when relevant. Do not convert a
 single timing observation into a global recommendation.
 
+### DPCD observations
+
+Record the runtime provider, requested DPCD address/length, raw bytes, return
+status, decoded revision/link-rate/lane fields, and evidence level. State
+whether a read is a single bounded native read or another transport. Do not
+infer DPCD values from a display name, and do not document an untested provider
+as DPCD-capable. DPCD evidence is diagnostic only: it must not add profiles,
+link tuning, or write behavior.
+
 ### Version and evidence
 
 Include the exact rss-ddc version or output of:

@@ -14,7 +14,7 @@ provider dispatcher
  DP      MCDP      PS190
 ```
 
-Capabilities are independent flags: Get VCP, Set VCP, EDID read, and DPCD read. A provider receives only the capabilities that have been separately enabled. PS190 Get VCP and Set VCP, plus DCPDP13 Get VCP and Set VCP, are hardware-validated in this project. PS190 Device-path base-block EDID is also hardware-validated on the documented topology; DCPDP13/MCDP EDID and DPCD remain fail-closed.
+Capabilities are independent flags: Get VCP, Set VCP, EDID read, and DPCD read. A provider receives only the capabilities that have been separately enabled. PS190 Get VCP and Set VCP, plus DCPDP13 Get VCP and Set VCP, are hardware-validated in this project. PS190 Device-path EDID is also hardware-validated on the documented topology. PS190 DPCD is enabled from prior hardware-validated research but awaits direct rss-ddc validation; DCPDP13/MCDP EDID and DPCD remain fail-closed.
 
 ## EDID
 
@@ -65,7 +65,7 @@ the private `IOAVService` object. A generic DisplayPort transport-state class
 is correlation evidence only—not a provider selector—because PS190 HDMI can
 present that same state.
 
-For PS190, the binding resolver requires an external display, a correlated active DisplayPort transport, a `BranchDeviceID` with exactly one external `DCPDPDeviceProxy`, and an external Unit-0 `DCPAVServiceProxy`. Its immediate parent must identify `dcpav-service-epic`, `DCPEXT0`, and `AppleDCPPS190`; `IOAVServiceUserInterfaceSupported` must be true. Only then does the backend construct the private Service interface. Registry IDs are transient evidence, not persistent identifiers.
+For PS190, the binding resolver requires an external display, a correlated active DisplayPort transport, a `BranchDeviceID` with exactly one external `DCPDPDeviceProxy`, and an external Unit-0 `DCPAVServiceProxy`. Its immediate parent must identify `dcpav-service-epic`, the matching selected `DCPEXT` role, and `AppleDCPPS190`; `IOAVServiceUserInterfaceSupported` must be true. Only then does the backend construct the private Service interface. Registry IDs are transient evidence, not persistent identifiers.
 
 For conventional DP, the resolver deliberately uses a different, smaller
 gate: the selected display must map to exactly one external
@@ -82,6 +82,24 @@ Correlation failures retain an internal predicate and can be surfaced by the
 diagnostic public API or `rss-ddc --verbose info`. This gives operators a
 specific fail-closed reason without exposing transient IOKit handles or
 opening a user client.
+
+## DPCD
+
+The public DPCD API uses caller-owned bytes and an explicit 20-bit DPCD
+register address. It accepts only a single 1–16 byte read: 16 bytes is the
+largest guarded PS190 transfer validated in prior research, so the backend
+does not split, retry, scan, or write. The PS190 binding retains the exact
+branch-matched `DCPDPDeviceProxy`, constructs an `IODPDevice`, and invokes the
+private `IODPDeviceReadDPCD(device, uint32_t address, void *buffer, uint32_t
+length)` ABI. IODP creation follows Create ownership and is released with
+`CFRelease`; it is never exposed from the portable API.
+
+This is an independent capability from EDID and DDC/CI. The PS190 runtime
+reproduction is pending manual validation. DCPDP13 currently has only a
+registry-only `probe-dpcd-path` diagnostic: it reports zero, one, or multiple
+same-role `dcpdp-device-epic` candidates and performs no IODP construction or
+DPCD access. A unique diagnostic candidate is not evidence that a DCPDP13
+native read works, so that provider's capability remains disabled.
 
 ## Multi-monitor targeting
 

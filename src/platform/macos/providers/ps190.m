@@ -15,6 +15,7 @@
  */
 typedef CFTypeRef IOAVServiceRef;
 typedef CFTypeRef IOAVDeviceRef;
+typedef CFTypeRef IODPDeviceRef;
 extern IOAVServiceRef IOAVServiceCreateWithService(CFAllocatorRef, io_service_t);
 extern CFTypeID IOAVServiceGetTypeID(void);
 extern IOReturn IOAVServiceReadI2C(IOAVServiceRef, uint32_t, uint32_t, void *, uint32_t);
@@ -22,6 +23,10 @@ extern IOReturn IOAVServiceWriteI2C(IOAVServiceRef, uint32_t, uint32_t, void *, 
 extern IOAVDeviceRef IOAVDeviceCreateWithService(CFAllocatorRef, io_service_t);
 extern CFTypeID IOAVDeviceGetTypeID(void);
 extern IOReturn IOAVDeviceReadI2C(IOAVDeviceRef, uint32_t, uint32_t, void *, uint32_t);
+/* Private IODP ABI recovered from Apple's arm64e implementation and prior guarded PS190 reads. */
+extern IODPDeviceRef IODPDeviceCreateWithService(CFAllocatorRef, io_service_t);
+extern CFTypeID IODPDeviceGetTypeID(void);
+extern IOReturn IODPDeviceReadDPCD(IODPDeviceRef, uint32_t, void *, uint32_t);
 
 enum {
     RSS_PS190_SET_WRITE_COUNT = 2,
@@ -207,6 +212,36 @@ RSSDDCError rss_macos_ps190_read_edid(RSSMacOSBinding *binding, RSSDDCEDID *edid
         }
     }
     CFRelease(device);
+    return RSS_DDC_OK;
+}
+
+/**
+ * Executes the only DPCD operation established by prior PS190 research:
+ * selected branch -> unique DCPDPDeviceProxy -> IODPDevice -> one native
+ * DPCD read. The API supports neither chunking nor writes. Runtime use of
+ * this reproduction remains pending a separate rss-ddc hardware validation.
+ */
+RSSDDCError rss_macos_ps190_read_dpcd(RSSMacOSBinding *binding, uint32_t address, uint8_t *buffer,
+                                      size_t length, const RSSDDCDiagnostics *diagnostics) {
+    if (binding == NULL || buffer == NULL || !binding->ps190_safety_gate ||
+        binding->dcpdp_device_proxy == MACH_PORT_NULL) return RSS_DDC_ERROR_SAFETY_GATE;
+    rss_macos_diagnostic(diagnostics, "backend=AppleDCPPS190 operation=ReadDPCD path=DCPDPDeviceProxy->IODPDevice");
+    IODPDeviceRef device = IODPDeviceCreateWithService(kCFAllocatorDefault, binding->dcpdp_device_proxy);
+    if (device == NULL || CFGetTypeID(device) != IODPDeviceGetTypeID()) {
+        if (device != NULL) CFRelease(device);
+        rss_macos_diagnostic(diagnostics, "IODPDeviceCreateWithService=failed");
+        return RSS_DDC_ERROR_SERVICE_CONSTRUCTION;
+    }
+    char message[192] = {};
+    snprintf(message, sizeof(message), "read address=0x%05x length=%zu IOReturn=", address, length);
+    IOReturn result = IODPDeviceReadDPCD(device, address, buffer, (uint32_t)length);
+    CFRelease(device);
+    size_t used = strlen(message);
+    snprintf(message + used, sizeof(message) - used, "0x%08x", (unsigned int)result);
+    rss_macos_diagnostic(diagnostics, message);
+    if (result != KERN_SUCCESS) return RSS_DDC_ERROR_DPCD_READ;
+    snprintf(message, sizeof(message), "dpcd bytes=%zu", length);
+    rss_macos_diagnostic(diagnostics, message);
     return RSS_DDC_OK;
 }
 

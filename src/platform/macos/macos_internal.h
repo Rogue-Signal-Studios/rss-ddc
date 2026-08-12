@@ -52,12 +52,15 @@ typedef struct {
 
 /**
  * Retained, macOS-private display binding. `service_proxy` follows IOKit Create
- * ownership and must be released exactly once with rss_macos_release_binding.
+ * ownership. When PS190 DPCD safety correlation succeeds, `dcpdp_device_proxy`
+ * is the unique branch-matched native-DP proxy. Both are released exactly once
+ * with rss_macos_release_binding.
  */
 typedef struct {
     RSSDDCDisplay display;
     RSSMacOSDisplayIdentity identity;
     io_service_t service_proxy;
+    io_service_t dcpdp_device_proxy;
     bool dp_safety_gate;
     bool ps190_safety_gate;
     RSSMacOSCorrelationFailure correlation_failure;
@@ -89,6 +92,8 @@ RSSDDCError rss_macos_ps190_set_vcp(RSSMacOSBinding *binding, uint8_t vcp_code, 
                                      const RSSDDCDiagnostics *diagnostics);
 RSSDDCError rss_macos_ps190_read_edid(RSSMacOSBinding *binding, RSSDDCEDID *edid,
                                       const RSSDDCDiagnostics *diagnostics);
+RSSDDCError rss_macos_ps190_read_dpcd(RSSMacOSBinding *binding, uint32_t address, uint8_t *buffer,
+                                      size_t length, const RSSDDCDiagnostics *diagnostics);
 RSSDDCError rss_macos_dp_get_vcp(RSSMacOSBinding *binding, uint8_t vcp_code, RSSDDCVCPResult *result,
                                   const RSSDDCDiagnostics *diagnostics);
 RSSDDCError rss_macos_dp_set_vcp(RSSMacOSBinding *binding, uint8_t vcp_code, uint16_t value,
@@ -101,5 +106,9 @@ RSSDDCError rss_macos_provider_set_vcp(RSSMacOSBinding *binding, uint8_t vcp_cod
                                         const RSSDDCDiagnostics *diagnostics);
 RSSDDCError rss_macos_provider_read_edid(RSSMacOSBinding *binding, RSSDDCEDID *edid,
                                          const RSSDDCDiagnostics *diagnostics);
+RSSDDCError rss_macos_provider_read_dpcd(RSSMacOSBinding *binding, uint32_t address, uint8_t *buffer,
+                                         size_t length, const RSSDDCDiagnostics *diagnostics);
+/** Registry-only DCPDP13 candidate reporting; it never creates IODP/IOAV objects. */
+RSSDDCError rss_macos_probe_dpcd_path(uint32_t list_index, const RSSDDCDiagnostics *diagnostics);
 
 #endif

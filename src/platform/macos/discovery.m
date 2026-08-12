@@ -7,6 +7,7 @@
 #include <string.h>
 
 #include "correlation.h"
+#include "dpcd.h"
 #include "macos_internal.h"
 
 /* Private CoreDisplay entry point reconstructed from Apple runtime research. Returned dictionary follows Create ownership. */
@@ -368,8 +369,9 @@ static bool active_branch_for_product(const char *product_name, char branch[RSS_
 
 /** Confirms the active branch maps to exactly one external DCPDP device proxy. */
 static bool branch_has_unique_device_proxy(const char *branch, char device_role[RSS_DDC_TEXT_MAX],
-                                           RSSMacOSCorrelationFailure *failure) {
+                                           io_service_t *device_proxy, RSSMacOSCorrelationFailure *failure) {
     device_role[0] = '\0';
+    if (device_proxy != NULL) *device_proxy = MACH_PORT_NULL;
     io_registry_entry_t root = IORegistryGetRootEntry(kIOMainPortDefault);
     io_iterator_t iterator = MACH_PORT_NULL;
     if (root == MACH_PORT_NULL || IORegistryEntryCreateIterator(root, kIOServicePlane,
@@ -379,6 +381,7 @@ static bool branch_has_unique_device_proxy(const char *branch, char device_role[
     }
     IOObjectRelease(root);
     unsigned int count = 0;
+    io_service_t match = MACH_PORT_NULL;
     io_service_t entry = MACH_PORT_NULL;
     while ((entry = IOIteratorNext(iterator)) != MACH_PORT_NULL) {
         io_name_t name = {};
@@ -388,6 +391,11 @@ static bool branch_has_unique_device_proxy(const char *branch, char device_role[
             char candidate[RSS_DDC_TEXT_MAX] = {};
             if (copyCFString(value, candidate) && strcmp(candidate, branch) == 0) {
                 ++count;
+                if (count == 1) {
+                    /* Retain the exact branch candidate for the native IODP Device constructor. */
+                    match = entry;
+                    IOObjectRetain(match);
+                }
                 io_registry_entry_t parent = MACH_PORT_NULL;
                 CFTypeRef role = IORegistryEntryGetParentEntry(entry, kIOServicePlane, &parent) == KERN_SUCCESS ?
                     IORegistryEntryCreateCFProperty(parent, CFSTR("role"), kCFAllocatorDefault, 0) : NULL;
@@ -402,8 +410,65 @@ static bool branch_has_unique_device_proxy(const char *branch, char device_role[
     }
     IOObjectRelease(iterator);
     if (count == 0) *failure = RSS_MACOS_CORRELATION_NO_DCPDP_DEVICE_PROXY;
-    else if (count > 1) *failure = RSS_MACOS_CORRELATION_AMBIGUOUS_DCPDP_DEVICE_PROXY;
+    else if (count > 1) {
+        *failure = RSS_MACOS_CORRELATION_AMBIGUOUS_DCPDP_DEVICE_PROXY;
+        if (match != MACH_PORT_NULL) { IOObjectRelease(match); match = MACH_PORT_NULL; }
+    }
+    if (device_proxy != NULL) *device_proxy = match;
+    else if (match != MACH_PORT_NULL) IOObjectRelease(match);
     return count == 1 && device_role[0] != '\0';
+}
+
+/** Returns the immediate EPIC role without treating it as a globally unique display identity. */
+static bool service_epic_role(io_service_t service, char role[RSS_DDC_TEXT_MAX]) {
+    io_registry_entry_t parent = MACH_PORT_NULL;
+    if (IORegistryEntryGetParentEntry(service, kIOServicePlane, &parent) != KERN_SUCCESS) return false;
+    CFTypeRef value = IORegistryEntryCreateCFProperty(parent, CFSTR("role"), kCFAllocatorDefault, 0);
+    bool copied = copyCFString(value, role);
+    if (value != NULL) CFRelease(value);
+    IOObjectRelease(parent);
+    return copied;
+}
+
+/**
+ * Registry-only DCPDP13 diagnostic candidate search. The candidate must share
+ * the selected Service EPIC role and be a DCPDP-device endpoint. This does not
+ * construct IODPDevice or issue DPCD; ties deliberately remain ambiguous.
+ */
+static unsigned int dp_device_candidates_for_role(const char *role) {
+    if (role == NULL || role[0] == '\0') return 0;
+    io_registry_entry_t root = IORegistryGetRootEntry(kIOMainPortDefault);
+    io_iterator_t iterator = MACH_PORT_NULL;
+    if (root == MACH_PORT_NULL || IORegistryEntryCreateIterator(root, kIOServicePlane,
+                                                                 kIORegistryIterateRecursively, &iterator) != KERN_SUCCESS) {
+        if (root != MACH_PORT_NULL) IOObjectRelease(root);
+        return 0;
+    }
+    IOObjectRelease(root);
+    unsigned int count = 0;
+    io_service_t entry = MACH_PORT_NULL;
+    while ((entry = IOIteratorNext(iterator)) != MACH_PORT_NULL) {
+        io_name_t name = {};
+        IORegistryEntryGetName(entry, name);
+        if (strcmp(name, "DCPDPDeviceProxy") == 0 && is_external(entry)) {
+            io_registry_entry_t parent = MACH_PORT_NULL;
+            CFTypeRef epic_name = IORegistryEntryGetParentEntry(entry, kIOServicePlane, &parent) == KERN_SUCCESS ?
+                IORegistryEntryCreateCFProperty(parent, CFSTR("EPICName"), kCFAllocatorDefault, 0) : NULL;
+            CFTypeRef candidate_role = parent == MACH_PORT_NULL ? NULL :
+                IORegistryEntryCreateCFProperty(parent, CFSTR("role"), kCFAllocatorDefault, 0);
+            char epic_name_text[RSS_DDC_TEXT_MAX] = {};
+            char candidate_role_text[RSS_DDC_TEXT_MAX] = {};
+            bool matches = copyCFString(epic_name, epic_name_text) && copyCFString(candidate_role, candidate_role_text) &&
+                strcmp(epic_name_text, "dcpdp-device-epic") == 0 && strcmp(candidate_role_text, role) == 0;
+            if (candidate_role != NULL) CFRelease(candidate_role);
+            if (epic_name != NULL) CFRelease(epic_name);
+            if (parent != MACH_PORT_NULL) IOObjectRelease(parent);
+            if (matches) ++count;
+        }
+        IOObjectRelease(entry);
+    }
+    IOObjectRelease(iterator);
+    return count;
 }
 
 /**
@@ -478,12 +543,17 @@ RSSDDCError rss_macos_resolve_binding(uint32_t list_index, RSSMacOSBinding *bind
         char device_role[RSS_DDC_TEXT_MAX] = {};
         bool branch_ok = active_branch_for_product(binding->display.product_name, binding->display.branch_device_id,
                                                     &branch_failure) &&
-            branch_has_unique_device_proxy(binding->display.branch_device_id, device_role, &branch_failure);
+            branch_has_unique_device_proxy(binding->display.branch_device_id, device_role,
+                                           &binding->dcpdp_device_proxy, &branch_failure);
         binding->ps190_safety_gate = binding->display.external && branch_ok &&
             is_ps190_service_identity(binding->service_proxy, device_role, binding);
         if (!binding->ps190_safety_gate) {
             if (!binding->display.external) binding->correlation_failure = RSS_MACOS_CORRELATION_NOT_EXTERNAL;
             else if (!branch_ok) binding->correlation_failure = branch_failure;
+            if (binding->dcpdp_device_proxy != MACH_PORT_NULL) {
+                IOObjectRelease(binding->dcpdp_device_proxy);
+                binding->dcpdp_device_proxy = MACH_PORT_NULL;
+            }
             return RSS_DDC_ERROR_SAFETY_GATE;
         }
     }
@@ -493,5 +563,37 @@ RSSDDCError rss_macos_resolve_binding(uint32_t list_index, RSSMacOSBinding *bind
 /** Balances service_for_display's retained proxy on every success and error path. */
 void rss_macos_release_binding(RSSMacOSBinding *binding) {
     if (binding != NULL && binding->service_proxy != MACH_PORT_NULL) IOObjectRelease(binding->service_proxy);
+    if (binding != NULL && binding->dcpdp_device_proxy != MACH_PORT_NULL) IOObjectRelease(binding->dcpdp_device_proxy);
     if (binding != NULL) *binding = (RSSMacOSBinding){0};
+}
+
+RSSDDCError rss_macos_probe_dpcd_path(uint32_t list_index, const RSSDDCDiagnostics *diagnostics) {
+    RSSMacOSBinding binding = {0};
+    RSSDDCError error = rss_macos_resolve_binding(list_index, &binding);
+    if (error != RSS_DDC_OK) {
+        rss_macos_diagnostic(diagnostics, rss_macos_correlation_failure_string(binding.correlation_failure));
+        rss_macos_release_binding(&binding);
+        return error;
+    }
+    if (binding.display.provider != RSS_DDC_PROVIDER_DCPDP13) {
+        rss_macos_diagnostic(diagnostics, "operation=ProbeDPCDPath status=unsupported-provider");
+        rss_macos_release_binding(&binding);
+        return RSS_DDC_ERROR_UNSUPPORTED_CAPABILITY;
+    }
+    char role[RSS_DDC_TEXT_MAX] = {};
+    if (!service_epic_role(binding.service_proxy, role)) {
+        rss_macos_diagnostic(diagnostics, "operation=ProbeDPCDPath status=missing-service-role");
+        rss_macos_release_binding(&binding);
+        return RSS_DDC_ERROR_SAFETY_GATE;
+    }
+    unsigned int candidates = dp_device_candidates_for_role(role);
+    RSSDDCDPCDPathStatus status = rss_ddc_dpcd_path_status_for_candidate_count(candidates);
+    char message[256] = {};
+    snprintf(message, sizeof(message),
+             "backend=DCPDP13Service operation=ProbeDPCDPath service-role=%s scoped-DCPDPDeviceProxy-candidates=%u IODP-construction=not-attempted",
+             role, candidates);
+    rss_macos_diagnostic(diagnostics, message);
+    rss_macos_release_binding(&binding);
+    if (status == RSS_DDC_DPCD_PATH_CANDIDATE) return RSS_DDC_OK;
+    return RSS_DDC_ERROR_SAFETY_GATE;
 }
