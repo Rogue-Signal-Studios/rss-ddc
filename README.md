@@ -8,7 +8,7 @@ This milestone provides real macOS display/provider discovery, strict DDC/CI par
 
 The project uses Apple-private macOS interfaces inside the macOS backend only. Behavior can vary by macOS release, display provider, cable/adapter topology, and monitor firmware.
 
-Validated `rss-ddc` hardware/OS scope is limited to macOS build `25F84` on a simultaneous two-display topology: an Odyssey G75F on HDMI/`AppleDCPPS190` and an LG HDR QHD on DisplayPort/`DCPDP13Service`. GET and same-state SET were manually validated on each selected display without affecting its sibling. No portability beyond these exact setups is implied.
+Validated `rss-ddc` hardware/OS scope is limited to macOS build `25F84` on a simultaneous two-display topology: an Odyssey G75F on HDMI/`AppleDCPPS190` and an LG HDR QHD on DisplayPort/`DCPDP13Service`. GET, write-only SET, and opt-in Set-and-Verify—including real brightness changes and the live retry path—were manually validated on each selected display without affecting its sibling. No portability beyond these exact setups is implied.
 
 ## CLI
 
@@ -49,17 +49,22 @@ verification is unavailable. In particular, a successful input-source (`0x60`)
 SET can intentionally remove the issuing host's active transport; that outcome
 does not prove that the write failed, but it is not reported as verified.
 
-Set-and-Verify has synthetic coverage only and is pending manual hardware
-validation. It does not alter the separately hardware-validated plain GET or
-plain SET provider transactions.
+Set-and-Verify is hardware-validated only on the documented simultaneous
+25F84 topology. The default policy verified PS190 brightness `50 → 49 → 50`
+and DP brightness `100 → 99 → 100`. On the LG, one zero-settle/zero-retry run
+verified immediately, while a separate default-policy run received a malformed
+all-zero first GET, waited 250 ms, then verified successfully on attempt two.
+This establishes an intermittent post-SET transient on that monitor, not a
+universal delay/retry requirement. Set-and-Verify does not alter the separately
+hardware-validated plain GET or plain SET provider transactions.
 
 ## Provider model
 
 | Provider | Backend status | Capabilities |
 | --- | --- | --- |
-| `DCPDP13Service` | conventional Service-path GET and SET hardware-validated on the documented LG DP setup | Get VCP, Set VCP |
+| `DCPDP13Service` | conventional Service-path GET/SET and opt-in Set-and-Verify hardware-validated on the documented LG DP setup | Get VCP, Set VCP |
 | `AppleDCPMCDP29XX` | classified; GET and SET unsupported | none |
-| `AppleDCPPS190` | raw GET and conventional SET hardware-validated on the documented 25F84 setup | Get VCP, Set VCP |
+| `AppleDCPPS190` | raw GET, conventional SET, and opt-in Set-and-Verify hardware-validated on the documented 25F84 setup | Get VCP, Set VCP |
 | unknown | safe unsupported result | none |
 
 `DCPDP13Service` and `AppleDCPPS190` deliberately use different request

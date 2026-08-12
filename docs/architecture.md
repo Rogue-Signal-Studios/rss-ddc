@@ -96,8 +96,8 @@ parser rejected it as malformed. A GET after approximately one second, and
 five additional GETs spaced roughly one second apart, all returned valid
 frames. rss-ddc deliberately adds no global post-SET delay, retry, or implicit
 verification because this is a monitor-specific observation, not a universal
-timing rule. A future explicit set-and-verify API would need a configurable
-settling/retry policy.
+timing rule. The separate, explicit Set-and-Verify API below owns a
+caller-controlled settling/retry policy.
 
 The library currently supports numeric list indices. Stable system/EDID identifiers are a planned addition after their matching semantics are designed and tested.
 
@@ -144,8 +144,19 @@ retryable during the explicit policy window. Invalid policy/input, unsupported
 provider/capability, SET failure, and identity unavailability are not retried.
 Exhausted mismatches return `RSS_DDC_ERROR_VERIFY_MISMATCH`; exhausted
 retryable GET failures return `RSS_DDC_ERROR_VERIFY_RETRY_EXHAUSTED`, while
-per-attempt diagnostics retain the underlying parser/read error. This feature
-has synthetic test coverage only and remains pending hardware validation.
+per-attempt diagnostics retain the underlying parser/read error.
+
+The feature is hardware-validated only on macOS `25F84` with the simultaneous
+Odyssey G75F/`AppleDCPPS190` and LG HDR QHD/`DCPDP13Service` topology. Default
+policy verification succeeded for PS190 brightness `50 → 49 → 50` and DP
+brightness `100 → 99 → 100`; each command remained scoped to its selected
+display/provider binding. The strongest DP retry evidence was a successful
+SET to `100`, an all-zero first verification reply rejected by the strict
+parser as source/framing failure, a retry after the configured 250 ms, and a
+valid matching reply on attempt two. Conversely, one LG zero-settle/zero-retry
+run verified immediately. Together these observations show an intermittent
+post-SET transient on this monitor, not that every DP SET needs retry or that
+250 ms is sufficient elsewhere.
 
 Input VCP `0x60` receives no protocol special case. At the orchestration level,
 an input change may intentionally remove the issuing host's active transport.

@@ -138,7 +138,7 @@ monitor-specific settling behavior, not a required one-second delay or a rule
 for DP monitors. rss-ddc keeps SET write-only and GET independent; it adds no
 automatic sleep, retry, or verification after SET.
 
-## Opt-in verification policy (synthetic coverage; hardware validation pending)
+## Opt-in verification policy (hardware-validated scope)
 
 The public `set --verify` facility deliberately sits above the documented
 PS190 and conventional-DP backends. It does not change raw PS190 GET framing,
@@ -154,8 +154,36 @@ GET unless the original numeric index still proves that same display. It never
 searches or selects a sibling after re-enumeration. If an input-source SET
 switches the monitor away from the issuing host, the write may have succeeded
 while verification is unavailable. That outcome is explicitly not “verified”
-and not proof that the backend SET failed. No automatic verification behavior
-is hardware-validated yet.
+and not proof that the backend SET failed.
+
+User-run validation on macOS `25F84` covered both displays attached at once:
+
+| Selected display / provider | Set VCP `0x10` request | Strict verification reply | Result |
+| --- | --- | --- | --- |
+| Odyssey G75F / `AppleDCPPS190` | same state `50`: `84 03 10 00 32 9a`; real change `49`: `84 03 10 00 31 99` | `6e 88 02 00 10 00 00 32 00 32 a4` for 50; `6e 88 02 00 10 00 00 32 00 31 a7` for 49 | `50 → 49 → 50` verified |
+| LG HDR QHD / `DCPDP13Service` | same state `100`: `84 03 10 00 64 cc`; real change `99`: `84 03 10 00 63 cb` | `6e 88 02 00 10 00 00 64 00 64 a4` for 100; `6e 88 02 00 10 00 00 64 00 63 a3` for 99 | `100 → 99 → 100` verified |
+
+All listed replies passed the strict source/framing, length, command, status,
+VCP, value, and checksum checks. The default policy was `settle_ms=100`,
+`retry_count=3`, and `retry_delay_ms=250`; same-state verification succeeded
+on attempt one for both providers.
+
+The LG also provided live validation of the retry path. A zero-settle,
+zero-retry `99` verification succeeded on attempt one, so the transient is not
+deterministic. In a different default-policy restore to `100`, SET succeeded
+but verification GET #1 returned `00 00 00 00 00 00 00 00 00 00 00`. The
+strict parser rejected it as invalid source/framing, the orchestration marked
+the error retryable, waited 250 ms, and GET #2 returned
+`6e 88 02 00 10 00 00 64 00 64 a4`; the expected/returned value matched and
+the CLI reported `verified 100`. This proves retry recovery on this observed
+LG path only. It does not establish that every LG/DP SET needs a retry, that
+zero settling is generally sufficient, or that 250 ms is a portable delay.
+
+The validated commands remained single-target while both displays were live:
+one selected display, one retained identity, one provider binding, and either
+verification against that same display or a fail-closed result. Plain GET,
+plain SET, and provider backend transaction shapes remain independent of this
+higher-level policy.
 
 ## PS190 Get VCP
 
