@@ -9,10 +9,9 @@ This milestone provides real macOS display/provider discovery, strict DDC/CI par
 MCCS capability-string parsing is available as a portable, caller-owned API,
 but runtime MCCS capability retrieval is intentionally unsupported pending
 provider-specific variable-length transaction evidence. A DCPDP13-only,
-developer validation probe has received one valid LG offset-zero E3 fragment,
-but its 38-byte IOAV read window had an unresolved overwritten tail. The only
-follow-up is a developer-only exact-16-byte repeat at offset zero; it is not
-normal retrieval. See
+developer validation probes have confirmed the LG offset-zero E3 frame and
+its clean exact-16-byte read. A separate LG-only, one-offset-`0x000a` probe is
+available for user-run validation; it is not normal retrieval. See
 [MCCS capability discovery](docs/mccs-capability-discovery.md).
 
 The project uses Apple-private macOS interfaces inside the macOS backend only. Behavior can vary by macOS release, display provider, cable/adapter topology, and monitor firmware.

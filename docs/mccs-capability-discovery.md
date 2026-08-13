@@ -17,7 +17,8 @@ provide a normal `rss-ddc capabilities` command.
 | DCPDP13Service GET VCP transport | Hardware validated in its documented scope |
 | DCPDPService GET VCP transport | Hardware validated in its documented scope |
 | DCPDP13Service/LG HDR QHD one-fragment `probe-mccs-capabilities` | Hardware-observed valid prefix; read-window tail unresolved |
-| DCPDP13Service/LG HDR QHD exact-first-frame repeat | Developer-only pending validation |
+| DCPDP13Service/LG HDR QHD exact-first-frame repeat | Hardware validated at offset zero / 16-byte read |
+| DCPDP13Service/LG HDR QHD one offset-`0x000a` probe | Developer-only pending validation |
 | Any macOS runtime MCCS capability retrieval | Unsupported |
 | AppleDCPMCDP29xx MCCS capability retrieval | Unsupported |
 
@@ -58,9 +59,11 @@ One reply has this form:
 at least three (`e3` plus two offset bytes) and at most 35, leaving 0–32
 capability-string bytes. IOAV returns the source byte but not the implicit host
 read address, so its valid reply frame is 6–38 bytes (not 39). The
-request checksum is XOR of `0x6e`, source `0x51`, and all request bytes before
-the checksum. A reply checksum is XOR of the host read address `0x50` and every
-received reply byte before its checksum. The portable packet parser validates
+checksum representation follows the provider framing: conventional Service
+payloads XOR `0x6e` with the payload bytes before the checksum, while raw
+inline-source frames also include their inline `0x51`. A reply checksum is XOR
+of the host read address `0x50` and every received reply byte before its
+checksum. The portable packet parser validates
 the reply source, length, `e3`, exact received size, and checksum before it
 exposes the transient fragment view.
 
@@ -176,6 +179,39 @@ unrequested bytes and both canaries to remain unchanged. It sends no next
 offset, retries nothing, and is refused unless the selected DCPDP13 display is
 named exactly `LG HDR QHD`.
 
+The user then manually ran that exact-first-frame follow-up against the same
+selected display. The one F3 offset-zero write and 16-byte read both returned
+success. The returned bytes exactly matched the valid frame above; its declared
+size was 16, both outer canaries remained intact, and all 22 bytes after the
+requested read range remained `0xcc`. This ties the earlier overwritten tail
+to the larger requested read window. It does not promote that tail to MCCS
+data, nor does it validate a second offset.
+
+## Pending one-offset-`0x000a` probe
+
+The validated first text fragment has length 10, so the only candidate next
+offset is `0x000a`. The conventional Service request is:
+
+```text
+83 f3 00 0a 14
+```
+
+Its checksum is independently derived as `0x6e ^ 0x83 ^ 0xf3 ^ 0x00 ^ 0x0a =
+0x14`. The developer-only
+`probe-mccs-capabilities-next-fragment <display-index>` command is refused
+unless the selected display is exactly the recorded `LG HDR QHD` DCPDP13
+target. It sends exactly that one request, waits 50 ms, and performs one
+guarded 38-byte read. A smaller pre-read is intentionally not attempted: there
+is no evidence that IOAV supports a non-consuming length discovery read. An
+exact 16-byte read is also unavailable for an unknown second-frame size.
+
+The command validates only the declared E3 prefix, its checksum, and echoed
+offset `0x000a`; it prints the full window, declared size, tail sentinel count,
+and a separate ignored-tail trace. The known large-window tail behavior remains
+diagnostic-only and is never parsed. A zero-length fragment is accepted as a
+valid completion response. The command sends no further offset and performs no
+assembly, retry, fallback framing, or runtime promotion.
+
 ## Why runtime retrieval is not yet enabled
 
 `DCPDP13Service` and `DCPDPService` have hardware-validated conventional GET
@@ -188,12 +224,11 @@ hardware-validated raw GET shape: inline `0x51`, `UINT32_MAX` no-offset, 50
 ms, then a fixed 11-byte read. No source establishes whether PS190 `F3`
 requires the raw or conventional representation, so PS190 is excluded.
 
-The first DCPDP13 frame is valid but its oversized read window is unresolved,
-so it does **not** yet justify a next-offset experiment. The exact-first-frame
-repeat must first return the same complete 16-byte E3 frame with intact outer
-canaries and untouched unrequested bytes. Even that result establishes only
-this read-size behavior for offset zero; it does not by itself establish that a
-38-byte maximum window is appropriate for unknown later fragment sizes.
+The first DCPDP13 frame and its exact-length repeat are valid. This justifies
+only the pending one-offset-`0x000a` experiment. The result does not establish
+that a 38-byte maximum window is suitable for arbitrary fragment retrieval;
+that window is being used once because the second size is unknown and IOAV
+offers no evidenced non-consuming length discovery operation.
 Multipart retrieval would still need separately reviewed evidence that the
 first later offset produces a valid, matching E3 reply with a suitable read
 strategy, followed by bounded accumulation and a zero-byte completion marker.

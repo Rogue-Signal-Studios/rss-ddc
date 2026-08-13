@@ -55,6 +55,11 @@ int main(void) {
     const uint8_t expected_capabilities_zero[] = {0x83, 0xf3, 0x00, 0x00, 0x1e};
     rss_ddc_build_conventional_capabilities_request(0, capabilities_request);
     assert(memcmp(capabilities_request, expected_capabilities_zero, sizeof(capabilities_request)) == 0);
+    const uint8_t expected_capabilities_next[] = {0x83, 0xf3, 0x00, 0x0a, 0x14};
+    rss_ddc_build_conventional_capabilities_request(0x000a, capabilities_request);
+    assert(memcmp(capabilities_request, expected_capabilities_next, sizeof(capabilities_request)) == 0);
+    assert(rss_ddc_request_checksum(expected_capabilities_next, sizeof(expected_capabilities_next) - 1) ==
+           expected_capabilities_next[4]);
     const uint8_t expected_raw_capabilities[] = {0x51, 0x83, 0xf3, 0x01, 0x20, 0x6e};
     uint8_t raw_capabilities_request[RSS_DDC_RAW_CAPABILITIES_REQUEST_SIZE] = {};
     rss_ddc_build_raw_capabilities_request(0x0120, raw_capabilities_request);
@@ -151,6 +156,26 @@ int main(void) {
     assert(fragment.offset == 0 && fragment.length == 10 && memcmp(fragment.bytes, "(prot(moni", 10) == 0);
     /* The remaining 22 modified bytes are not a second parsed frame and are never read by this parser call. */
     assert(observed_lg_reply_window[frame_size] == 0x00 && observed_lg_reply_window[37] == 0x28);
+
+    uint8_t next_fragment_window[RSS_DDC_CAPABILITIES_REPLY_MAX_SIZE];
+    memset(next_fragment_window, 0x9d, sizeof(next_fragment_window));
+    const uint8_t next_fragment_prefix[] = {0x6e, 0x8c, 0xe3, 0x00, 0x0a, 't', 'y', 'p', 'e', '(', 'l', 'c', 'd', ')', 0x00};
+    memcpy(next_fragment_window, next_fragment_prefix, sizeof(next_fragment_prefix));
+    checksum = 0x50;
+    for (size_t index = 0; index + 1 < sizeof(next_fragment_prefix); ++index) checksum ^= next_fragment_window[index];
+    next_fragment_window[sizeof(next_fragment_prefix) - 1] = checksum;
+    assert(rss_ddc_capabilities_reply_frame_size(next_fragment_window, sizeof(next_fragment_window), &frame_size) ==
+           RSS_DDC_OK);
+    assert(frame_size == sizeof(next_fragment_prefix));
+    assert(rss_ddc_parse_capabilities_reply(next_fragment_window, frame_size, &fragment) == RSS_DDC_OK);
+    assert(fragment.offset == 0x000a && fragment.length == 9 && memcmp(fragment.bytes, "type(lcd)", 9) == 0);
+    assert(rss_ddc_validate_capabilities_fragment_offset(&fragment, 0x000a) == RSS_DDC_OK);
+    next_fragment_window[4] = 0x0b;
+    checksum = 0x50;
+    for (size_t index = 0; index + 1 < frame_size; ++index) checksum ^= next_fragment_window[index];
+    next_fragment_window[frame_size - 1] = checksum;
+    assert(rss_ddc_parse_capabilities_reply(next_fragment_window, frame_size, &fragment) == RSS_DDC_OK);
+    assert(rss_ddc_validate_capabilities_fragment_offset(&fragment, 0x000a) == RSS_DDC_ERROR_CAPABILITIES_MALFORMED);
     puts("test_protocol: passed");
     return 0;
 }

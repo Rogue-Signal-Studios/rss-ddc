@@ -125,9 +125,14 @@ RSSDDCError rss_macos_probe_mccs_capabilities(uint32_t list_index, const RSSDDCD
 /** Hardware-derived follow-up: repeat only LG's offset-zero F3 with a 16-byte IOAV read window. */
 RSSDDCError rss_macos_probe_mccs_capabilities_exact_first_frame(uint32_t list_index,
                                                                  const RSSDDCDiagnostics *diagnostics);
+/** Hardware-derived follow-up: one LG offset-0x000a F3 request and one bounded read. */
+RSSDDCError rss_macos_probe_mccs_capabilities_next_fragment(uint32_t list_index,
+                                                             const RSSDDCDiagnostics *diagnostics);
 RSSDDCError rss_macos_dcpdp13_probe_mccs_capabilities(RSSMacOSBinding *binding,
                                                        const RSSDDCDiagnostics *diagnostics);
 RSSDDCError rss_macos_dcpdp13_probe_mccs_capabilities_exact_first_frame(
+    RSSMacOSBinding *binding, const RSSDDCDiagnostics *diagnostics);
+RSSDDCError rss_macos_dcpdp13_probe_mccs_capabilities_next_fragment(
     RSSMacOSBinding *binding, const RSSDDCDiagnostics *diagnostics);
 
 #endif

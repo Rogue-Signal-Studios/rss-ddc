@@ -121,10 +121,11 @@ RSSDDCError rss_macos_dcpdpservice_get_vcp(RSSMacOSBinding *binding, uint8_t vcp
  * its conventional Service tuple is hardware validated for Get VCP; this does
  * not promote MCCS retrieval or imply anything about PS190/DCPDPService.
  */
-static RSSDDCError dcpdp13_probe_mccs_capabilities_first_frame(RSSMacOSBinding *binding,
-                                                                const RSSDDCDiagnostics *diagnostics,
-                                                                size_t requested_reply_size,
-                                                                bool require_exact_observed_frame) {
+static RSSDDCError dcpdp13_probe_mccs_capabilities_one_fragment(RSSMacOSBinding *binding,
+                                                                 const RSSDDCDiagnostics *diagnostics,
+                                                                 uint16_t requested_offset,
+                                                                 size_t requested_reply_size,
+                                                                 bool require_exact_observed_frame) {
     if (binding == NULL || !binding->dp_safety_gate || binding->display.provider != RSS_DDC_PROVIDER_DCPDP13) {
         return RSS_DDC_ERROR_SAFETY_GATE;
     }
@@ -133,8 +134,8 @@ static RSSDDCError dcpdp13_probe_mccs_capabilities_first_frame(RSSMacOSBinding *
     }
     char message[256] = {};
     snprintf(message, sizeof(message),
-             "operation=ProbeMCCSCapabilities provider=DCPDP13Service scope=one-f3-offset-zero-request read-length=%zu",
-             requested_reply_size);
+             "operation=ProbeMCCSCapabilities provider=DCPDP13Service scope=one-f3-request offset=0x%04x read-length=%zu",
+             requested_offset, requested_reply_size);
     rss_macos_diagnostic(diagnostics, message);
     IOAVServiceRef service = IOAVServiceCreateWithService(kCFAllocatorDefault, binding->service_proxy);
     if (service == NULL || CFGetTypeID(service) != IOAVServiceGetTypeID()) {
@@ -145,7 +146,7 @@ static RSSDDCError dcpdp13_probe_mccs_capabilities_first_frame(RSSMacOSBinding *
 
     uint8_t request[RSS_DDC_CONVENTIONAL_CAPABILITIES_REQUEST_SIZE] = {};
     RSSMCCSProbeReplyWindow reply = {};
-    rss_ddc_build_conventional_capabilities_request(0, request);
+    rss_ddc_build_conventional_capabilities_request(requested_offset, request);
     memset(reply.before, 0xa5, sizeof(reply.before));
     memset(reply.bytes, 0xcc, sizeof(reply.bytes));
     memset(reply.after, 0x5a, sizeof(reply.after));
@@ -189,6 +190,12 @@ static RSSDDCError dcpdp13_probe_mccs_capabilities_first_frame(RSSMacOSBinding *
     snprintf(message, sizeof(message), "E3 declared-frame-bytes=%zu tail-sentinel-bytes=%zu/%zu",
              frame_size, unchanged_tail, requested_reply_size - frame_size);
     rss_macos_diagnostic(diagnostics, message);
+    if (requested_reply_size > frame_size) {
+        diagnostic_bytes(diagnostics, "E3 ignored-tail", reply.bytes + frame_size, requested_reply_size - frame_size);
+        rss_macos_diagnostic(diagnostics, "E3 parser=declared-prefix-only; tail=ignored");
+    } else {
+        rss_macos_diagnostic(diagnostics, "E3 parser=declared-prefix-only; tail=empty");
+    }
 
     if (require_exact_observed_frame) {
         static const uint8_t observed_lg_first_frame[] = {
@@ -220,8 +227,8 @@ static RSSDDCError dcpdp13_probe_mccs_capabilities_first_frame(RSSMacOSBinding *
         rss_macos_diagnostic(diagnostics, rss_ddc_error_string(error));
         return error;
     }
-    if (rss_ddc_validate_capabilities_fragment_offset(&fragment, 0) != RSS_DDC_OK) {
-        snprintf(message, sizeof(message), "E3 echoed-offset=0x%04x expected=0x0000", fragment.offset);
+    if (rss_ddc_validate_capabilities_fragment_offset(&fragment, requested_offset) != RSS_DDC_OK) {
+        snprintf(message, sizeof(message), "E3 echoed-offset=0x%04x expected=0x%04x", fragment.offset, requested_offset);
         rss_macos_diagnostic(diagnostics, message);
         return RSS_DDC_ERROR_CAPABILITIES_MALFORMED;
     }
@@ -232,7 +239,7 @@ static RSSDDCError dcpdp13_probe_mccs_capabilities_first_frame(RSSMacOSBinding *
 
 RSSDDCError rss_macos_dcpdp13_probe_mccs_capabilities(RSSMacOSBinding *binding,
                                                        const RSSDDCDiagnostics *diagnostics) {
-    return dcpdp13_probe_mccs_capabilities_first_frame(binding, diagnostics,
+    return dcpdp13_probe_mccs_capabilities_one_fragment(binding, diagnostics, 0,
                                                         RSS_DDC_CAPABILITIES_REPLY_MAX_SIZE, false);
 }
 
@@ -245,5 +252,18 @@ RSSDDCError rss_macos_dcpdp13_probe_mccs_capabilities_exact_first_frame(
                              "operation=ProbeMCCSCapabilitiesExactFirstFrame status=refused; recorded LG HDR QHD only");
         return RSS_DDC_ERROR_UNSUPPORTED_CAPABILITY;
     }
-    return dcpdp13_probe_mccs_capabilities_first_frame(binding, diagnostics, observed_frame_size, true);
+    return dcpdp13_probe_mccs_capabilities_one_fragment(binding, diagnostics, 0, observed_frame_size, true);
+}
+
+RSSDDCError rss_macos_dcpdp13_probe_mccs_capabilities_next_fragment(
+    RSSMacOSBinding *binding, const RSSDDCDiagnostics *diagnostics) {
+    static const char observed_product[] = "LG HDR QHD";
+    enum { next_offset = 10 };
+    if (binding == NULL || strcmp(binding->display.product_name, observed_product) != 0) {
+        rss_macos_diagnostic(diagnostics,
+                             "operation=ProbeMCCSCapabilitiesNextFragment status=refused; recorded LG HDR QHD only");
+        return RSS_DDC_ERROR_UNSUPPORTED_CAPABILITY;
+    }
+    return dcpdp13_probe_mccs_capabilities_one_fragment(binding, diagnostics, next_offset,
+                                                        RSS_DDC_CAPABILITIES_REPLY_MAX_SIZE, false);
 }
