@@ -21,11 +21,12 @@ static void usage(const char *program) {
             "  %s probe-mccs-capabilities <display-index>\n"
             "  %s probe-mccs-capabilities-exact-first-frame <display-index>\n"
             "  %s probe-mccs-capabilities-next-fragment <display-index>\n"
+            "  %s probe-mccs-capabilities-full <display-index>\n"
             "  %s [--verbose] get <display-index> <vcp>\n"
             "  %s [--verbose] set <display-index> <vcp> <value>\n"
             "  %s [--verbose] set <display-index> <vcp> <value> --verify [--settle-ms <ms>] "
             "[--retries <count>] [--retry-delay-ms <ms>]\n",
-            program, program, program, program, program, program, program, program, program, program, program);
+            program, program, program, program, program, program, program, program, program, program, program, program);
 }
 
 static bool parse_unsigned(const char *text, unsigned long maximum, unsigned long *value) {
@@ -228,6 +229,14 @@ int main(int argc, char **argv) {
         RSSDDCError error = rss_macos_probe_mccs_capabilities_next_fragment((uint32_t)display_index, &diagnostics);
         if (error != RSS_DDC_OK) { fprintf(stderr, "rss-ddc: %s\n", rss_ddc_error_string(error)); return EXIT_FAILURE; }
         printf("MCCS next-fragment probe completed; no additional request was sent.\n");
+        return EXIT_SUCCESS;
+    }
+    if (strcmp(argv[argument], "probe-mccs-capabilities-full") == 0) {
+        if (argc != argument + 2) { usage(argv[0]); return EXIT_FAILURE; }
+        RSSDDCDiagnostics diagnostics = {.callback = write_diagnostic, .context = NULL};
+        RSSDDCError error = rss_macos_probe_mccs_capabilities_full((uint32_t)display_index, &diagnostics);
+        if (error != RSS_DDC_OK) { fprintf(stderr, "rss-ddc: %s\n", rss_ddc_error_string(error)); return EXIT_FAILURE; }
+        printf("MCCS bounded developer retrieval completed; no runtime capability support was enabled.\n");
         return EXIT_SUCCESS;
     }
     if (strcmp(argv[argument], "dpcd") == 0) {

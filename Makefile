@@ -59,7 +59,7 @@ $(NAME): $(LIBRARY) $(CLI_SOURCES)
 
 library: $(LIBRARY)
 
-$(BUILD)/test_protocol: tests/test_protocol.c src/ddc/protocol.c src/core/provider.c | $(BUILD)
+$(BUILD)/test_protocol: tests/test_protocol.c src/ddc/protocol.c src/core/mccs_capabilities.c src/core/provider.c | $(BUILD)
 	$(CC) $(CFLAGS) $^ -o $@
 
 $(BUILD)/test_provider: tests/test_provider.c src/core/provider.c | $(BUILD)

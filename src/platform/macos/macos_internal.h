@@ -128,11 +128,15 @@ RSSDDCError rss_macos_probe_mccs_capabilities_exact_first_frame(uint32_t list_in
 /** Hardware-derived follow-up: one LG offset-0x000a F3 request and one bounded read. */
 RSSDDCError rss_macos_probe_mccs_capabilities_next_fragment(uint32_t list_index,
                                                              const RSSDDCDiagnostics *diagnostics);
+/** Bounded LG-only developer harness; it is not a public runtime capabilities API. */
+RSSDDCError rss_macos_probe_mccs_capabilities_full(uint32_t list_index, const RSSDDCDiagnostics *diagnostics);
 RSSDDCError rss_macos_dcpdp13_probe_mccs_capabilities(RSSMacOSBinding *binding,
                                                        const RSSDDCDiagnostics *diagnostics);
 RSSDDCError rss_macos_dcpdp13_probe_mccs_capabilities_exact_first_frame(
     RSSMacOSBinding *binding, const RSSDDCDiagnostics *diagnostics);
 RSSDDCError rss_macos_dcpdp13_probe_mccs_capabilities_next_fragment(
+    RSSMacOSBinding *binding, const RSSDDCDiagnostics *diagnostics);
+RSSDDCError rss_macos_dcpdp13_probe_mccs_capabilities_full(
     RSSMacOSBinding *binding, const RSSDDCDiagnostics *diagnostics);
 
 #endif

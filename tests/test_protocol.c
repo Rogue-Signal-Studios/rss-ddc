@@ -176,6 +176,63 @@ int main(void) {
     next_fragment_window[frame_size - 1] = checksum;
     assert(rss_ddc_parse_capabilities_reply(next_fragment_window, frame_size, &fragment) == RSS_DDC_OK);
     assert(rss_ddc_validate_capabilities_fragment_offset(&fragment, 0x000a) == RSS_DDC_ERROR_CAPABILITIES_MALFORMED);
+
+    /* Bounded multipart fixture starts with the two hardware-derived LG fragments; each 38-byte window has tail noise. */
+    RSSDDCCapabilitiesCollector collector = {};
+    assert(rss_ddc_parse_capabilities_reply(observed_lg_reply_window, 16, &fragment) == RSS_DDC_OK);
+    assert(rss_ddc_capabilities_collector_append(&collector, &fragment) == RSS_DDC_OK);
+    assert(collector.byte_count == 10 && collector.next_offset == 0x000a && !collector.complete);
+    uint8_t observed_lg_second_window[RSS_DDC_CAPABILITIES_REPLY_MAX_SIZE] = {
+        0x6e, 0x8d, 0xe3, 0x00, 0x0a, 0x74, 0x6f, 0x72, 0x29, 0x74, 0x79, 0x70, 0x65, 0x28, 0x6c, 0x46,
+    };
+    memset(observed_lg_second_window + 16, 0x77, sizeof(observed_lg_second_window) - 16);
+    assert(rss_ddc_capabilities_reply_frame_size(observed_lg_second_window,
+                                                  sizeof(observed_lg_second_window), &frame_size) == RSS_DDC_OK);
+    assert(frame_size == 16);
+    assert(rss_ddc_parse_capabilities_reply(observed_lg_second_window, frame_size, &fragment) == RSS_DDC_OK);
+    assert(rss_ddc_capabilities_collector_append(&collector, &fragment) == RSS_DDC_OK);
+    const char final_fragment[] = "cd)vcp(60(0f 11 12)))";
+    fragment = (RSSDDCCapabilitiesFragment){.offset = collector.next_offset,
+                                            .bytes = (const uint8_t *)final_fragment,
+                                            .length = strlen(final_fragment)};
+    assert(rss_ddc_capabilities_collector_append(&collector, &fragment) == RSS_DDC_OK);
+    assert(!collector.complete);
+    fragment = (RSSDDCCapabilitiesFragment){.offset = collector.next_offset, .bytes = NULL, .length = 0};
+    assert(rss_ddc_capabilities_collector_append(&collector, &fragment) == RSS_DDC_OK);
+    assert(collector.complete && collector.request_count == 4);
+    assert(strcmp((const char *)collector.bytes, "(prot(monitor)type(lcd)vcp(60(0f 11 12)))") == 0);
+    RSSDDCMCCSCapabilities assembled = {};
+    assert(rss_ddc_parse_mccs_capabilities((const char *)collector.bytes, collector.byte_count, &assembled) == RSS_DDC_OK);
+    const uint8_t *enum_values = NULL;
+    size_t enum_count = 0;
+    assert(rss_ddc_mccs_capabilities_enum_values(&assembled, 0x60, &enum_values, &enum_count) == RSS_DDC_OK);
+    assert(enum_count == 3 && enum_values[0] == 0x0f && enum_values[1] == 0x11 && enum_values[2] == 0x12);
+
+    RSSDDCCapabilitiesCollector wrong_offset = {};
+    fragment = (RSSDDCCapabilitiesFragment){.offset = 1, .bytes = (const uint8_t *)"x", .length = 1};
+    assert(rss_ddc_capabilities_collector_append(&wrong_offset, &fragment) == RSS_DDC_ERROR_CAPABILITIES_MALFORMED);
+    RSSDDCCapabilitiesCollector checksum_failure = {};
+    assert(rss_ddc_parse_capabilities_reply(observed_lg_reply_window, 16, &fragment) == RSS_DDC_OK);
+    assert(rss_ddc_capabilities_collector_append(&checksum_failure, &fragment) == RSS_DDC_OK);
+    observed_lg_second_window[15] ^= 0xff;
+    assert(rss_ddc_parse_capabilities_reply(observed_lg_second_window, 16, &fragment) == RSS_DDC_ERROR_REPLY_CHECKSUM);
+    assert(checksum_failure.byte_count == 10 && !checksum_failure.complete);
+
+    uint8_t maximum_text[32] = {};
+    RSSDDCCapabilitiesCollector maximum_fragment = {};
+    fragment = (RSSDDCCapabilitiesFragment){.offset = 0, .bytes = maximum_text, .length = sizeof(maximum_text)};
+    assert(rss_ddc_capabilities_collector_append(&maximum_fragment, &fragment) == RSS_DDC_OK);
+    RSSDDCCapabilitiesCollector size_overflow = {.byte_count = RSS_DDC_MCCS_CAPABILITIES_MAX_BYTES - 1,
+                                                  .next_offset = RSS_DDC_MCCS_CAPABILITIES_MAX_BYTES - 1};
+    fragment = (RSSDDCCapabilitiesFragment){.offset = size_overflow.next_offset,
+                                            .bytes = (const uint8_t *)"xx", .length = 2};
+    assert(rss_ddc_capabilities_collector_append(&size_overflow, &fragment) == RSS_DDC_ERROR_CAPABILITIES_TOO_LARGE);
+    RSSDDCCapabilitiesCollector request_limit = {.request_count = RSS_DDC_CAPABILITIES_MAX_REQUESTS};
+    fragment = (RSSDDCCapabilitiesFragment){.offset = 0, .bytes = (const uint8_t *)"x", .length = 1};
+    assert(rss_ddc_capabilities_collector_append(&request_limit, &fragment) == RSS_DDC_ERROR_CAPABILITIES_MALFORMED);
+    RSSDDCCapabilitiesCollector offset_overflow = {.next_offset = UINT16_MAX};
+    fragment = (RSSDDCCapabilitiesFragment){.offset = UINT16_MAX, .bytes = (const uint8_t *)"x", .length = 1};
+    assert(rss_ddc_capabilities_collector_append(&offset_overflow, &fragment) == RSS_DDC_ERROR_CAPABILITIES_MALFORMED);
     puts("test_protocol: passed");
     return 0;
 }

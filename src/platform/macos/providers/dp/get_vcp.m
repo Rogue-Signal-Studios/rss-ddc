@@ -29,7 +29,8 @@ static void diagnostic_capabilities_text(const RSSDDCDiagnostics *diagnostics,
         text[index] = value >= 0x20 && value <= 0x7e ? (char)value : '.';
     }
     char message[160] = {};
-    snprintf(message, sizeof(message), "fragment offset=0x%04x text=%s", fragment->offset, text);
+    snprintf(message, sizeof(message), "fragment offset=0x%04x text-length=%zu text=%s",
+             fragment->offset, fragment->length, text);
     rss_macos_diagnostic(diagnostics, message);
 }
 
@@ -125,7 +126,8 @@ static RSSDDCError dcpdp13_probe_mccs_capabilities_one_fragment(RSSMacOSBinding 
                                                                  const RSSDDCDiagnostics *diagnostics,
                                                                  uint16_t requested_offset,
                                                                  size_t requested_reply_size,
-                                                                 bool require_exact_observed_frame) {
+                                                                 bool require_exact_observed_frame,
+                                                                 RSSDDCCapabilitiesCollector *collector) {
     if (binding == NULL || !binding->dp_safety_gate || binding->display.provider != RSS_DDC_PROVIDER_DCPDP13) {
         return RSS_DDC_ERROR_SAFETY_GATE;
     }
@@ -233,14 +235,25 @@ static RSSDDCError dcpdp13_probe_mccs_capabilities_one_fragment(RSSMacOSBinding 
         return RSS_DDC_ERROR_CAPABILITIES_MALFORMED;
     }
     diagnostic_capabilities_text(diagnostics, &fragment);
-    rss_macos_diagnostic(diagnostics, "probe=complete; no next offset was requested");
+    if (collector != NULL) {
+        error = rss_ddc_capabilities_collector_append(collector, &fragment);
+        if (error != RSS_DDC_OK) {
+            rss_macos_diagnostic(diagnostics, rss_ddc_error_string(error));
+            return error;
+        }
+        snprintf(message, sizeof(message), "multipart request-number=%zu next-offset=0x%04x complete=%s",
+                 collector->request_count, collector->next_offset, collector->complete ? "yes" : "no");
+        rss_macos_diagnostic(diagnostics, message);
+    } else {
+        rss_macos_diagnostic(diagnostics, "probe=complete; no next offset was requested");
+    }
     return RSS_DDC_OK;
 }
 
 RSSDDCError rss_macos_dcpdp13_probe_mccs_capabilities(RSSMacOSBinding *binding,
                                                        const RSSDDCDiagnostics *diagnostics) {
     return dcpdp13_probe_mccs_capabilities_one_fragment(binding, diagnostics, 0,
-                                                        RSS_DDC_CAPABILITIES_REPLY_MAX_SIZE, false);
+                                                        RSS_DDC_CAPABILITIES_REPLY_MAX_SIZE, false, NULL);
 }
 
 RSSDDCError rss_macos_dcpdp13_probe_mccs_capabilities_exact_first_frame(
@@ -252,7 +265,7 @@ RSSDDCError rss_macos_dcpdp13_probe_mccs_capabilities_exact_first_frame(
                              "operation=ProbeMCCSCapabilitiesExactFirstFrame status=refused; recorded LG HDR QHD only");
         return RSS_DDC_ERROR_UNSUPPORTED_CAPABILITY;
     }
-    return dcpdp13_probe_mccs_capabilities_one_fragment(binding, diagnostics, 0, observed_frame_size, true);
+    return dcpdp13_probe_mccs_capabilities_one_fragment(binding, diagnostics, 0, observed_frame_size, true, NULL);
 }
 
 RSSDDCError rss_macos_dcpdp13_probe_mccs_capabilities_next_fragment(
@@ -265,5 +278,68 @@ RSSDDCError rss_macos_dcpdp13_probe_mccs_capabilities_next_fragment(
         return RSS_DDC_ERROR_UNSUPPORTED_CAPABILITY;
     }
     return dcpdp13_probe_mccs_capabilities_one_fragment(binding, diagnostics, next_offset,
-                                                        RSS_DDC_CAPABILITIES_REPLY_MAX_SIZE, false);
+                                                        RSS_DDC_CAPABILITIES_REPLY_MAX_SIZE, false, NULL);
+}
+
+RSSDDCError rss_macos_dcpdp13_probe_mccs_capabilities_full(
+    RSSMacOSBinding *binding, const RSSDDCDiagnostics *diagnostics) {
+    static const char observed_product[] = "LG HDR QHD";
+    if (binding == NULL || strcmp(binding->display.product_name, observed_product) != 0) {
+        rss_macos_diagnostic(diagnostics,
+                             "operation=ProbeMCCSCapabilitiesFull status=refused; recorded LG HDR QHD only");
+        return RSS_DDC_ERROR_UNSUPPORTED_CAPABILITY;
+    }
+    rss_macos_diagnostic(diagnostics,
+                         "operation=ProbeMCCSCapabilitiesFull provider=DCPDP13Service scope=developer-validation-only");
+    RSSDDCCapabilitiesCollector collector = {};
+    while (!collector.complete) {
+        if (collector.request_count >= RSS_DDC_CAPABILITIES_MAX_REQUESTS) {
+            rss_macos_diagnostic(diagnostics, "multipart=request-limit-exceeded; stopped");
+            return RSS_DDC_ERROR_CAPABILITIES_MALFORMED;
+        }
+        char message[160] = {};
+        snprintf(message, sizeof(message), "multipart request-number=%zu requested-offset=0x%04x",
+                 collector.request_count + 1, collector.next_offset);
+        rss_macos_diagnostic(diagnostics, message);
+        RSSDDCError error = dcpdp13_probe_mccs_capabilities_one_fragment(
+            binding, diagnostics, collector.next_offset, RSS_DDC_CAPABILITIES_REPLY_MAX_SIZE, false, &collector);
+        if (error != RSS_DDC_OK) return error;
+    }
+
+    char raw_message[RSS_DDC_MCCS_CAPABILITIES_MAX_BYTES + 64] = {};
+    snprintf(raw_message, sizeof(raw_message), "assembled-capabilities=%s", collector.bytes);
+    rss_macos_diagnostic(diagnostics, raw_message);
+    char summary[160] = {};
+    snprintf(summary, sizeof(summary), "multipart complete fragments=%zu text-bytes=%zu explicit-zero-length=yes",
+             collector.request_count, collector.byte_count);
+    rss_macos_diagnostic(diagnostics, summary);
+
+    RSSDDCMCCSCapabilities capabilities = {};
+    RSSDDCError error = rss_ddc_parse_mccs_capabilities((const char *)collector.bytes, collector.byte_count,
+                                                         &capabilities);
+    if (error != RSS_DDC_OK) {
+        rss_macos_diagnostic(diagnostics, rss_ddc_error_string(error));
+        return error;
+    }
+    rss_macos_diagnostic(diagnostics, "assembled-parser=valid");
+    for (size_t index = 0; index < capabilities.feature_count; ++index) {
+        snprintf(summary, sizeof(summary), "advertised-vcp=0x%02x", capabilities.features[index].vcp_code);
+        rss_macos_diagnostic(diagnostics, summary);
+    }
+    if (!rss_ddc_mccs_capabilities_has_vcp(&capabilities, 0x60)) {
+        rss_macos_diagnostic(diagnostics, "advertised-vcp-0x60=no");
+        return RSS_DDC_OK;
+    }
+    const uint8_t *values = NULL;
+    size_t value_count = 0;
+    error = rss_ddc_mccs_capabilities_enum_values(&capabilities, 0x60, &values, &value_count);
+    if (error != RSS_DDC_OK) return error;
+    char values_message[RSS_DDC_MCCS_CAPABILITIES_MAX_ENUM_VALUES * 3 + 64] = {};
+    int written = snprintf(values_message, sizeof(values_message), "advertised-vcp-0x60-values=");
+    for (size_t index = 0; index < value_count && written > 0 && (size_t)written < sizeof(values_message); ++index) {
+        written += snprintf(values_message + written, sizeof(values_message) - (size_t)written,
+                            "%s%02x", index == 0 ? "" : " ", values[index]);
+    }
+    rss_macos_diagnostic(diagnostics, values_message);
+    return RSS_DDC_OK;
 }

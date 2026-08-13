@@ -17,6 +17,8 @@ enum {
     RSS_DDC_CAPABILITIES_REPLY_MAX_DATA_BYTES = 35,
     /** IOAV omits the implicit host-read address: 0x6e + length + 35 data + checksum. */
     RSS_DDC_CAPABILITIES_REPLY_MAX_SIZE = 38,
+    /** 128 nonempty 32-byte fragments plus an explicit zero-length completion frame. */
+    RSS_DDC_CAPABILITIES_MAX_REQUESTS = 129,
 };
 
 /** A validated, transient view into one MCCS Capabilities Reply packet. */
@@ -25,6 +27,15 @@ typedef struct {
     const uint8_t *bytes;
     size_t length;
 } RSSDDCCapabilitiesFragment;
+
+/** Internal bounded state for the developer-only MCCS multipart transport harness. */
+typedef struct {
+    uint8_t bytes[RSS_DDC_MCCS_CAPABILITIES_MAX_BYTES + 1];
+    size_t byte_count;
+    size_t request_count;
+    uint16_t next_offset;
+    bool complete;
+} RSSDDCCapabilitiesCollector;
 
 /**
  * XORs the DDC destination seed (0x6e) with a provider-specific request
@@ -72,5 +83,8 @@ RSSDDCError rss_ddc_capabilities_reply_frame_size(const uint8_t *reply, size_t a
 /** Rejects a syntactically valid fragment whose monitor-echoed offset is unexpected. */
 RSSDDCError rss_ddc_validate_capabilities_fragment_offset(const RSSDDCCapabilitiesFragment *fragment,
                                                           uint16_t requested_offset);
+/** Validates, appends, and advances exactly one declared E3 text fragment. */
+RSSDDCError rss_ddc_capabilities_collector_append(RSSDDCCapabilitiesCollector *collector,
+                                                  const RSSDDCCapabilitiesFragment *fragment);
 
 #endif

@@ -1,5 +1,7 @@
 #include "protocol.h"
 
+#include <string.h>
+
 enum {
     /* DDC/CI addressing/framing constants, not IOKit subaddresses. */
     RSS_DDC_DESTINATION_ADDRESS = 0x6e,
@@ -132,4 +134,32 @@ RSSDDCError rss_ddc_validate_capabilities_fragment_offset(const RSSDDCCapabiliti
                                                           uint16_t requested_offset) {
     if (fragment == NULL) return RSS_DDC_ERROR_ARGUMENT;
     return fragment->offset == requested_offset ? RSS_DDC_OK : RSS_DDC_ERROR_CAPABILITIES_MALFORMED;
+}
+
+RSSDDCError rss_ddc_capabilities_collector_append(RSSDDCCapabilitiesCollector *collector,
+                                                  const RSSDDCCapabilitiesFragment *fragment) {
+    if (collector == NULL || fragment == NULL || (fragment->length != 0 && fragment->bytes == NULL)) {
+        return RSS_DDC_ERROR_ARGUMENT;
+    }
+    if (collector->complete || collector->request_count >= RSS_DDC_CAPABILITIES_MAX_REQUESTS ||
+        fragment->offset != collector->next_offset || fragment->length > 32) {
+        return RSS_DDC_ERROR_CAPABILITIES_MALFORMED;
+    }
+    if (fragment->length == 0) {
+        ++collector->request_count;
+        collector->complete = true;
+        collector->bytes[collector->byte_count] = '\0';
+        return RSS_DDC_OK;
+    }
+    if (fragment->length > RSS_DDC_MCCS_CAPABILITIES_MAX_BYTES - collector->byte_count) {
+        return RSS_DDC_ERROR_CAPABILITIES_TOO_LARGE;
+    }
+    if ((uint32_t)collector->next_offset + fragment->length > UINT16_MAX) {
+        return RSS_DDC_ERROR_CAPABILITIES_MALFORMED;
+    }
+    memcpy(collector->bytes + collector->byte_count, fragment->bytes, fragment->length);
+    collector->byte_count += fragment->length;
+    collector->next_offset = (uint16_t)(collector->next_offset + fragment->length);
+    ++collector->request_count;
+    return RSS_DDC_OK;
 }

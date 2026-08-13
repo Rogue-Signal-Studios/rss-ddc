@@ -4,10 +4,9 @@
 
 rss-ddc has a portable, bounded MCCS capabilities-string parser and strict
 parsers/builders for individual DDC/CI capability packets. It provides one
-developer-only DCPDP13Service experiment, `probe-mccs-capabilities`, which
-sends exactly one offset-zero request and reads exactly one bounded reply. It
-does **not** retrieve a full string, advertise a provider capability, or
-provide a normal `rss-ddc capabilities` command.
+developer-only DCPDP13Service experiments. The LG-only full probe is bounded
+and explicitly a validation harness; it does **not** advertise a provider
+capability or provide a normal `rss-ddc capabilities` command.
 
 | Claim | Status |
 | --- | --- |
@@ -18,7 +17,8 @@ provide a normal `rss-ddc capabilities` command.
 | DCPDPService GET VCP transport | Hardware validated in its documented scope |
 | DCPDP13Service/LG HDR QHD one-fragment `probe-mccs-capabilities` | Hardware-observed valid prefix; read-window tail unresolved |
 | DCPDP13Service/LG HDR QHD exact-first-frame repeat | Hardware validated at offset zero / 16-byte read |
-| DCPDP13Service/LG HDR QHD one offset-`0x000a` probe | Developer-only pending validation |
+| DCPDP13Service/LG HDR QHD one offset-`0x000a` probe | Hardware validated sequential fragment |
+| DCPDP13Service/LG HDR QHD bounded multipart probe | Developer-only pending validation |
 | Any macOS runtime MCCS capability retrieval | Unsupported |
 | AppleDCPMCDP29xx MCCS capability retrieval | Unsupported |
 
@@ -187,7 +187,7 @@ requested read range remained `0xcc`. This ties the earlier overwritten tail
 to the larger requested read window. It does not promote that tail to MCCS
 data, nor does it validate a second offset.
 
-## Pending one-offset-`0x000a` probe
+## Validated one-offset-`0x000a` probe
 
 The validated first text fragment has length 10, so the only candidate next
 offset is `0x000a`. The conventional Service request is:
@@ -205,12 +205,32 @@ guarded 38-byte read. A smaller pre-read is intentionally not attempted: there
 is no evidence that IOAV supports a non-consuming length discovery read. An
 exact 16-byte read is also unavailable for an unknown second-frame size.
 
-The command validates only the declared E3 prefix, its checksum, and echoed
-offset `0x000a`; it prints the full window, declared size, tail sentinel count,
-and a separate ignored-tail trace. The known large-window tail behavior remains
-diagnostic-only and is never parsed. A zero-length fragment is accepted as a
-valid completion response. The command sends no further offset and performs no
-assembly, retry, fallback framing, or runtime promotion.
+The user manually ran this command on the same LG/DCPDP13Service/DCPEXT0
+binding. It returned the valid 16-byte E3 frame at echoed offset `0x000a`, with
+text `tor)type(l`, coherent with the first fragment `(prot(moni` to form
+`(prot(monitor)type(l`. The 38-byte window again had the 22-byte modified tail,
+but canaries remained intact. The command validates only the declared E3
+prefix, checksum, and echoed offset; the tail remains diagnostic-only and is
+never parsed.
+
+## Bounded full-retrieval developer harness
+
+`probe-mccs-capabilities-full <display-index>` is now a LG HDR QHD-only,
+DCPDP13Service-only **developer validation** harness. It is not runtime
+capability support. Starting at offset zero, it issues exactly one conventional
+F3 request, 50 ms delay, and guarded 38-byte read per requested offset. It
+strictly validates the declared E3 prefix and echoed offset, copies only the
+declared text bytes, advances by exactly that text length, and stops only on a
+valid zero-length E3 completion frame.
+
+The collector fails closed at 4,096 accumulated bytes, 32 text bytes per
+fragment, 129 total requests (128 data fragments plus completion), and uint16
+offset overflow. It never retries, scans an ignored tail, falls back to another
+framing/provider, or advances by frame/read/tail length. Each transaction logs
+the request number/offset, raw reply, canary state, declared size, text length,
+ignored-tail diagnostics, and resulting next offset. At explicit completion it
+prints the raw assembled string, runs the portable parser, lists advertised VCP
+codes, and reports raw VCP `0x60` enum values without connector-name mapping.
 
 ## Why runtime retrieval is not yet enabled
 
@@ -224,14 +244,13 @@ hardware-validated raw GET shape: inline `0x51`, `UINT32_MAX` no-offset, 50
 ms, then a fixed 11-byte read. No source establishes whether PS190 `F3`
 requires the raw or conventional representation, so PS190 is excluded.
 
-The first DCPDP13 frame and its exact-length repeat are valid. This justifies
-only the pending one-offset-`0x000a` experiment. The result does not establish
-that a 38-byte maximum window is suitable for arbitrary fragment retrieval;
-that window is being used once because the second size is unknown and IOAV
-offers no evidenced non-consuming length discovery operation.
-Multipart retrieval would still need separately reviewed evidence that the
-first later offset produces a valid, matching E3 reply with a suitable read
-strategy, followed by bounded accumulation and a zero-byte completion marker.
+The first and offset-`0x000a` DCPDP13 fragments are valid and establish the
+bounded full-retrieval validation harness for this exact LG path. They do not
+establish normal runtime transport support. The 38-byte window remains a
+bounded practical read for an unknown fragment length, not a claim about
+actual-byte-count semantics; only its declared E3 prefix is protocol data.
+The full LG result still needs review for every offset, explicit zero-length
+completion, final parser outcome, and tail/canary behavior.
 DCPDPService needs its own first-fragment evidence, PS190 needs a
 framed-request decision, and MCDP remains out of scope.
 
