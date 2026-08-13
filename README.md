@@ -35,7 +35,6 @@ make
 ./rss-ddc --verbose dpcd 1 0x00000 16
 ./rss-ddc --verbose dpcd 1 0x00200 8
 ./rss-ddc --verbose probe-dpcd-path 2
-./rss-ddc probe-input-alt 2 lg-alt 0x90
 ./rss-ddc --verbose get 2 0x10
 ./rss-ddc --verbose set 2 0x10 61
 ./rss-ddc --verbose set 2 0x10 62 --verify
@@ -46,9 +45,11 @@ make
 ./rss-ddc --verbose set 2 0x10 100 --verify --settle-ms 100 --retries 3 --retry-delay-ms 250
 ```
 
-Developer-only LG/DCPDP13 input-framing research is documented in
-[research-lg-input-framing.md](docs/research-lg-input-framing.md). It is a
-manual, write-only probe and does not change production input switching.
+Input switching has an explicit public API with standard VCP `0x60` and the
+separately validated alternate transport. See
+[Input switching](docs/input-switching.md) for provider gating and
+monitor-profile requirements; the research record remains in
+[research-lg-input-framing.md](docs/research-lg-input-framing.md).
 
 PS190 `set` is hardware-validated only in the documented 25F84/Odyssey G75F scope. Do not assume that GET, SET, EDID, or the documented PS190 DPCD path applies to another provider, blocks 2+, or broader DPCD access.
 

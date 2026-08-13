@@ -11,7 +11,7 @@ only; it never substitutes for these results.
 | Provider | Validated runtime capabilities | Unsupported runtime capabilities | Evidence scope |
 | --- | --- | --- | --- |
 | `AppleDCPPS190` | Get VCP, Set VCP, EDID blocks 0–1, read-only DPCD (`0x0f`) | EDID blocks 2+, DPCD writes | Mac mini M4 Pro, macOS 26.5.2 / `25F84`, Odyssey G75F over built-in HDMI |
-| `DCPDP13Service` | Get VCP, Set VCP, Set-and-Verify, read-only DPCD, MCCS capabilities (`0x1b`) | EDID, DPCD writes | Mac mini M4 Pro, macOS 26.5.2 / `25F84`, LG HDR QHD over DisplayPort |
+| `DCPDP13Service` | Get VCP, Set VCP, Set-and-Verify, read-only DPCD, MCCS capabilities, alternate input transport (`0x3b`) | EDID, DPCD writes | Mac mini M4 Pro, macOS 26.5.2 / `25F84`, LG HDR QHD over DisplayPort |
 | `DCPDPService` | Get VCP, Set VCP, Set-and-Verify, read-only DPCD (`0x0b`) | EDID, DPCD writes | Mac Studio M2 Ultra, macOS 26.5.2 / `25F84`, BenQ XL2730Z over DisplayPort / `DCPEXT2` |
 | `AppleDCPMCDP29XX` | none | GET, SET, EDID, DPCD | Classified only; no validated MCDP topology |
 
@@ -50,6 +50,9 @@ and [BenQ XL2730Z](monitors/benq-xl2730z.md).
 - DCPDP13 MCCS retrieval uses one conventional F3/write, 50 ms delay, and
   one guarded 38-byte read per fragment. Only the strict declared E3 prefix is
   used; the observed modified read-window tail is never parsed or advanced.
+- The DCPDP13 alternate input transport is available only through an explicit
+  caller-selected method. Its provider capability does not identify monitors
+  or infer that an LG-style mechanism applies to every DCPDP13 display.
 - Unknown and unsupported providers/capabilities fail closed.
 
 ## Next research milestones

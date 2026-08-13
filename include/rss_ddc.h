@@ -11,7 +11,7 @@ extern "C" {
 
 /* Pre-1.0 API marker: source compatibility may evolve as provider coverage matures. */
 #define RSS_DDC_VERSION_MAJOR 0
-#define RSS_DDC_VERSION_MINOR 2
+#define RSS_DDC_VERSION_MINOR 3
 #define RSS_DDC_VERSION_PATCH 0
 
 /** Runtime provider classes derived from the macOS registry, never CPU generation. */
@@ -45,6 +45,8 @@ typedef enum {
     RSS_DDC_CAP_READ_DPCD = 1u << 3,
     /** Provider can retrieve and strictly parse one complete MCCS capabilities string. */
     RSS_DDC_CAP_MCCS_CAPABILITIES = 1u << 4,
+    /** Provider can issue the separately validated alternate input transport. */
+    RSS_DDC_CAP_ALTERNATE_INPUT = 1u << 5,
 } RSSDDCCapability;
 
 /** Stable operation outcomes; reply failures remain specific so malformed data is never accepted. */
@@ -232,6 +234,17 @@ typedef struct {
     void *context;
 } RSSDDCDiagnostics;
 
+/**
+ * An explicit input-switching mechanism selected by the caller's monitor
+ * profile or user preference. This says nothing about a monitor's identity.
+ */
+typedef enum {
+    /** Standards-oriented MCCS input-source selection through VCP 0x60. */
+    RSS_DDC_INPUT_SWITCH_STANDARD = 0,
+    /** Hardware-validated alternate transport; provider support is independently gated. */
+    RSS_DDC_INPUT_SWITCH_LG_ALT,
+} RSSDDCInputSwitchMethod;
+
 /** Returns a static, human-readable name for an error or provider. */
 const char *rss_ddc_error_string(RSSDDCError error);
 const char *rss_ddc_provider_string(RSSDDCProvider provider);
@@ -346,6 +359,16 @@ RSSDDCError rss_ddc_set_vcp(uint32_t list_index, uint8_t vcp_code, uint16_t valu
  */
 RSSDDCError rss_ddc_set_vcp_with_diagnostics(uint32_t list_index, uint8_t vcp_code, uint16_t value,
                                               const RSSDDCDiagnostics *diagnostics);
+/**
+ * Selects an input using an explicit mechanism. STANDARD is exactly the
+ * ordinary VCP 0x60 Set VCP path. LG_ALT is a write-only alternate transport
+ * available only on validated provider paths; callers must select it from
+ * monitor-specific evidence or an explicit override.
+ */
+RSSDDCError rss_ddc_set_input(uint32_t list_index, RSSDDCInputSwitchMethod method, uint16_t value);
+/** Diagnostic form of rss_ddc_set_input with the usual transient callback rules. */
+RSSDDCError rss_ddc_set_input_with_diagnostics(uint32_t list_index, RSSDDCInputSwitchMethod method,
+                                                uint16_t value, const RSSDDCDiagnostics *diagnostics);
 /**
  * Returns the explicit default verification policy: 100 ms settling, then up
  * to three additional GET attempts separated by 250 ms. These are a modest

@@ -6,6 +6,8 @@ static_assert(RSS_DDC_VERSION_MAJOR == 0, "rss-ddc remains pre-1.0");
 int main() {
     RSSDDCMCCSCapabilities capabilities{};
     const auto operation = rss_ddc_get_mccs_capabilities(1, &capabilities);
+    const auto set_input = &rss_ddc_set_input;
     (void)operation; // Compile/link fixture only; CI never opens a display.
+    (void)set_input;
     return rss_ddc_provider_backend(RSS_DDC_PROVIDER_PS190) == RSS_DDC_BACKEND_PS190 ? 0 : 1;
 }

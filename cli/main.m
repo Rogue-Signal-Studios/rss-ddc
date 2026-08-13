@@ -8,7 +8,6 @@
 #include <unistd.h>
 
 #include "rss_ddc.h"
-#include "input_alt_probe.h"
 #include "macos_internal.h"
 
 static void usage(const char *program) {
@@ -20,12 +19,11 @@ static void usage(const char *program) {
             "  %s [--verbose] dpcd <display-index> <address> <length>\n"
             "  %s [--verbose] capabilities <display-index>\n"
             "  %s [--verbose] probe-dpcd-path <display-index>\n"
-            "  %s probe-input-alt <display-index> <conventional|lg-alt|inline> <value>\n"
             "  %s [--verbose] get <display-index> <vcp>\n"
             "  %s [--verbose] set <display-index> <vcp> <value>\n"
             "  %s [--verbose] set <display-index> <vcp> <value> --verify [--settle-ms <ms>] "
             "[--retries <count>] [--retry-delay-ms <ms>]\n",
-            program, program, program, program, program, program, program, program, program, program);
+            program, program, program, program, program, program, program, program, program);
 }
 
 static bool parse_unsigned(const char *text, unsigned long maximum, unsigned long *value) {
@@ -229,22 +227,6 @@ int main(int argc, char **argv) {
                                                                        verbose ? &diagnostics : NULL);
         if (error != RSS_DDC_OK) { fprintf(stderr, "rss-ddc: %s\n", rss_ddc_error_string(error)); return EXIT_FAILURE; }
         printf("DPCD path candidate correlation completed; no IODP construction or DPCD read was performed.\n");
-        return EXIT_SUCCESS;
-    }
-    if (strcmp(argv[argument], "probe-input-alt") == 0) {
-        if (argc != argument + 4) { usage(argv[0]); return EXIT_FAILURE; }
-        RSSDDCInputAltProbeVariant variant;
-        unsigned long value = 0;
-        if (rss_ddc_input_alt_probe_variant_from_string(argv[argument + 2], &variant) != RSS_DDC_OK ||
-            !parse_unsigned(argv[argument + 3], UINT8_MAX, &value)) {
-            usage(argv[0]); return EXIT_FAILURE;
-        }
-        /* A state-changing research probe always emits its full wire trace. */
-        RSSDDCDiagnostics diagnostics = {.callback = write_diagnostic, .context = NULL};
-        RSSDDCError error = rss_macos_dp_probe_input_alt((uint32_t)display_index, variant, (uint8_t)value,
-                                                          &diagnostics);
-        if (error != RSS_DDC_OK) { fprintf(stderr, "rss-ddc: %s\n", rss_ddc_error_string(error)); return EXIT_FAILURE; }
-        printf("input-alt probe write sequence completed; observe the display manually.\n");
         return EXIT_SUCCESS;
     }
     if (strcmp(argv[argument], "dpcd") == 0) {

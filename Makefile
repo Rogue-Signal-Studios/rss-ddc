@@ -17,8 +17,8 @@ CFLAGS = -std=c11 -Wall -Wextra -Werror -Wformat=2 -fmodules -Iinclude -Isrc/cor
 LDLIBS = -framework CoreDisplay
 
 PORTABLE_CORE_SOURCES = \
-	src/core/correlation.c src/core/enumeration.c src/core/mccs_capabilities.c src/core/provider.c src/core/rss_ddc.c src/core/verify.c \
-	src/ddc/input_alt_probe.c \
+	src/core/correlation.c src/core/enumeration.c src/core/input_switch.c src/core/mccs_capabilities.c src/core/provider.c src/core/rss_ddc.c src/core/verify.c \
+	src/ddc/input_switch.c \
 	src/ddc/protocol.c src/ddc/edid.c src/dpcd/dpcd.c src/dpcd/reader.c \
 	src/platform/macos/providers/dispatch.c src/platform/macos/providers/mcdp/get_vcp.c
 MACOS_BACKEND_SOURCES = \
@@ -35,7 +35,7 @@ TESTS = \
 	$(BUILD)/test_protocol $(BUILD)/test_provider $(BUILD)/test_correlation $(BUILD)/test_enumeration \
 	$(BUILD)/test_dispatch $(BUILD)/test_verify $(BUILD)/test_edid $(BUILD)/test_dpcd \
 	$(BUILD)/test_dcpdpservice $(BUILD)/test_dcpdpservice_get $(BUILD)/test_dcpdpservice_set \
-	$(BUILD)/test_mccs_capabilities $(BUILD)/test_input_alt_probe
+	$(BUILD)/test_mccs_capabilities $(BUILD)/test_input_switch $(BUILD)/test_input_switch_api
 
 .DEFAULT_GOAL := all
 
@@ -87,7 +87,10 @@ $(BUILD)/test_dpcd: tests/test_dpcd.c src/dpcd/dpcd.c src/dpcd/reader.c | $(BUIL
 $(BUILD)/test_mccs_capabilities: tests/test_mccs_capabilities.c src/core/mccs_capabilities.c | $(BUILD)
 	$(CC) $(CFLAGS) $^ -o $@
 
-$(BUILD)/test_input_alt_probe: tests/test_input_alt_probe.c src/ddc/input_alt_probe.c src/ddc/protocol.c | $(BUILD)
+$(BUILD)/test_input_switch: tests/test_input_switch.c src/ddc/input_switch.c src/ddc/protocol.c | $(BUILD)
+	$(CC) $(CFLAGS) $^ -o $@
+
+$(BUILD)/test_input_switch_api: tests/test_input_switch_api.c src/core/input_switch.c | $(BUILD)
 	$(CC) $(CFLAGS) $^ -o $@
 
 $(BUILD)/test_dcpdpservice: tests/test_dcpdpservice.c src/core/correlation.c src/dpcd/reader.c src/dpcd/dpcd.c | $(BUILD)
@@ -114,7 +117,8 @@ test: $(TESTS) check-library-sources
 	$(BUILD)/test_edid
 	$(BUILD)/test_dpcd
 	$(BUILD)/test_mccs_capabilities
-	$(BUILD)/test_input_alt_probe
+	$(BUILD)/test_input_switch
+	$(BUILD)/test_input_switch_api
 	$(BUILD)/test_dcpdpservice
 	$(BUILD)/test_dcpdpservice_get
 	$(BUILD)/test_dcpdpservice_set

@@ -43,6 +43,21 @@ RSSDDCError rss_macos_provider_set_vcp(RSSMacOSBinding *binding, uint8_t vcp_cod
     return RSS_DDC_ERROR_UNSUPPORTED_PROVIDER;
 }
 
+/** Alternate input transport is intentionally narrower than generic SetVCP. */
+RSSDDCError rss_macos_provider_set_lg_alt_input(RSSMacOSBinding *binding, uint16_t value,
+                                                 const RSSDDCDiagnostics *diagnostics) {
+    if (binding == NULL) return RSS_DDC_ERROR_ARGUMENT;
+    if (binding->display.provider == RSS_DDC_PROVIDER_DCPDP13) {
+        return rss_macos_dp_set_lg_alt_input(binding, value, diagnostics);
+    }
+    if (binding->display.provider == RSS_DDC_PROVIDER_UNKNOWN) {
+        rss_macos_diagnostic(diagnostics, "operation=SetInputLGAlt provider=unknown status=unsupported");
+        return RSS_DDC_ERROR_UNSUPPORTED_PROVIDER;
+    }
+    rss_macos_diagnostic(diagnostics, "operation=SetInputLGAlt status=unsupported; DCPDP13Service only");
+    return RSS_DDC_ERROR_UNSUPPORTED_CAPABILITY;
+}
+
 /** EDID remains an independent capability; unsupported providers never borrow another backend's path. */
 RSSDDCError rss_macos_provider_read_edid(RSSMacOSBinding *binding, RSSDDCEDID *edid,
                                          const RSSDDCDiagnostics *diagnostics) {

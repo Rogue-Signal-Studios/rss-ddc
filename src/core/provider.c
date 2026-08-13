@@ -86,7 +86,7 @@ uint32_t rss_ddc_provider_capabilities(RSSDDCProvider provider) {
     switch (provider) {
         case RSS_DDC_PROVIDER_DCPDP13:
             return RSS_DDC_CAP_GET_VCP | RSS_DDC_CAP_SET_VCP | RSS_DDC_CAP_READ_DPCD |
-                   RSS_DDC_CAP_MCCS_CAPABILITIES;
+                   RSS_DDC_CAP_MCCS_CAPABILITIES | RSS_DDC_CAP_ALTERNATE_INPUT;
         case RSS_DDC_PROVIDER_DCPDP_SERVICE:
             return RSS_DDC_CAP_GET_VCP | RSS_DDC_CAP_SET_VCP | RSS_DDC_CAP_READ_DPCD;
         case RSS_DDC_PROVIDER_PS190:

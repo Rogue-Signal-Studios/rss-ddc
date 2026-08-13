@@ -26,6 +26,8 @@ static RSSDDCError read_raw_input_candidates(uint32_t display_index) {
 int main(int argc, char *argv[]) {
     const char *error_name = rss_ddc_error_string(RSS_DDC_OK);
     const char *provider_name = rss_ddc_provider_string(RSS_DDC_PROVIDER_PS190);
+    RSSDDCError (*set_input)(uint32_t, RSSDDCInputSwitchMethod, uint16_t) = rss_ddc_set_input;
+    (void)set_input;
 
     if (argc == 2 && strcmp(argv[1], "--list") == 0) {
         return list_displays_for_an_application() == RSS_DDC_OK ? 0 : 1;

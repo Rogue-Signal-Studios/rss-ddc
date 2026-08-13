@@ -28,11 +28,14 @@ display/provider binding.
 | Get VCP `0x60` input source | Hardware validated | Maximum `18`, current `0`. Value `0` is not interpreted here as a known safe or settable input code. |
 | Set VCP `0x10` brightness | Hardware validated | Same-state `100` and real change/restore `100 → 99 → 100`. |
 | Set-and-Verify `0x10` | Hardware validated | Default policy verified same-state and real changes; the retry path was also validated. |
+| Alternate input transport | Hardware validated | Caller-selected `LG_ALT`: HDMI 1 `0x90`, HDMI 2 `0x91`, and DisplayPort 1 `0xD0` all switched successfully. |
 | Read DPCD `0x00000` / 16 | Hardware validated | One native read through the same-role scoped `DCPDPDeviceProxy` returned valid bytes. |
 | MCCS capabilities | Hardware validated | 35 requests, 336 raw text bytes, strict E3/offset checks, and explicit zero-length completion. |
 
-No broader VCP support, input-source SET semantics, or behavior on other LG
-products is implied.
+The alternate transport is provider-gated but not brand-detected: its success
+on this monitor does not imply that all LG monitors, or all `DCPDP13Service`
+monitors, use or accept it. Applications must select it from monitor-specific
+evidence or an explicit override.
 
 The retrieved capability string advertises VCP `0x60` with raw enum values
 `0x11`, `0x12`, `0x0f`, and `0x00`. These are monitor-advertised candidate

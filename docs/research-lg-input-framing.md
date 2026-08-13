@@ -1,8 +1,9 @@
-# LG/DCPDP13 input-framing research probe
+# LG/DCPDP13 alternate-input research record
 
-`probe-input-alt` is a developer-only, state-changing hardware experiment. It
-is not public API, does not alter normal `set`, and never reads, verifies,
-restores, retries, or falls back between variants.
+This historical research record established the production `LG_ALT` input
+transport. The developer-only `probe-input-alt` CLI was removed when the
+transport was promoted to the public API; see [Input switching](input-switching.md)
+for the supported interface and current provider gating.
 
 ## Evidence and checksum audit
 
@@ -23,7 +24,7 @@ Sources: [BetterDisplay discussion #4246](https://github.com/waydabber/BetterDis
 [m1ddc PR #52](https://github.com/waydabber/m1ddc/pull/52), and
 [m1ddc i2c.m](https://github.com/waydabber/m1ddc/blob/main/sources/i2c.m).
 
-## Variants
+## Validated framing
 
 `lg-alt` mirrors the upstream `m1ddc set input-alt` implementation:
 
@@ -42,25 +43,7 @@ The exact documented packets are:
 | HDMI 2 | `0x91` | `84 03 f4 00 91 dc` |
 | DisplayPort 1 | `0xd0` | `84 03 f4 00 d0 9d` |
 
-`conventional` remains the earlier, research-only alternate-address experiment:
-it uses advertised VCP `0x60` with data `0x50`. It is retained for comparison;
-it is not the upstream LG-alt command. `inline` also remains research-only and
-fails closed before IOAV construction.
-
-All variants are confined to this developer-only probe. It performs no GET,
-verification, restore, fallback, or retry; it is restricted to a selected
-`DCPDP13Service` display and writes the two upstream-prescribed packets only.
-
-## Manual sequence
-
-With the live HDMI 1 source visible to the LG, run one command and observe the
-display before deciding whether to run the next. Do not automate or chain them:
-
-```sh
-./rss-ddc probe-input-alt 2 lg-alt 0x90  # HDMI 1
-./rss-ddc probe-input-alt 2 lg-alt 0x91  # HDMI 2
-./rss-ddc probe-input-alt 2 lg-alt 0xD0  # DisplayPort 1
-```
-
-Run one command at a time and observe the display manually. No hardware command
-was run while implementing this probe.
+The earlier `conventional` and `inline` experiments were intentionally not
+promoted: only the validated `LG_ALT` mechanism is exposed, and only through
+the caller-selected public API. No hardware command was run while implementing
+the promotion.
