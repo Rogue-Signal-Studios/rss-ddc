@@ -72,6 +72,8 @@ typedef enum {
     RSS_DDC_ERROR_VERIFY_MISMATCH,
     RSS_DDC_ERROR_VERIFY_RETRY_EXHAUSTED,
     RSS_DDC_ERROR_VERIFY_UNAVAILABLE,
+    RSS_DDC_ERROR_CAPABILITIES_MALFORMED,
+    RSS_DDC_ERROR_CAPABILITIES_TOO_LARGE,
     RSS_DDC_ERROR_SYSTEM,
 } RSSDDCError;
 
@@ -84,6 +86,15 @@ enum {
     RSS_DDC_DPCD_MAX_READ_BYTES = 16,
     /** DisplayPort DPCD uses a 20-bit register address. */
     RSS_DDC_DPCD_MAX_ADDRESS = 0x000fffff,
+    /**
+     * MCCS capabilities strings are variable length. This bound permits more
+     * than 100 maximum-size (32-byte) protocol fragments while keeping the
+     * caller-owned parsed object bounded and stack-safe.
+     */
+    RSS_DDC_MCCS_CAPABILITIES_MAX_BYTES = 4096,
+    RSS_DDC_MCCS_CAPABILITIES_MAX_FEATURES = 256,
+    /** 4096 bytes cannot encode more than 1365 separated two-digit values. */
+    RSS_DDC_MCCS_CAPABILITIES_MAX_ENUM_VALUES = 1400,
 };
 
 /**
@@ -110,6 +121,28 @@ typedef struct {
     uint16_t maximum_value;
     uint16_t current_value;
 } RSSDDCVCPResult;
+
+/** One monitor-advertised VCP feature, with an optional slice of enum_values. */
+typedef struct {
+    uint8_t vcp_code;
+    size_t enum_value_offset;
+    size_t enum_value_count;
+} RSSDDCMCCSVcpCapability;
+
+/**
+ * Caller-owned, bounded result of parsing an MCCS capabilities string. The
+ * `raw` bytes are preserved verbatim and NUL-terminated for diagnostics.
+ * Values are raw monitor-advertised bytes; rss-ddc intentionally assigns no
+ * friendly labels and does not infer that a SET is safe.
+ */
+typedef struct {
+    char raw[RSS_DDC_MCCS_CAPABILITIES_MAX_BYTES + 1];
+    size_t raw_length;
+    RSSDDCMCCSVcpCapability features[RSS_DDC_MCCS_CAPABILITIES_MAX_FEATURES];
+    size_t feature_count;
+    uint8_t enum_values[RSS_DDC_MCCS_CAPABILITIES_MAX_ENUM_VALUES];
+    size_t enum_value_count;
+} RSSDDCMCCSCapabilities;
 
 /**
  * Caller-owned raw EDID storage. `length` is the number of bytes received or
@@ -205,6 +238,26 @@ const char *rss_ddc_backend_name(RSSDDCBackend backend);
 RSSDDCProvider rss_ddc_provider_from_registry_class(const char *provider_class);
 /** Returns only the independently validated capabilities for a provider. */
 uint32_t rss_ddc_provider_capabilities(RSSDDCProvider provider);
+
+/**
+ * Parses a bounded MCCS capabilities string without contacting a display.
+ * `raw` need not be NUL-terminated; its supplied length is authoritative.
+ * The result is written only on success. Duplicate VCP features, malformed
+ * syntax, and nested/empty malformed enum lists fail closed.
+ */
+RSSDDCError rss_ddc_parse_mccs_capabilities(const char *raw, size_t raw_length,
+                                            RSSDDCMCCSCapabilities *capabilities);
+/** Returns true when `vcp_code` is explicitly advertised in a parsed result. */
+bool rss_ddc_mccs_capabilities_has_vcp(const RSSDDCMCCSCapabilities *capabilities, uint8_t vcp_code);
+/**
+ * Returns the advertised raw enum-value slice for one VCP feature. A
+ * successful lookup may return count zero: MCCS does not require every VCP
+ * feature to advertise enumerated values. The pointer remains owned by
+ * `capabilities` and valid until that caller-owned object is overwritten.
+ */
+RSSDDCError rss_ddc_mccs_capabilities_enum_values(const RSSDDCMCCSCapabilities *capabilities,
+                                                  uint8_t vcp_code, const uint8_t **values,
+                                                  size_t *count);
 
 /**
  * Snapshots online displays into caller storage. `displays` may be NULL only

@@ -30,6 +30,8 @@ const char *rss_ddc_error_string(RSSDDCError error) {
         case RSS_DDC_ERROR_VERIFY_MISMATCH: return "verification value did not match after all attempts";
         case RSS_DDC_ERROR_VERIFY_RETRY_EXHAUSTED: return "verification retries exhausted after transient GET failures";
         case RSS_DDC_ERROR_VERIFY_UNAVAILABLE: return "SET completed but the original display is unavailable for safe verification";
+        case RSS_DDC_ERROR_CAPABILITIES_MALFORMED: return "MCCS capabilities data is malformed or incomplete";
+        case RSS_DDC_ERROR_CAPABILITIES_TOO_LARGE: return "MCCS capabilities data exceeds the supported bound";
         case RSS_DDC_ERROR_SYSTEM: return "macOS system error";
     }
     return "unknown error";

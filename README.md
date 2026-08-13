@@ -6,6 +6,11 @@
 
 This milestone provides real macOS display/provider discovery, strict DDC/CI parsing, and provider-specific Service-path operations. PS190 GET/SET and DCPDP13 GET/SET are hardware-validated in `rss-ddc`; read-only native DPCD is hardware-validated on their documented paths. DCPDPService GET, SET, read-only DPCD, and Set-and-Verify are hardware-validated on the documented Mac Studio XL2730Z three-display topology (capabilities `0x0b`). Unsupported providers and capabilities return explicit errors rather than falling back to a guessed transport.
 
+MCCS capability-string parsing is available as a portable, caller-owned API,
+but runtime MCCS capability retrieval is intentionally unsupported pending
+provider-specific variable-length transaction evidence. See
+[MCCS capability discovery](docs/mccs-capability-discovery.md).
+
 The project uses Apple-private macOS interfaces inside the macOS backend only. Behavior can vary by macOS release, display provider, cable/adapter topology, and monitor firmware.
 
 Hardware validation is topology-specific. The authoritative matrix covers the
