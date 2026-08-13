@@ -16,7 +16,7 @@ static void usage(const char *program) {
             "      [--vcp <code[,code...]>] [--range <first:last>]\n"
             "      [--allow-set --vcp <code[,code...]> --values <value[,value...]> [--restore] [--settle-ms <ms>]]\n"
             "\nRead-only is the default. --allow-set is deliberately gated, requires an explicit --vcp\n"
-            "and --values, and rejects input (0x60), power (0xD6), reset (0x04/0x05/0x08), and degauss (0x01).\n",
+            "and --values, and rejects input (0x60/0xF4), power (0xD6), reset (0x04/0x05/0x08), and degauss (0x01).\n",
             program);
 }
 

@@ -70,6 +70,7 @@ bool rss_ddc_research_is_mutation_denied(uint8_t vcp) {
         case 0x08: /* reset color */
         case 0x60: /* input source */
         case 0xd6: /* power mode */
+        case 0xf4: /* LG alternate input transport; write-only and never generic VCP mutation */
             return true;
         default: return false;
     }

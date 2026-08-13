@@ -56,6 +56,7 @@ int main(void) {
     assert(rss_ddc_research_is_picture_candidate(0x14));
     assert(!rss_ddc_research_is_picture_candidate(0x60));
     assert(rss_ddc_research_is_mutation_denied(0x60));
+    assert(rss_ddc_research_is_mutation_denied(0xf4));
     assert(rss_ddc_research_is_mutation_denied(0xd6));
     assert(rss_ddc_research_is_mutation_denied(0x04));
     assert(!rss_ddc_research_is_mutation_denied(0x10));

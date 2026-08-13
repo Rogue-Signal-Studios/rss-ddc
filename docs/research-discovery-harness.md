@@ -40,7 +40,7 @@ All of these conditions are required before the engine can call SET:
 
 Restore is on by default and `--restore` documents that intent. Each candidate is GET → SET → optional bounded settle → GET → restore → GET. A failed or unverifiable restore stops further candidates for that control and is a report warning. The executable creates reports with exclusive creation, so it will not overwrite an existing report path.
 
-The mutation denylist is: degauss `0x01`; factory reset `0x04`; reset luminance/contrast `0x05`; reset color `0x08`; input/source `0x60`; and power mode `0xD6`. This also keeps LG's write-only alternate input (`0xF4` through its separate IOAV mechanism) outside the generic VCP mutation path. Unknown codes are read-only unless a researcher explicitly names that exact code and supplies values; the denylist always wins.
+The mutation denylist is: degauss `0x01`; factory reset `0x04`; reset luminance/contrast `0x05`; reset color `0x08`; standard input/source `0x60`; LG's write-only alternate input `0xF4`; and power mode `0xD6`. This keeps the alternate IOAV input mechanism outside the generic VCP mutation path. Unknown codes are read-only unless a researcher explicitly names that exact code and supplies values; the denylist always wins.
 
 ## JSON reports
 
