@@ -10,6 +10,7 @@
 #include "rss_ddc.h"
 
 #include "correlation.h"
+#include "input_alt_probe.h"
 
 /**
  * The exact fail-closed predicate that rejected a partial registry binding.
@@ -105,6 +106,9 @@ RSSDDCError rss_macos_dcpdpservice_get_vcp(RSSMacOSBinding *binding, uint8_t vcp
                                             const RSSDDCDiagnostics *diagnostics);
 RSSDDCError rss_macos_dp_set_vcp(RSSMacOSBinding *binding, uint8_t vcp_code, uint16_t value,
                                  const RSSDDCDiagnostics *diagnostics);
+/** Developer-only LG/DCPDP13 input-address probe; it is not part of the public API or SET dispatch. */
+RSSDDCError rss_macos_dp_probe_input_alt(uint32_t list_index, RSSDDCInputAltProbeVariant variant, uint8_t value,
+                                         const RSSDDCDiagnostics *diagnostics);
 RSSDDCError rss_macos_mcdp_get_vcp(RSSMacOSBinding *binding, uint8_t vcp_code, RSSDDCVCPResult *result,
                                     const RSSDDCDiagnostics *diagnostics);
 RSSDDCError rss_macos_provider_get_vcp(RSSMacOSBinding *binding, uint8_t vcp_code, RSSDDCVCPResult *result,
