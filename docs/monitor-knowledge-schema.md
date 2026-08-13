@@ -16,6 +16,10 @@ The core deliberately has no file, network, UI, product, enumeration, GET, or
 SET path. Future Alien Probe Quick/Extended scanning and Guided Discovery are
 planned consumers of this model, not part of it.
 
+Resolution is also offline. See [monitor knowledge resolution](monitor-knowledge-resolution.md)
+for the distinction between retained records, effective method selection, and
+write authorization.
+
 Alien Probe™ needs one durable representation for what Rogue knows about a
 monitor. The representation is semantic first and protocol second: a product
 asks for `input.current` or `display.picture_mode`, then the profile selects a

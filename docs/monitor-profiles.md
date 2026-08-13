@@ -21,3 +21,8 @@ Persisted identities never contain `listIndex`. Schema v1 requires exact externa
 Initial semantic IDs cover Picture Mode, input, brightness, contrast, Color Preset, response time, adaptive sync, energy saving, black stabilizer, gamma, sharpness, and audio mute. Generic profile data is not an arbitrary write channel: v1 has no reset, degauss, or power control; standard input is constrained to VCP `0x60`; and LG alternate input is constrained to its explicit method.
 
 Picture Mode now resolves through the profile system. Existing concise APIs use the bundled profile, while `*_with_profile_store` lets a consumer use a composed validated/local store. Both issue exactly one mapped operation, never correlated brightness or vendor-control writes.
+
+Monitor knowledge resolution is a separate offline layer for combining parsed
+knowledge sources. It retains competing methods and evidence, then applies a
+stricter write-authorization policy; it does not alter the existing profile
+resolver or add any runtime monitor operation.

@@ -631,6 +631,19 @@ typedef struct { const char *source_id; const char *target_id; const char *sourc
 typedef struct { const char *manufacturer; const char *model; const char *edid_manufacturer; uint32_t edid_product_code; bool edid_product_code_present; const char *serial; const char *provider; const char *transport; const char *branch; const char *family_hint; RSSDDCConfidence confidence; size_t evidence_count; const RSSDDCEvidence *evidence; } RSSDDCMonitorIdentity;
 typedef struct { const char *semantic_id; uint8_t vcp_code; const char *value_kind; bool typical_readable; bool typical_writable; bool unrelated_candidate_conflict; } RSSDDCSemanticRegistryEntry;
 typedef struct RSSDDCMonitorKnowledge RSSDDCMonitorKnowledge;
+typedef enum {
+    RSS_DDC_RESOLUTION_REASON_NONE = 0,
+    RSS_DDC_RESOLUTION_REASON_IDENTITY_INCOMPATIBLE,
+    RSS_DDC_RESOLUTION_REASON_NO_READ_METHOD,
+    RSS_DDC_RESOLUTION_REASON_NO_WRITE_EVIDENCE,
+    RSS_DDC_RESOLUTION_REASON_RISK_DENIED,
+    RSS_DDC_RESOLUTION_REASON_EQUAL_AUTHORITY_CONFLICT,
+    RSS_DDC_RESOLUTION_REASON_EXTERNAL_CANDIDATE_ONLY,
+    RSS_DDC_RESOLUTION_REASON_EXPERIMENTAL_ONLY,
+} RSSDDCResolutionReason;
+/** Heap-owned effective view; returned method pointers are borrowed from the
+ * source knowledge objects and remain valid until those sources are destroyed. */
+typedef struct RSSDDCMonitorKnowledgeResolution RSSDDCMonitorKnowledgeResolution;
 
 RSSDDCMonitorKnowledge *rss_ddc_monitor_knowledge_create(void);
 void rss_ddc_monitor_knowledge_destroy(RSSDDCMonitorKnowledge *knowledge);
@@ -647,6 +660,21 @@ RSSDDCError rss_ddc_monitor_knowledge_input_route(const RSSDDCMonitorKnowledge *
 size_t rss_ddc_monitor_knowledge_relationship_count(const RSSDDCMonitorKnowledge *knowledge);
 RSSDDCError rss_ddc_monitor_knowledge_relationship(const RSSDDCMonitorKnowledge *knowledge, size_t index, RSSDDCRelationship *relationship);
 RSSDDCError rss_ddc_monitor_knowledge_merge(const RSSDDCMonitorKnowledge *base, const RSSDDCMonitorKnowledge *overlay, RSSDDCMonitorKnowledge **merged);
+RSSDDCError rss_ddc_monitor_knowledge_resolve_capability(const RSSDDCMonitorKnowledge *const *sources,
+                                                          size_t source_count, const char *semantic_id,
+                                                          RSSDDCMonitorKnowledgeResolution **resolution);
+void rss_ddc_monitor_knowledge_resolution_destroy(RSSDDCMonitorKnowledgeResolution *resolution);
+const char *rss_ddc_monitor_knowledge_resolution_semantic_id(const RSSDDCMonitorKnowledgeResolution *resolution);
+RSSDDCAvailability rss_ddc_monitor_knowledge_resolution_availability(const RSSDDCMonitorKnowledgeResolution *resolution);
+RSSDDCConfidence rss_ddc_monitor_knowledge_resolution_confidence(const RSSDDCMonitorKnowledgeResolution *resolution);
+bool rss_ddc_monitor_knowledge_resolution_write_authorized(const RSSDDCMonitorKnowledgeResolution *resolution);
+bool rss_ddc_monitor_knowledge_resolution_has_conflict(const RSSDDCMonitorKnowledgeResolution *resolution);
+RSSDDCResolutionReason rss_ddc_monitor_knowledge_resolution_reason(const RSSDDCMonitorKnowledgeResolution *resolution);
+const RSSDDCMonitorKnowledgeMethod *rss_ddc_monitor_knowledge_resolution_preferred_read(const RSSDDCMonitorKnowledgeResolution *resolution);
+const RSSDDCMonitorKnowledgeMethod *rss_ddc_monitor_knowledge_resolution_preferred_write(const RSSDDCMonitorKnowledgeResolution *resolution);
+size_t rss_ddc_monitor_knowledge_resolution_method_count(const RSSDDCMonitorKnowledgeResolution *resolution);
+RSSDDCError rss_ddc_monitor_knowledge_resolution_method(const RSSDDCMonitorKnowledgeResolution *resolution,
+                                                         size_t index, const RSSDDCMonitorKnowledgeMethod **method);
 const RSSDDCSemanticRegistryEntry *rss_ddc_semantic_registry_lookup(const char *semantic_id);
 const RSSDDCSemanticRegistryEntry *rss_ddc_semantic_registry_lookup_vcp(uint8_t vcp_code);
 const char *rss_ddc_confidence_name(RSSDDCConfidence value); RSSDDCError rss_ddc_confidence_parse(const char *name, RSSDDCConfidence *value);

@@ -50,3 +50,7 @@ feature.
 
 This document establishes terminology and design direction. It does not claim
 that Quick/Extended Auto Probe or generic characterization APIs exist today.
+
+The offline monitor-knowledge resolver is now a foundation dependency for
+those future stages. It performs no scanning, validation writes, or hardware
+access; it only selects and explains retained parsed knowledge.

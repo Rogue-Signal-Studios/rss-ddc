@@ -44,6 +44,10 @@ set-confirmed evidence, and rejects methods supported only by external-candidate
 evidence from being writable. These are data-model checks, not authorization to
 operate a display.
 
+Resolution treats that validation evidence as a write-policy requirement. It
+does not convert MCCS advertisement, an external candidate, a family hint, or
+an OSD correlation into production write authority.
+
 ## Risk belongs to operations
 
 The initial operation safety classes are `read_standard`, `read_extended`,
