@@ -9,6 +9,16 @@ DESTDIR ?=
 CONSUMER_TEST_PREFIX = $(abspath $(BUILD)/consumer-prefix)
 CONSUMER_TEST_BINARY = $(BUILD)/consumer
 CONSUMER_TEST_CPP_BINARY = $(BUILD)/consumer-cpp
+COVERAGE_DIR = $(BUILD)/coverage
+COVERAGE_PROFILE = $(COVERAGE_DIR)/coverage.profdata
+COVERAGE_JSON = $(COVERAGE_DIR)/coverage.json
+COVERAGE_SUMMARY = $(COVERAGE_DIR)/coverage.txt
+COVERAGE_CFLAGS = $(CFLAGS) -fprofile-instr-generate -fcoverage-mapping
+QUALITY_DIR = $(BUILD)/quality
+QUALITY_SITE = $(BUILD)/pages/quality
+DASHBOARD_COVERAGE ?= $(COVERAGE_JSON)
+DASHBOARD_STATUS ?= local
+DASHBOARD_SECURITY ?= not-run
 
 CFLAGS = -std=c11 -Wall -Wextra -Werror -Wformat=2 -fmodules -Iinclude -Isrc/core -Isrc/ddc -Isrc/dpcd -Isrc/platform/macos
 # On the current supported macOS SDK, CoreDisplay re-exports the CoreGraphics,
@@ -123,6 +133,35 @@ test: $(TESTS) check-library-sources
 	$(BUILD)/test_dcpdpservice_get
 	$(BUILD)/test_dcpdpservice_set
 
+# LLVM coverage is intentionally synthetic: it executes only the existing
+# offline test binaries and produces both JSON and readable report artifacts.
+coverage:
+	$(MAKE) clean
+	mkdir -p $(COVERAGE_DIR)
+	LLVM_PROFILE_FILE="$(abspath $(COVERAGE_DIR))/%m_%p.profraw" $(MAKE) test CFLAGS='$(COVERAGE_CFLAGS)'
+	xcrun llvm-profdata merge -sparse $(COVERAGE_DIR)/*.profraw -o $(COVERAGE_PROFILE)
+	xcrun llvm-cov export $(word 1,$(TESTS)) $(foreach binary,$(wordlist 2,$(words $(TESTS)),$(TESTS)),-object $(binary)) -instr-profile=$(COVERAGE_PROFILE) -ignore-filename-regex='(tests/|src/ddc/(get_validation|set_validation)\.c)' > $(COVERAGE_JSON)
+	xcrun llvm-cov report $(word 1,$(TESTS)) $(foreach binary,$(wordlist 2,$(words $(TESTS)),$(TESTS)),-object $(binary)) -instr-profile=$(COVERAGE_PROFILE) -ignore-filename-regex='(tests/|src/ddc/(get_validation|set_validation)\.c)' > $(COVERAGE_SUMMARY)
+
+$(QUALITY_DIR)/provider-metadata: tools/quality_metadata.c src/core/provider.c include/rss_ddc.h | $(BUILD)
+	mkdir -p $(dir $@)
+	$(CC) -std=c11 -Wall -Wextra -Werror -Wformat=2 -Iinclude -Isrc/core $< src/core/provider.c -o $@
+
+# Creates a standalone static Pages payload. DASHBOARD_COVERAGE may point to a
+# downloaded CI artifact; a local dashboard correctly records coverage as not run.
+dashboard: $(QUALITY_DIR)/provider-metadata docs/quality/index.html docs/quality/style.css docs/quality/app.js tools/generate_quality_dashboard.py
+	rm -rf $(QUALITY_SITE)
+	mkdir -p $(QUALITY_SITE)
+	cp docs/quality/index.html docs/quality/style.css docs/quality/app.js $(QUALITY_SITE)/
+	$(QUALITY_DIR)/provider-metadata > $(QUALITY_DIR)/provider-metadata.json
+	python3 tools/generate_quality_dashboard.py --metadata $(QUALITY_DIR)/provider-metadata.json --coverage $(DASHBOARD_COVERAGE) --output $(QUALITY_SITE)/quality.json --commit "$$(git rev-parse --short HEAD)" --timestamp "$$(date -u +%FT%TZ)" --test-executables $(words $(TESTS)) --compiler "$$($(CC) --version | head -1)" --status $(DASHBOARD_STATUS) --security $(DASHBOARD_SECURITY)
+
+dashboard-test:
+	python3 tests/test_quality_dashboard.py
+
+analyze:
+	$(CC) --analyze -Xanalyzer -analyzer-output=text $(CFLAGS) $(PORTABLE_CORE_SOURCES) $(MACOS_BACKEND_SOURCES)
+
 install-library: $(LIBRARY)
 	install -d $(DESTDIR)$(PREFIX)/include $(DESTDIR)$(PREFIX)/lib
 	install -m 644 include/rss_ddc.h $(DESTDIR)$(PREFIX)/include/rss_ddc.h
@@ -160,5 +199,5 @@ consumer-test: $(LIBRARY) examples/consumer.c examples/consumer.cpp | $(BUILD)
 clean:
 	rm -rf $(BUILD) $(NAME)
 
-.PHONY: all library check-library-sources test install-library install-cli install \
-	uninstall-library uninstall-cli uninstall consumer-test clean
+.PHONY: all library check-library-sources test coverage dashboard dashboard-test analyze \
+	install-library install-cli install uninstall-library uninstall-cli uninstall consumer-test clean

@@ -2,6 +2,15 @@
 
 `rss-ddc` is an early-stage, provider-driven macOS DDC/CI library and CLI from Rogue Signal Studios.
 
+[![Repository quality](https://github.com/Rogue-Signal-Studios/rss-ddc/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/Rogue-Signal-Studios/rss-ddc/actions/workflows/ci.yml)
+[![Coverage](https://img.shields.io/badge/coverage-LLVM%20report-5f8dd3)](https://rogue-signal-studios.github.io/rss-ddc/quality/)
+[![Security](https://img.shields.io/badge/security-CodeQL-2b6cb0)](https://github.com/Rogue-Signal-Studios/rss-ddc/security/code-scanning)
+[![Dependency review](https://img.shields.io/badge/dependencies-review%20on%20PR-6c7a89)](https://github.com/Rogue-Signal-Studios/rss-ddc/actions/workflows/dependency-review.yml)
+[![License](https://img.shields.io/github/license/Rogue-Signal-Studios/rss-ddc)](LICENSE)
+[![rss-ddc API](https://img.shields.io/badge/rss--ddc%20API-0.2.0-58d69c)](include/rss_ddc.h)
+
+The [Quality Dashboard](https://rogue-signal-studios.github.io/rss-ddc/quality/) shows the current main-build evidence, generated from CI artifacts rather than hand-maintained values. See [Quality and CI](docs/quality.md) for scope, local commands, and the GitHub Pages setup requirement.
+
 ## Status
 
 This milestone provides real macOS display/provider discovery, strict DDC/CI parsing, and provider-specific Service-path operations. PS190 GET/SET and DCPDP13 GET/SET are hardware-validated in `rss-ddc`; read-only native DPCD is hardware-validated on their documented paths. DCPDPService GET, SET, read-only DPCD, and Set-and-Verify are hardware-validated on the documented Mac Studio XL2730Z three-display topology (capabilities `0x0b`). Unsupported providers and capabilities return explicit errors rather than falling back to a guessed transport.
