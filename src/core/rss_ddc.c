@@ -135,6 +135,30 @@ RSSDDCError rss_macos_probe_mccs_capabilities(uint32_t list_index, const RSSDDCD
     return error;
 }
 
+/* CLI-only follow-up to the recorded LG first-frame result; intentionally absent from the public header. */
+RSSDDCError rss_macos_probe_mccs_capabilities_exact_first_frame(uint32_t list_index,
+                                                                 const RSSDDCDiagnostics *diagnostics) {
+    RSSMacOSBinding binding = {0};
+    RSSDDCError error = rss_macos_resolve_binding(list_index, &binding);
+    if (error != RSS_DDC_OK) {
+        rss_macos_diagnostic(diagnostics, rss_macos_correlation_failure_string(binding.correlation_failure));
+        const char *detail = rss_macos_correlation_detail_string(&binding);
+        if (detail != NULL) rss_macos_diagnostic(diagnostics, detail);
+    } else if (binding.display.provider != RSS_DDC_PROVIDER_DCPDP13) {
+        char message[192] = {};
+        snprintf(message, sizeof(message),
+                 "operation=ProbeMCCSCapabilitiesExactFirstFrame provider=%s status=unsupported; DCPDP13Service only",
+                 rss_ddc_provider_string(binding.display.provider));
+        rss_macos_diagnostic(diagnostics, message);
+        error = RSS_DDC_ERROR_UNSUPPORTED_CAPABILITY;
+    } else {
+        diagnostic_binding(&binding, diagnostics);
+        error = rss_macos_dcpdp13_probe_mccs_capabilities_exact_first_frame(&binding, diagnostics);
+    }
+    rss_macos_release_binding(&binding);
+    return error;
+}
+
 /** Keeps the concise API free of diagnostics while sharing the same validation path. */
 RSSDDCError rss_ddc_get_vcp(uint32_t list_index, uint8_t vcp_code, RSSDDCVCPResult *result) {
     return rss_ddc_get_vcp_with_diagnostics(list_index, vcp_code, result, NULL);

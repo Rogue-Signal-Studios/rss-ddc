@@ -19,11 +19,12 @@ static void usage(const char *program) {
             "  %s [--verbose] dpcd <display-index> <address> <length>\n"
             "  %s [--verbose] probe-dpcd-path <display-index>\n"
             "  %s probe-mccs-capabilities <display-index>\n"
+            "  %s probe-mccs-capabilities-exact-first-frame <display-index>\n"
             "  %s [--verbose] get <display-index> <vcp>\n"
             "  %s [--verbose] set <display-index> <vcp> <value>\n"
             "  %s [--verbose] set <display-index> <vcp> <value> --verify [--settle-ms <ms>] "
             "[--retries <count>] [--retry-delay-ms <ms>]\n",
-            program, program, program, program, program, program, program, program, program);
+            program, program, program, program, program, program, program, program, program, program);
 }
 
 static bool parse_unsigned(const char *text, unsigned long maximum, unsigned long *value) {
@@ -209,6 +210,15 @@ int main(int argc, char **argv) {
         RSSDDCError error = rss_macos_probe_mccs_capabilities((uint32_t)display_index, &diagnostics);
         if (error != RSS_DDC_OK) { fprintf(stderr, "rss-ddc: %s\n", rss_ddc_error_string(error)); return EXIT_FAILURE; }
         printf("MCCS first-fragment probe completed; no additional request was sent.\n");
+        return EXIT_SUCCESS;
+    }
+    if (strcmp(argv[argument], "probe-mccs-capabilities-exact-first-frame") == 0) {
+        if (argc != argument + 2) { usage(argv[0]); return EXIT_FAILURE; }
+        RSSDDCDiagnostics diagnostics = {.callback = write_diagnostic, .context = NULL};
+        RSSDDCError error = rss_macos_probe_mccs_capabilities_exact_first_frame((uint32_t)display_index,
+                                                                                   &diagnostics);
+        if (error != RSS_DDC_OK) { fprintf(stderr, "rss-ddc: %s\n", rss_ddc_error_string(error)); return EXIT_FAILURE; }
+        printf("MCCS exact-first-frame probe completed; no next offset was requested.\n");
         return EXIT_SUCCESS;
     }
     if (strcmp(argv[argument], "dpcd") == 0) {

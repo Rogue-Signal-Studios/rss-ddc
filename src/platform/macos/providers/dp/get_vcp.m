@@ -121,13 +121,21 @@ RSSDDCError rss_macos_dcpdpservice_get_vcp(RSSMacOSBinding *binding, uint8_t vcp
  * its conventional Service tuple is hardware validated for Get VCP; this does
  * not promote MCCS retrieval or imply anything about PS190/DCPDPService.
  */
-RSSDDCError rss_macos_dcpdp13_probe_mccs_capabilities(RSSMacOSBinding *binding,
-                                                       const RSSDDCDiagnostics *diagnostics) {
+static RSSDDCError dcpdp13_probe_mccs_capabilities_first_frame(RSSMacOSBinding *binding,
+                                                                const RSSDDCDiagnostics *diagnostics,
+                                                                size_t requested_reply_size,
+                                                                bool require_exact_observed_frame) {
     if (binding == NULL || !binding->dp_safety_gate || binding->display.provider != RSS_DDC_PROVIDER_DCPDP13) {
         return RSS_DDC_ERROR_SAFETY_GATE;
     }
-    rss_macos_diagnostic(diagnostics,
-                         "operation=ProbeMCCSCapabilities provider=DCPDP13Service scope=one-f3-offset-zero-request");
+    if (requested_reply_size < 6 || requested_reply_size > RSS_DDC_CAPABILITIES_REPLY_MAX_SIZE) {
+        return RSS_DDC_ERROR_ARGUMENT;
+    }
+    char message[256] = {};
+    snprintf(message, sizeof(message),
+             "operation=ProbeMCCSCapabilities provider=DCPDP13Service scope=one-f3-offset-zero-request read-length=%zu",
+             requested_reply_size);
+    rss_macos_diagnostic(diagnostics, message);
     IOAVServiceRef service = IOAVServiceCreateWithService(kCFAllocatorDefault, binding->service_proxy);
     if (service == NULL || CFGetTypeID(service) != IOAVServiceGetTypeID()) {
         if (service != NULL) CFRelease(service);
@@ -145,7 +153,6 @@ RSSDDCError rss_macos_dcpdp13_probe_mccs_capabilities(RSSMacOSBinding *binding,
     diagnostic_bytes(diagnostics, "reply-before", reply.bytes, sizeof(reply.bytes));
 
     IOReturn write_result = IOAVServiceWriteI2C(service, 0x37, 0x51, request, sizeof(request));
-    char message[256] = {};
     snprintf(message, sizeof(message), "write chip=0x37 data=0x00000051 length=5 IOReturn=0x%08x",
              (unsigned int)write_result);
     rss_macos_diagnostic(diagnostics, message);
@@ -158,10 +165,10 @@ RSSDDCError rss_macos_dcpdp13_probe_mccs_capabilities(RSSMacOSBinding *binding,
     /* Existing conventional-DP GET evidence uses 50 ms; MCCS-specific timing remains unvalidated. */
     rss_macos_diagnostic(diagnostics, "delay=50ms basis=existing-conventional-get-evidence");
     usleep(50000);
-    IOReturn read_result = IOAVServiceReadI2C(service, 0x37, 0x51, reply.bytes, sizeof(reply.bytes));
+    IOReturn read_result = IOAVServiceReadI2C(service, 0x37, 0x51, reply.bytes, (uint32_t)requested_reply_size);
     CFRelease(service);
     snprintf(message, sizeof(message), "read chip=0x37 data=0x00000051 requested-length=%zu IOReturn=0x%08x",
-             sizeof(reply.bytes), (unsigned int)read_result);
+             requested_reply_size, (unsigned int)read_result);
     rss_macos_diagnostic(diagnostics, message);
     diagnostic_bytes(diagnostics, "reply-after", reply.bytes, sizeof(reply.bytes));
     rss_macos_diagnostic(diagnostics, probe_reply_canaries_intact(&reply) ?
@@ -170,18 +177,42 @@ RSSDDCError rss_macos_dcpdp13_probe_mccs_capabilities(RSSMacOSBinding *binding,
     if (!probe_reply_canaries_intact(&reply)) return RSS_DDC_ERROR_SYSTEM;
 
     size_t frame_size = 0;
-    RSSDDCError error = rss_ddc_capabilities_reply_frame_size(reply.bytes, sizeof(reply.bytes), &frame_size);
+    RSSDDCError error = rss_ddc_capabilities_reply_frame_size(reply.bytes, requested_reply_size, &frame_size);
     if (error != RSS_DDC_OK) {
         rss_macos_diagnostic(diagnostics, "E3 frame-size=invalid; tail and payload were not interpreted");
         return error;
     }
     size_t unchanged_tail = 0;
-    for (size_t index = frame_size; index < sizeof(reply.bytes); ++index) {
+    for (size_t index = frame_size; index < requested_reply_size; ++index) {
         if (reply.bytes[index] == 0xcc) ++unchanged_tail;
     }
     snprintf(message, sizeof(message), "E3 declared-frame-bytes=%zu tail-sentinel-bytes=%zu/%zu",
-             frame_size, unchanged_tail, sizeof(reply.bytes) - frame_size);
+             frame_size, unchanged_tail, requested_reply_size - frame_size);
     rss_macos_diagnostic(diagnostics, message);
+
+    if (require_exact_observed_frame) {
+        static const uint8_t observed_lg_first_frame[] = {
+            0x6e, 0x8d, 0xe3, 0x00, 0x00, 0x28, 0x70, 0x72,
+            0x6f, 0x74, 0x28, 0x6d, 0x6f, 0x6e, 0x69, 0x4c,
+        };
+        size_t unchanged_unrequested = 0;
+        for (size_t index = requested_reply_size; index < sizeof(reply.bytes); ++index) {
+            if (reply.bytes[index] == 0xcc) ++unchanged_unrequested;
+        }
+        snprintf(message, sizeof(message), "unrequested-window-sentinel-bytes=%zu/%zu",
+                 unchanged_unrequested, sizeof(reply.bytes) - requested_reply_size);
+        rss_macos_diagnostic(diagnostics, message);
+        if (unchanged_unrequested != sizeof(reply.bytes) - requested_reply_size) {
+            rss_macos_diagnostic(diagnostics, "exact-first-frame=FAILED; IOAV modified bytes outside its requested range");
+            return RSS_DDC_ERROR_SYSTEM;
+        }
+        if (frame_size != requested_reply_size ||
+            memcmp(reply.bytes, observed_lg_first_frame, sizeof(observed_lg_first_frame)) != 0) {
+            rss_macos_diagnostic(diagnostics, "exact-first-frame=FAILED; no next offset was requested");
+            return RSS_DDC_ERROR_CAPABILITIES_MALFORMED;
+        }
+        rss_macos_diagnostic(diagnostics, "exact-first-frame=match");
+    }
 
     RSSDDCCapabilitiesFragment fragment = {};
     error = rss_ddc_parse_capabilities_reply(reply.bytes, frame_size, &fragment);
@@ -197,4 +228,22 @@ RSSDDCError rss_macos_dcpdp13_probe_mccs_capabilities(RSSMacOSBinding *binding,
     diagnostic_capabilities_text(diagnostics, &fragment);
     rss_macos_diagnostic(diagnostics, "probe=complete; no next offset was requested");
     return RSS_DDC_OK;
+}
+
+RSSDDCError rss_macos_dcpdp13_probe_mccs_capabilities(RSSMacOSBinding *binding,
+                                                       const RSSDDCDiagnostics *diagnostics) {
+    return dcpdp13_probe_mccs_capabilities_first_frame(binding, diagnostics,
+                                                        RSS_DDC_CAPABILITIES_REPLY_MAX_SIZE, false);
+}
+
+RSSDDCError rss_macos_dcpdp13_probe_mccs_capabilities_exact_first_frame(
+    RSSMacOSBinding *binding, const RSSDDCDiagnostics *diagnostics) {
+    static const char observed_product[] = "LG HDR QHD";
+    enum { observed_frame_size = 16 };
+    if (binding == NULL || strcmp(binding->display.product_name, observed_product) != 0) {
+        rss_macos_diagnostic(diagnostics,
+                             "operation=ProbeMCCSCapabilitiesExactFirstFrame status=refused; recorded LG HDR QHD only");
+        return RSS_DDC_ERROR_UNSUPPORTED_CAPABILITY;
+    }
+    return dcpdp13_probe_mccs_capabilities_first_frame(binding, diagnostics, observed_frame_size, true);
 }

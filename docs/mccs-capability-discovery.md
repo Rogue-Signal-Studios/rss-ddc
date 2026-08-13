@@ -16,7 +16,8 @@ provide a normal `rss-ddc capabilities` command.
 | PS190 GET VCP transport | Hardware validated in its documented scope |
 | DCPDP13Service GET VCP transport | Hardware validated in its documented scope |
 | DCPDPService GET VCP transport | Hardware validated in its documented scope |
-| DCPDP13Service one-fragment `probe-mccs-capabilities` | Research-backed validation harness |
+| DCPDP13Service/LG HDR QHD one-fragment `probe-mccs-capabilities` | Hardware-observed valid prefix; read-window tail unresolved |
+| DCPDP13Service/LG HDR QHD exact-first-frame repeat | Developer-only pending validation |
 | Any macOS runtime MCCS capability retrieval | Unsupported |
 | AppleDCPMCDP29xx MCCS capability retrieval | Unsupported |
 
@@ -122,11 +123,58 @@ printable fragment text, and 16-byte before/after canary status. It sends no sec
 not parse the complete capabilities string, and never writes a VCP value.
 
 The IOAV ABI declaration has caller-supplied `outputBufferSize` but no
-actual-bytes-read out parameter. The fixed 38-byte window is therefore safe
-only as a bounded experiment: the monitor framing byte determines the 6–38
-byte prefix passed to the strict parser. Bytes after that prefix remain
-diagnostic-only; a changed tail is not interpreted as protocol data. A malformed
-header, impossible size, bad checksum, or wrong echoed offset fails closed.
+actual-bytes-read out parameter. The fixed 38-byte window was originally a
+bounded experiment: the monitor framing byte determines the 6–38 byte prefix
+passed to the strict parser. A malformed header, impossible size, bad checksum,
+or wrong echoed offset fails closed. Actual LG hardware evidence below shows
+that bytes after that prefix cannot yet be treated as benign merely because the
+canaries remain intact.
+
+## LG HDR QHD / DCPDP13Service hardware evidence (2026-08-12)
+
+The user manually ran the one-fragment probe against list index 2 after
+confirming `LG HDR QHD`, `DCPDP13Service`, and the existing safety-gate
+correlation. The conventional offset-zero write succeeded, the 50 ms read
+succeeded, and the 38-byte returned window was:
+
+```text
+6e 8d e3 00 00 28 70 72 6f 74 28 6d 6f 6e 69 4c
+00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00
+6e 8d e3 00 00 28
+```
+
+The canaries surrounding the 38-byte allocation were intact. `0x8d` encodes a
+13-byte DDC data field, so the declared frame is exactly 16 bytes: source,
+length, 13 data bytes, and checksum. The complete validated fragment is:
+
+```text
+6e 8d e3 00 00 28 70 72 6f 74 28 6d 6f 6e 69 4c
+```
+
+It echoes offset `0x0000` and carries the 10-byte text `(prot(moni`. Its reply
+checksum is `0x4c`: `0x50 ^ 0x6e ^ 0x8d ^ 0xe3 ^ 0x00 ^ 0x00 ^ 0x28 ^ 0x70 ^
+0x72 ^ 0x6f ^ 0x74 ^ 0x28 ^ 0x6d ^ 0x6f ^ 0x6e ^ 0x69 = 0x4c`.
+
+All 22 bytes after that declared frame changed from their `0xcc` sentinel:
+16 zero bytes followed by `6e 8d e3 00 00 28`, the beginning of the validated
+frame. This is **not** part of the declared E3 packet, and the strict parser
+does not read or parse it. It is also not proof that the tail is harmless.
+The observed pattern is compatible with an IOAV/driver fixed-block or fill
+behavior; a transport-level replay/extra-read effect is another possibility.
+It is incompatible with simple unchanged caller memory, and it is not the F3
+request (which begins `83 f3`). The present evidence cannot distinguish the
+driver, lower transport, or monitor as the source. Multipart retrieval remains
+unsupported.
+
+The only approved follow-up is
+`probe-mccs-capabilities-exact-first-frame <display-index>`. It repeats the
+same conventional F3 offset-zero transaction once, waits 50 ms, and passes an
+**exact 16-byte** output length to IOAV. The surrounding allocation still has
+22 sentinel bytes after that requested range plus the existing outer canaries.
+It accepts only the exact observed 16-byte LG frame and requires all 22
+unrequested bytes and both canaries to remain unchanged. It sends no next
+offset, retries nothing, and is refused unless the selected DCPDP13 display is
+named exactly `LG HDR QHD`.
 
 ## Why runtime retrieval is not yet enabled
 
@@ -140,12 +188,17 @@ hardware-validated raw GET shape: inline `0x51`, `UINT32_MAX` no-offset, 50
 ms, then a fixed 11-byte read. No source establishes whether PS190 `F3`
 requires the raw or conventional representation, so PS190 is excluded.
 
-Only a successful DCPDP13 first fragment can justify an equally constrained
-next-offset experiment. Multipart retrieval additionally needs evidence that a
-second `F3` request at the exact next offset produces a valid, matching `E3`
-reply after the documented inter-fragment delay. DCPDPService needs its own
-first-fragment evidence, PS190 needs a framed-request decision, and MCDP
-remains out of scope.
+The first DCPDP13 frame is valid but its oversized read window is unresolved,
+so it does **not** yet justify a next-offset experiment. The exact-first-frame
+repeat must first return the same complete 16-byte E3 frame with intact outer
+canaries and untouched unrequested bytes. Even that result establishes only
+this read-size behavior for offset zero; it does not by itself establish that a
+38-byte maximum window is appropriate for unknown later fragment sizes.
+Multipart retrieval would still need separately reviewed evidence that the
+first later offset produces a valid, matching E3 reply with a suitable read
+strategy, followed by bounded accumulation and a zero-byte completion marker.
+DCPDPService needs its own first-fragment evidence, PS190 needs a
+framed-request decision, and MCDP remains out of scope.
 
 The capabilities string is also often incomplete or wrong. ddcutil explicitly
 warns that monitors can omit features they implement and that multi-exchange

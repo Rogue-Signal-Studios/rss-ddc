@@ -137,6 +137,20 @@ int main(void) {
     assert(rss_ddc_parse_capabilities_reply(maximum_capabilities_reply,
                                              sizeof(maximum_capabilities_reply) + 1, &fragment) ==
            RSS_DDC_ERROR_CAPABILITIES_MALFORMED);
+
+    /* Hardware-derived LG/DCPDP13 result: only the declared 16-byte E3 prefix is protocol data. */
+    const uint8_t observed_lg_reply_window[RSS_DDC_CAPABILITIES_REPLY_MAX_SIZE] = {
+        0x6e, 0x8d, 0xe3, 0x00, 0x00, 0x28, 0x70, 0x72, 0x6f, 0x74, 0x28, 0x6d, 0x6f, 0x6e, 0x69, 0x4c,
+        0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+        0x6e, 0x8d, 0xe3, 0x00, 0x00, 0x28,
+    };
+    assert(rss_ddc_capabilities_reply_frame_size(observed_lg_reply_window,
+                                                  sizeof(observed_lg_reply_window), &frame_size) == RSS_DDC_OK);
+    assert(frame_size == 16);
+    assert(rss_ddc_parse_capabilities_reply(observed_lg_reply_window, frame_size, &fragment) == RSS_DDC_OK);
+    assert(fragment.offset == 0 && fragment.length == 10 && memcmp(fragment.bytes, "(prot(moni", 10) == 0);
+    /* The remaining 22 modified bytes are not a second parsed frame and are never read by this parser call. */
+    assert(observed_lg_reply_window[frame_size] == 0x00 && observed_lg_reply_window[37] == 0x28);
     puts("test_protocol: passed");
     return 0;
 }
