@@ -85,23 +85,28 @@ int main(void) {
     assert(get_calls == 2 && last_get_vcp == 0x15);
     assert(rss_ddc_set_picture_mode(2, RSS_DDC_PICTURE_MODE_VIVID) == RSS_DDC_OK);
     assert(set_calls == 1 && last_set_vcp == 0x15 && last_set_value == 0x31); /* No secondary VCP writes. */
+    RSSDDCProfileStore *profile_store = rss_ddc_profile_store_create();
+    assert(profile_store != NULL && rss_ddc_profile_store_load_builtin(profile_store) == RSS_DDC_OK);
+    assert(rss_ddc_set_picture_mode_with_profile_store(2, profile_store, RSS_DDC_PICTURE_MODE_FPS) == RSS_DDC_OK);
+    assert(set_calls == 2 && last_set_vcp == 0x15 && last_set_value == 0x1e);
+    rss_ddc_profile_store_destroy(profile_store);
     assert(rss_ddc_set_picture_mode(2, RSS_DDC_PICTURE_MODE_UNKNOWN) == RSS_DDC_ERROR_ARGUMENT);
-    assert(set_calls == 1);
+    assert(set_calls == 2);
 
     resolved_display = lg_profile();
     snprintf(resolved_display.product_name, sizeof(resolved_display.product_name), "Odyssey G75F");
     assert(rss_ddc_get_picture_mode(2, &mode) == RSS_DDC_ERROR_UNSUPPORTED_CAPABILITY);
     assert(rss_ddc_set_picture_mode(2, RSS_DDC_PICTURE_MODE_READER) == RSS_DDC_ERROR_UNSUPPORTED_CAPABILITY);
-    assert(get_calls == 2 && set_calls == 1); /* Non-LG profile cannot use the semantic operation. */
+    assert(get_calls == 2 && set_calls == 2); /* Non-LG profile cannot use the semantic operation. */
     resolved_display = lg_profile();
     resolved_display.provider = RSS_DDC_PROVIDER_DCPDP_SERVICE;
     assert(rss_ddc_get_picture_mode(2, &mode) == RSS_DDC_ERROR_UNSUPPORTED_CAPABILITY);
     assert(rss_ddc_set_picture_mode(2, RSS_DDC_PICTURE_MODE_READER) == RSS_DDC_ERROR_UNSUPPORTED_CAPABILITY);
-    assert(get_calls == 2 && set_calls == 1); /* Wrong provider never reaches generic VCP dispatch. */
+    assert(get_calls == 2 && set_calls == 2); /* Wrong provider never reaches generic VCP dispatch. */
     resolved_display = lg_profile();
     resolved_display.provider = RSS_DDC_PROVIDER_UNKNOWN;
     assert(rss_ddc_get_picture_mode(2, &mode) == RSS_DDC_ERROR_UNSUPPORTED_PROVIDER);
-    assert(get_calls == 2 && set_calls == 1);
+    assert(get_calls == 2 && set_calls == 2);
     puts("test_picture_mode: passed");
     return 0;
 }

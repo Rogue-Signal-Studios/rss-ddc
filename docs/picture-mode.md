@@ -43,8 +43,8 @@ does **not** state that VCP `0x15` is Picture Mode on every monitor.
 | `RSS_DDC_PICTURE_MODE_COLOR_WEAKNESS` | Color Weakness | `0x06` |
 | `RSS_DDC_PICTURE_MODE_READER` | Reader | `0x01` |
 
-The implementation keeps the VCP `0x15` operation and these raw values
-internal. SET accepts only the eight semantic values. GET maps a known raw
+The implementation keeps the VCP `0x15` operation and these raw values inside
+the validated built-in profile. SET accepts only the eight semantic values. GET maps a known raw
 reply to a semantic value; an unrecognized raw reply returns success with
 `RSS_DDC_PICTURE_MODE_UNKNOWN`, never a guessed label.
 
@@ -75,4 +75,5 @@ internal preset side effects.
 
 The discovery provenance and broader LG transport evidence are recorded in
 [the LG monitor entry](monitors/lg-hdr-qhd.md). The reusable research harness
-remains separate from this production capability.
+remains separate from this production capability. See [Monitor profiles](monitor-profiles.md)
+for store, trust, and local-profile behavior.

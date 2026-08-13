@@ -11,7 +11,7 @@ extern "C" {
 
 /* Pre-1.0 API marker: source compatibility may evolve as provider coverage matures. */
 #define RSS_DDC_VERSION_MAJOR 0
-#define RSS_DDC_VERSION_MINOR 3
+#define RSS_DDC_VERSION_MINOR 4
 #define RSS_DDC_VERSION_PATCH 0
 
 /** Runtime provider classes derived from the macOS registry, never CPU generation. */
@@ -83,6 +83,11 @@ typedef enum {
     RSS_DDC_ERROR_CAPABILITIES_REQUEST_LIMIT,
     RSS_DDC_ERROR_CAPABILITIES_OFFSET_OVERFLOW,
     RSS_DDC_ERROR_CAPABILITIES_INCOMPLETE,
+    RSS_DDC_ERROR_PROFILE_MALFORMED,
+    RSS_DDC_ERROR_PROFILE_SCHEMA,
+    RSS_DDC_ERROR_PROFILE_VERSION,
+    RSS_DDC_ERROR_PROFILE_CONFLICT,
+    RSS_DDC_ERROR_PROFILE_UNSAFE,
     RSS_DDC_ERROR_SYSTEM,
 } RSSDDCError;
 
@@ -104,6 +109,11 @@ enum {
     RSS_DDC_MCCS_CAPABILITIES_MAX_FEATURES = 256,
     /** 4096 bytes cannot encode more than 1365 separated two-digit values. */
     RSS_DDC_MCCS_CAPABILITIES_MAX_ENUM_VALUES = 1400,
+    RSS_DDC_PROFILE_MAX_PROFILES = 32,
+    RSS_DDC_PROFILE_MAX_CONTROLS = 16,
+    RSS_DDC_PROFILE_MAX_ENUM_VALUES = 32,
+    RSS_DDC_PROFILE_ID_MAX = 64,
+    RSS_DDC_PROFILE_VERSION_MAX = 64,
 };
 
 /**
@@ -265,6 +275,99 @@ typedef enum {
     RSS_DDC_PICTURE_MODE_READER,
 } RSSDDCPictureMode;
 
+/** Origin is distinct from the evidence strength attached to a profile/control. */
+typedef enum {
+    RSS_DDC_PROFILE_SOURCE_BUILTIN = 0,
+    RSS_DDC_PROFILE_SOURCE_VALIDATED_PACK,
+    RSS_DDC_PROFILE_SOURCE_LOCAL,
+    RSS_DDC_PROFILE_SOURCE_RESEARCH,
+} RSSDDCProfileSource;
+
+/** Evidence strength; only HARDWARE_VALIDATED can authorize a semantic SET in v1. */
+typedef enum {
+    RSS_DDC_PROFILE_CONFIDENCE_UNKNOWN = 0,
+    RSS_DDC_PROFILE_CONFIDENCE_CANDIDATE,
+    RSS_DDC_PROFILE_CONFIDENCE_OBSERVED,
+    RSS_DDC_PROFILE_CONFIDENCE_CORRELATED,
+    RSS_DDC_PROFILE_CONFIDENCE_SET_OBSERVED,
+    RSS_DDC_PROFILE_CONFIDENCE_HARDWARE_VALIDATED,
+} RSSDDCProfileConfidence;
+
+/** Stable, provider-independent semantic control identifiers. */
+typedef enum {
+    RSS_DDC_PROFILE_CONTROL_UNKNOWN = 0,
+    RSS_DDC_PROFILE_CONTROL_PICTURE_MODE,
+    RSS_DDC_PROFILE_CONTROL_INPUT,
+    RSS_DDC_PROFILE_CONTROL_BRIGHTNESS,
+    RSS_DDC_PROFILE_CONTROL_CONTRAST,
+    RSS_DDC_PROFILE_CONTROL_COLOR_PRESET,
+    RSS_DDC_PROFILE_CONTROL_RESPONSE_TIME,
+    RSS_DDC_PROFILE_CONTROL_ADAPTIVE_SYNC,
+    RSS_DDC_PROFILE_CONTROL_ENERGY_SAVING,
+    RSS_DDC_PROFILE_CONTROL_BLACK_STABILIZER,
+    RSS_DDC_PROFILE_CONTROL_GAMMA,
+    RSS_DDC_PROFILE_CONTROL_SHARPNESS,
+    RSS_DDC_PROFILE_CONTROL_AUDIO_MUTE,
+} RSSDDCProfileControlID;
+
+/** A supported semantic operation shape. Additional methods require a future schema version. */
+typedef enum {
+    RSS_DDC_PROFILE_METHOD_UNKNOWN = 0,
+    RSS_DDC_PROFILE_METHOD_VCP,
+    RSS_DDC_PROFILE_METHOD_LG_ALT_INPUT,
+} RSSDDCProfileMethod;
+
+/** Persistable matching facts. list_index is intentionally not representable. */
+typedef struct {
+    char manufacturer[RSS_DDC_TEXT_MAX];
+    char product_name[RSS_DDC_TEXT_MAX];
+    char serial[RSS_DDC_TEXT_MAX];
+    char branch_device_id[RSS_DDC_TEXT_MAX];
+    char transport[RSS_DDC_TEXT_MAX];
+    RSSDDCProvider provider;
+    bool external;
+} RSSDDCProfileIdentity;
+
+typedef struct {
+    char id[RSS_DDC_PROFILE_ID_MAX];
+    char name[RSS_DDC_TEXT_MAX];
+    uint16_t raw_value;
+} RSSDDCProfileEnumValue;
+
+typedef struct {
+    RSSDDCProfileControlID id;
+    RSSDDCProfileMethod method;
+    uint16_t address;
+    bool readable;
+    bool writable;
+    bool write_authorized;
+    uint16_t minimum_value;
+    uint16_t maximum_value;
+    bool has_numeric_range;
+    RSSDDCProfileSource source;
+    RSSDDCProfileConfidence confidence;
+    size_t enum_value_count;
+    RSSDDCProfileEnumValue enum_values[RSS_DDC_PROFILE_MAX_ENUM_VALUES];
+} RSSDDCProfileControl;
+
+/** Value-only result of an offline profile resolution. */
+typedef struct {
+    RSSDDCProfileIdentity identity;
+    size_t control_count;
+    RSSDDCProfileControl controls[RSS_DDC_PROFILE_MAX_CONTROLS];
+} RSSDDCEffectiveProfile;
+
+/** Metadata needed by a consumer-owned download/signature/update workflow. */
+typedef struct {
+    uint32_t schema_version;
+    char database_version[RSS_DDC_PROFILE_VERSION_MAX];
+    char minimum_rss_ddc_version[RSS_DDC_PROFILE_VERSION_MAX];
+    char pack_id[RSS_DDC_PROFILE_ID_MAX];
+} RSSDDCProfilePackInfo;
+
+/** Opaque, heap-owned profile store. Parsing and resolution never contact hardware. */
+typedef struct RSSDDCProfileStore RSSDDCProfileStore;
+
 /** Returns a static, human-readable name for an error or provider. */
 const char *rss_ddc_error_string(RSSDDCError error);
 const char *rss_ddc_provider_string(RSSDDCProvider provider);
@@ -276,6 +379,54 @@ const char *rss_ddc_backend_name(RSSDDCBackend backend);
 RSSDDCProvider rss_ddc_provider_from_registry_class(const char *provider_class);
 /** Returns only the independently validated provider-owned capabilities. */
 uint32_t rss_ddc_provider_capabilities(RSSDDCProvider provider);
+
+/** Creates an empty offline profile store. Callers own it and may swap stores atomically. */
+RSSDDCProfileStore *rss_ddc_profile_store_create(void);
+void rss_ddc_profile_store_destroy(RSSDDCProfileStore *store);
+/** Adds the independently validated bundled profiles. It is transactional on failure. */
+RSSDDCError rss_ddc_profile_store_load_builtin(RSSDDCProfileStore *store);
+/**
+ * Parses and validates a versioned validated-pack JSON document before adding
+ * it to `store`; a failure leaves that store unchanged. Unknown optional JSON
+ * keys are ignored, but unknown required schema data and malformed values fail
+ * closed. This function never performs I/O beyond its caller-provided bytes.
+ */
+RSSDDCError rss_ddc_profile_store_load_pack_data(RSSDDCProfileStore *store, const char *data, size_t length);
+/** File convenience form of rss_ddc_profile_store_load_pack_data; no network is involved. */
+RSSDDCError rss_ddc_profile_store_load_pack_file(RSSDDCProfileStore *store, const char *path);
+/** Local profiles use the same schema but retain local source provenance and load transactionally. */
+RSSDDCError rss_ddc_profile_store_load_local_data(RSSDDCProfileStore *store, const char *data, size_t length);
+RSSDDCError rss_ddc_profile_store_load_local_file(RSSDDCProfileStore *store, const char *path);
+/** Research profiles are introspectable evidence only and can never authorize a semantic SET. */
+RSSDDCError rss_ddc_profile_store_load_research_data(RSSDDCProfileStore *store, const char *data, size_t length);
+RSSDDCError rss_ddc_profile_store_load_research_file(RSSDDCProfileStore *store, const char *path);
+/** Validates a candidate pack without changing a store. */
+RSSDDCError rss_ddc_profile_validate_pack_data(const char *data, size_t length, RSSDDCProfileSource source,
+                                               RSSDDCProfilePackInfo *info);
+/** Returns the metadata for the most recently accepted pack, if any. */
+RSSDDCError rss_ddc_profile_store_pack_info(const RSSDDCProfileStore *store, RSSDDCProfilePackInfo *info);
+/**
+ * Exports a validated, self-contained JSON pack into caller storage. It does
+ * not write a file, choose a location, or include network/signature metadata.
+ * Pass NULL/0 to query the required byte count including the terminating NUL.
+ */
+RSSDDCError rss_ddc_profile_store_export_json(const RSSDDCProfileStore *store, char *buffer, size_t capacity,
+                                              size_t *required);
+/**
+ * Resolves matching profiles without display discovery. Controls compose by
+ * confidence, source, and identity specificity; equal-authority conflicts
+ * fail closed rather than choosing a raw operation.
+ */
+RSSDDCError rss_ddc_profile_store_resolve(const RSSDDCProfileStore *store, const RSSDDCProfileIdentity *identity,
+                                          RSSDDCEffectiveProfile *effective);
+size_t rss_ddc_effective_profile_control_count(const RSSDDCEffectiveProfile *effective);
+RSSDDCError rss_ddc_effective_profile_control(const RSSDDCEffectiveProfile *effective, size_t index,
+                                               RSSDDCProfileControl *control);
+RSSDDCError rss_ddc_profile_control_enum_value(const RSSDDCProfileControl *control, size_t index,
+                                                RSSDDCProfileEnumValue *value);
+const char *rss_ddc_profile_control_name(RSSDDCProfileControlID id);
+const char *rss_ddc_profile_source_name(RSSDDCProfileSource source);
+const char *rss_ddc_profile_confidence_name(RSSDDCProfileConfidence confidence);
 
 /**
  * Parses a bounded MCCS capabilities string without contacting a display.
@@ -400,6 +551,9 @@ RSSDDCError rss_ddc_get_picture_mode(uint32_t list_index, RSSDDCPictureMode *mod
 /** Diagnostic form of rss_ddc_get_picture_mode. */
 RSSDDCError rss_ddc_get_picture_mode_with_diagnostics(uint32_t list_index, RSSDDCPictureMode *mode,
                                                        const RSSDDCDiagnostics *diagnostics);
+/** Resolves Picture Mode through a caller-owned store; NULL uses the bundled validated store. */
+RSSDDCError rss_ddc_get_picture_mode_with_profile_store(uint32_t list_index, const RSSDDCProfileStore *store,
+                                                         RSSDDCPictureMode *mode);
 /**
  * Sets exactly one validated semantic Picture Mode operation for the selected
  * monitor profile. It does not write brightness, contrast, color preset, or
@@ -409,6 +563,9 @@ RSSDDCError rss_ddc_set_picture_mode(uint32_t list_index, RSSDDCPictureMode mode
 /** Diagnostic form of rss_ddc_set_picture_mode. */
 RSSDDCError rss_ddc_set_picture_mode_with_diagnostics(uint32_t list_index, RSSDDCPictureMode mode,
                                                        const RSSDDCDiagnostics *diagnostics);
+/** Resolves and authorizes Picture Mode through a caller-owned store; NULL uses the bundled validated store. */
+RSSDDCError rss_ddc_set_picture_mode_with_profile_store(uint32_t list_index, const RSSDDCProfileStore *store,
+                                                         RSSDDCPictureMode mode);
 /**
  * Returns the explicit default verification policy: 100 ms settling, then up
  * to three additional GET attempts separated by 250 ms. These are a modest

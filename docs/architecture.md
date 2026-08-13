@@ -25,6 +25,16 @@ VCP, read-only DPCD, and Set-and-Verify are hardware-validated on the
 documented Mac Studio XL2730Z topology (`0x0b`). DCPDP13/MCDP/DCPDPService
 EDID and MCDP DPCD remain fail-closed.
 
+## Monitor profile store
+
+The portable profile store is a separate value-only layer above provider
+transport. It parses versioned offline packs, validates their safety claims,
+matches exact display identity values, composes compatible semantic controls,
+and fails closed on equal-authority conflicts. It owns no update transport or
+filesystem policy. The first bundled profile supplies LG HDR QHD Picture Mode;
+generic input, brightness, contrast, and alternate input retain their existing
+production paths for this milestone. See [Monitor profiles](monitor-profiles.md).
+
 ## Public API and private ABI boundaries
 
 The installed header is intentionally value-only. `rss_ddc_list_displays` uses
