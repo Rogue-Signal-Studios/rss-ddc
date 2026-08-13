@@ -17,15 +17,23 @@ const char *rss_ddc_provider_string(RSSDDCProvider provider) {
 typedef struct {
     unsigned int gets;
     unsigned int sets;
+    unsigned int settles;
     uint16_t value;
     bool unstable;
     bool fail_restore;
+    uint16_t get_values[16];
+    size_t get_value_count;
+    uint16_t set_values[16];
+    size_t set_value_count;
 } FakeTransport;
 
 static RSSDDCError fake_get(void *context, uint8_t vcp, RSSDDCVCPResult *result) {
     FakeTransport *fake = context;
     ++fake->gets;
     if (vcp == 0xee) return RSS_DDC_ERROR_UNSUPPORTED_CAPABILITY;
+    if (fake->get_value_count < sizeof(fake->get_values) / sizeof(fake->get_values[0])) {
+        fake->get_values[fake->get_value_count++] = fake->value;
+    }
     *result = (RSSDDCVCPResult){.vcp_code = vcp, .maximum_value = 100,
                                  .current_value = (uint16_t)(fake->unstable && fake->gets % 2 == 0 ? 41 : fake->value)};
     return RSS_DDC_OK;
@@ -35,9 +43,18 @@ static RSSDDCError fake_set(void *context, uint8_t vcp, uint16_t value) {
     (void)vcp;
     FakeTransport *fake = context;
     ++fake->sets;
+    if (fake->set_value_count < sizeof(fake->set_values) / sizeof(fake->set_values[0])) {
+        fake->set_values[fake->set_value_count++] = value;
+    }
     if (fake->fail_restore && value == 50) return RSS_DDC_ERROR_WRITE;
     fake->value = value;
     return RSS_DDC_OK;
+}
+
+static void fake_settle(void *context, uint32_t milliseconds) {
+    FakeTransport *fake = context;
+    assert(milliseconds == 250);
+    ++fake->settles;
 }
 
 static RSSDDCMCCSCapabilities capabilities(void) {
@@ -105,14 +122,25 @@ int main(void) {
     assert(report.read_count == 3); /* advertised candidates plus explicit code, de-duplicated */
 
     RSSDDCResearchReport mutation_report = {.capabilities_status = RSS_DDC_OK};
-    mutation_report.capabilities = capabilities();
-    options = (RSSDDCResearchOptions){.reads = 1, .allow_set = true, .restore = true};
+    const char single_vcp_capabilities[] = "vcp(10)";
+    assert(rss_ddc_parse_mccs_capabilities(single_vcp_capabilities, strlen(single_vcp_capabilities),
+                                           &mutation_report.capabilities) == RSS_DDC_OK);
+    options = (RSSDDCResearchOptions){.reads = 1, .allow_set = true, .restore = true, .settle_ms = 250};
     options.explicit_vcps[options.explicit_vcp_count++] = 0x10;
     options.mutation_values[options.mutation_value_count++] = 49;
+    options.mutation_values[options.mutation_value_count++] = 48;
     fake = (FakeTransport){.value = 50};
-    transport.context = &fake;
+    transport = (RSSDDCResearchTransport){.get_vcp = fake_get, .set_vcp = fake_set, .settle = fake_settle, .context = &fake};
     assert(rss_ddc_research_run(&mutation_report, &options, &transport) == RSS_DDC_OK);
-    assert(mutation_report.mutation_count == 1 && mutation_report.mutations[0].restored && fake.value == 50);
+    assert(mutation_report.mutation_count == 2 && mutation_report.mutations[0].restored &&
+           mutation_report.mutations[1].restored && fake.value == 50);
+    const uint16_t expected_sets[] = {49, 50, 48, 50};
+    const uint16_t expected_gets[] = {50, 49, 50, 48, 50};
+    assert(fake.set_value_count == sizeof(expected_sets) / sizeof(expected_sets[0]) &&
+           memcmp(fake.set_values, expected_sets, sizeof(expected_sets)) == 0);
+    assert(fake.get_value_count == sizeof(expected_gets) / sizeof(expected_gets[0]) &&
+           memcmp(fake.get_values, expected_gets, sizeof(expected_gets)) == 0);
+    assert(fake.settles == 4); /* SET and verified restore for each candidate. */
 
     char first[8192] = {}, second[8192] = {};
     FILE *output = tmpfile();

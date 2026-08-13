@@ -40,6 +40,8 @@ All of these conditions are required before the engine can call SET:
 
 Restore is on by default and `--restore` documents that intent. Each candidate is GET → SET → optional bounded settle → GET → restore → GET. A failed or unverifiable restore stops further candidates for that control and is a report warning. The executable creates reports with exclusive creation, so it will not overwrite an existing report path.
 
+Each subsequent candidate starts only after the prior candidate's restore GET has confirmed the original value; the configured settle interval is also applied after restore. `changed` is true only when the post-SET GET equals the requested candidate. A successful DDC/CI SET return is an acknowledgement of the write transaction, not proof that the monitor adopted the requested value. For example, a monitor may accept `0x08` but retain `0x05`; treat that as `changed: false`, not as a working preset.
+
 The mutation denylist is: degauss `0x01`; factory reset `0x04`; reset luminance/contrast `0x05`; reset color `0x08`; standard input/source `0x60`; LG's write-only alternate input `0xF4`; and power mode `0xD6`. This keeps the alternate IOAV input mechanism outside the generic VCP mutation path. Unknown codes are read-only unless a researcher explicitly names that exact code and supplies values; the denylist always wins.
 
 ## JSON reports
