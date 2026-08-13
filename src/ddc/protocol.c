@@ -111,3 +111,25 @@ RSSDDCError rss_ddc_parse_capabilities_reply(const uint8_t *reply, size_t byte_c
         .offset = ((uint16_t)reply[3] << 8) | reply[4], .bytes = reply + 5, .length = data_length - 3};
     return RSS_DDC_OK;
 }
+
+RSSDDCError rss_ddc_capabilities_reply_frame_size(const uint8_t *reply, size_t available_bytes,
+                                                  size_t *frame_size) {
+    if (reply == NULL || frame_size == NULL || available_bytes < 2) return RSS_DDC_ERROR_ARGUMENT;
+    if (reply[0] != RSS_DDC_REPLY_SOURCE || (reply[1] & 0x80u) == 0) {
+        return RSS_DDC_ERROR_CAPABILITIES_MALFORMED;
+    }
+    size_t data_length = reply[1] & 0x7fu;
+    size_t result = data_length + 3;
+    if (data_length < 3 || data_length > RSS_DDC_CAPABILITIES_REPLY_MAX_DATA_BYTES ||
+        result > available_bytes || result > RSS_DDC_CAPABILITIES_REPLY_MAX_SIZE) {
+        return RSS_DDC_ERROR_CAPABILITIES_MALFORMED;
+    }
+    *frame_size = result;
+    return RSS_DDC_OK;
+}
+
+RSSDDCError rss_ddc_validate_capabilities_fragment_offset(const RSSDDCCapabilitiesFragment *fragment,
+                                                          uint16_t requested_offset) {
+    if (fragment == NULL) return RSS_DDC_ERROR_ARGUMENT;
+    return fragment->offset == requested_offset ? RSS_DDC_OK : RSS_DDC_ERROR_CAPABILITIES_MALFORMED;
+}

@@ -15,7 +15,8 @@ enum {
     RSS_DDC_RAW_CAPABILITIES_REQUEST_SIZE = 6,
     /** MCCS carries a 3-byte E3 header plus at most 32 string bytes per reply. */
     RSS_DDC_CAPABILITIES_REPLY_MAX_DATA_BYTES = 35,
-    RSS_DDC_CAPABILITIES_REPLY_MAX_SIZE = 39,
+    /** IOAV omits the implicit host-read address: 0x6e + length + 35 data + checksum. */
+    RSS_DDC_CAPABILITIES_REPLY_MAX_SIZE = 38,
 };
 
 /** A validated, transient view into one MCCS Capabilities Reply packet. */
@@ -61,5 +62,15 @@ RSSDDCError rss_ddc_parse_get_vcp_reply(const uint8_t *reply, size_t byte_count,
  */
 RSSDDCError rss_ddc_parse_capabilities_reply(const uint8_t *reply, size_t byte_count,
                                              RSSDDCCapabilitiesFragment *fragment);
+/**
+ * Derives the exact received frame size from a bounded IOAV reply window.
+ * IOAVServiceReadI2C exposes no actual-byte-count out parameter, so callers
+ * must validate this value before handing only that prefix to the strict parser.
+ */
+RSSDDCError rss_ddc_capabilities_reply_frame_size(const uint8_t *reply, size_t available_bytes,
+                                                  size_t *frame_size);
+/** Rejects a syntactically valid fragment whose monitor-echoed offset is unexpected. */
+RSSDDCError rss_ddc_validate_capabilities_fragment_offset(const RSSDDCCapabilitiesFragment *fragment,
+                                                          uint16_t requested_offset);
 
 #endif

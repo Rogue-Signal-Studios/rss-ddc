@@ -52,6 +52,9 @@ int main(void) {
     uint8_t capabilities_request[RSS_DDC_CONVENTIONAL_CAPABILITIES_REQUEST_SIZE] = {};
     rss_ddc_build_conventional_capabilities_request(0x0120, capabilities_request);
     assert(memcmp(capabilities_request, expected_capabilities, sizeof(capabilities_request)) == 0);
+    const uint8_t expected_capabilities_zero[] = {0x83, 0xf3, 0x00, 0x00, 0x1e};
+    rss_ddc_build_conventional_capabilities_request(0, capabilities_request);
+    assert(memcmp(capabilities_request, expected_capabilities_zero, sizeof(capabilities_request)) == 0);
     const uint8_t expected_raw_capabilities[] = {0x51, 0x83, 0xf3, 0x01, 0x20, 0x6e};
     uint8_t raw_capabilities_request[RSS_DDC_RAW_CAPABILITIES_REQUEST_SIZE] = {};
     rss_ddc_build_raw_capabilities_request(0x0120, raw_capabilities_request);
@@ -99,6 +102,41 @@ int main(void) {
     capabilities_reply[sizeof(capabilities_reply) - 1] ^= 0xff;
     assert(rss_ddc_parse_capabilities_reply(capabilities_reply, sizeof(capabilities_reply), &fragment) ==
            RSS_DDC_ERROR_REPLY_CHECKSUM);
+
+    uint8_t maximum_capabilities_reply[RSS_DDC_CAPABILITIES_REPLY_MAX_SIZE] = {0x6e, 0xa3, 0xe3, 0x00, 0x00};
+    for (size_t index = 0; index < 32; ++index) maximum_capabilities_reply[index + 5] = 'a';
+    checksum = 0x50;
+    for (size_t index = 0; index + 1 < sizeof(maximum_capabilities_reply); ++index) checksum ^= maximum_capabilities_reply[index];
+    maximum_capabilities_reply[sizeof(maximum_capabilities_reply) - 1] = checksum;
+    assert(rss_ddc_parse_capabilities_reply(maximum_capabilities_reply, sizeof(maximum_capabilities_reply), &fragment) ==
+           RSS_DDC_OK);
+    assert(fragment.offset == 0 && fragment.length == 32);
+
+    uint8_t sentinel_window[RSS_DDC_CAPABILITIES_REPLY_MAX_SIZE];
+    memset(sentinel_window, 0xcc, sizeof(sentinel_window));
+    sentinel_window[0] = 0x6e; sentinel_window[1] = 0x83; sentinel_window[2] = 0xe3;
+    sentinel_window[3] = 0x00; sentinel_window[4] = 0x00;
+    checksum = 0x50;
+    for (size_t index = 0; index < 5; ++index) checksum ^= sentinel_window[index];
+    sentinel_window[5] = checksum;
+    size_t frame_size = 0;
+    assert(rss_ddc_capabilities_reply_frame_size(sentinel_window, sizeof(sentinel_window), &frame_size) == RSS_DDC_OK);
+    assert(frame_size == 6);
+    assert(rss_ddc_parse_capabilities_reply(sentinel_window, frame_size, &fragment) == RSS_DDC_OK);
+    assert(fragment.offset == 0 && fragment.length == 0); /* Changed tail bytes are intentionally ignored. */
+    assert(rss_ddc_validate_capabilities_fragment_offset(&fragment, 0) == RSS_DDC_OK);
+    sentinel_window[4] = 0x01;
+    checksum = 0x50;
+    for (size_t index = 0; index < 5; ++index) checksum ^= sentinel_window[index];
+    sentinel_window[5] = checksum;
+    assert(rss_ddc_parse_capabilities_reply(sentinel_window, 6, &fragment) == RSS_DDC_OK);
+    assert(rss_ddc_validate_capabilities_fragment_offset(&fragment, 0) == RSS_DDC_ERROR_CAPABILITIES_MALFORMED);
+    sentinel_window[1] = 0xa4;
+    assert(rss_ddc_capabilities_reply_frame_size(sentinel_window, sizeof(sentinel_window), &frame_size) ==
+           RSS_DDC_ERROR_CAPABILITIES_MALFORMED);
+    assert(rss_ddc_parse_capabilities_reply(maximum_capabilities_reply,
+                                             sizeof(maximum_capabilities_reply) + 1, &fragment) ==
+           RSS_DDC_ERROR_CAPABILITIES_MALFORMED);
     puts("test_protocol: passed");
     return 0;
 }

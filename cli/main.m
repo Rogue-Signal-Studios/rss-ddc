@@ -8,6 +8,7 @@
 #include <unistd.h>
 
 #include "rss_ddc.h"
+#include "macos_internal.h"
 
 static void usage(const char *program) {
     fprintf(stderr,
@@ -17,11 +18,12 @@ static void usage(const char *program) {
             "  %s [--verbose] edid <display-index> [--decode|--hex|--raw <file>]\n"
             "  %s [--verbose] dpcd <display-index> <address> <length>\n"
             "  %s [--verbose] probe-dpcd-path <display-index>\n"
+            "  %s probe-mccs-capabilities <display-index>\n"
             "  %s [--verbose] get <display-index> <vcp>\n"
             "  %s [--verbose] set <display-index> <vcp> <value>\n"
             "  %s [--verbose] set <display-index> <vcp> <value> --verify [--settle-ms <ms>] "
             "[--retries <count>] [--retry-delay-ms <ms>]\n",
-            program, program, program, program, program, program, program, program);
+            program, program, program, program, program, program, program, program, program);
 }
 
 static bool parse_unsigned(const char *text, unsigned long maximum, unsigned long *value) {
@@ -119,7 +121,7 @@ static void print_dpcd_decode(uint32_t address, const uint8_t *bytes, size_t len
            capabilities.enhanced_framing ? "yes" : "no", capabilities.downstream_port_present ? "yes" : "no");
 }
 
-/** Parses the small public CLI surface; hardware access is limited to explicit GET/SET/EDID/DPCD commands. */
+/** Parses the small public CLI surface; hardware access requires an explicit command. */
 int main(int argc, char **argv) {
     bool verbose = false;
     int argument = 1;
@@ -199,6 +201,14 @@ int main(int argc, char **argv) {
                                                                        verbose ? &diagnostics : NULL);
         if (error != RSS_DDC_OK) { fprintf(stderr, "rss-ddc: %s\n", rss_ddc_error_string(error)); return EXIT_FAILURE; }
         printf("DPCD path candidate correlation completed; no IODP construction or DPCD read was performed.\n");
+        return EXIT_SUCCESS;
+    }
+    if (strcmp(argv[argument], "probe-mccs-capabilities") == 0) {
+        if (argc != argument + 2) { usage(argv[0]); return EXIT_FAILURE; }
+        RSSDDCDiagnostics diagnostics = {.callback = write_diagnostic, .context = NULL};
+        RSSDDCError error = rss_macos_probe_mccs_capabilities((uint32_t)display_index, &diagnostics);
+        if (error != RSS_DDC_OK) { fprintf(stderr, "rss-ddc: %s\n", rss_ddc_error_string(error)); return EXIT_FAILURE; }
+        printf("MCCS first-fragment probe completed; no additional request was sent.\n");
         return EXIT_SUCCESS;
     }
     if (strcmp(argv[argument], "dpcd") == 0) {

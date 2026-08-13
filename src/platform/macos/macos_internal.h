@@ -117,5 +117,12 @@ RSSDDCError rss_macos_provider_read_dpcd(RSSMacOSBinding *binding, uint32_t addr
                                          size_t length, const RSSDDCDiagnostics *diagnostics);
 /** Registry-only conventional-DP candidate reporting; it never creates IODP/IOAV objects. */
 RSSDDCError rss_macos_probe_dpcd_path(uint32_t list_index, const RSSDDCDiagnostics *diagnostics);
+/**
+ * Developer-only DCPDP13 experiment: one MCCS F3 offset-zero write and one
+ * bounded E3 read. It is not a public runtime capabilities API.
+ */
+RSSDDCError rss_macos_probe_mccs_capabilities(uint32_t list_index, const RSSDDCDiagnostics *diagnostics);
+RSSDDCError rss_macos_dcpdp13_probe_mccs_capabilities(RSSMacOSBinding *binding,
+                                                       const RSSDDCDiagnostics *diagnostics);
 
 #endif

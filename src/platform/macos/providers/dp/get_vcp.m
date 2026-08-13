@@ -20,6 +20,32 @@ static void diagnostic_bytes(const RSSDDCDiagnostics *diagnostics, const char *l
     rss_macos_diagnostic(diagnostics, message);
 }
 
+static void diagnostic_capabilities_text(const RSSDDCDiagnostics *diagnostics,
+                                         const RSSDDCCapabilitiesFragment *fragment) {
+    char text[RSS_DDC_CAPABILITIES_REPLY_MAX_DATA_BYTES - 2] = {};
+    size_t text_length = fragment->length < sizeof(text) - 1 ? fragment->length : sizeof(text) - 1;
+    for (size_t index = 0; index < text_length; ++index) {
+        uint8_t value = fragment->bytes[index];
+        text[index] = value >= 0x20 && value <= 0x7e ? (char)value : '.';
+    }
+    char message[160] = {};
+    snprintf(message, sizeof(message), "fragment offset=0x%04x text=%s", fragment->offset, text);
+    rss_macos_diagnostic(diagnostics, message);
+}
+
+typedef struct {
+    uint8_t before[16];
+    uint8_t bytes[RSS_DDC_CAPABILITIES_REPLY_MAX_SIZE];
+    uint8_t after[16];
+} RSSMCCSProbeReplyWindow;
+
+static bool probe_reply_canaries_intact(const RSSMCCSProbeReplyWindow *window) {
+    for (size_t index = 0; index < sizeof(window->before); ++index) {
+        if (window->before[index] != 0xa5 || window->after[index] != 0x5a) return false;
+    }
+    return true;
+}
+
 /**
  * Executes the conventional Service-level DDC/CI Get VCP sequence validated for
  * DCPDP13 and DCPDPService hardware. Unlike PS190, 0x51 is intentionally
@@ -88,4 +114,87 @@ RSSDDCError rss_macos_dp_get_vcp(RSSMacOSBinding *binding, uint8_t vcp_code, RSS
 RSSDDCError rss_macos_dcpdpservice_get_vcp(RSSMacOSBinding *binding, uint8_t vcp_code, RSSDDCVCPResult *result,
                                             const RSSDDCDiagnostics *diagnostics) {
     return conventional_service_get_vcp(binding, vcp_code, result, diagnostics);
+}
+
+/**
+ * One-transaction developer probe. DCPDP13 is deliberately isolated because
+ * its conventional Service tuple is hardware validated for Get VCP; this does
+ * not promote MCCS retrieval or imply anything about PS190/DCPDPService.
+ */
+RSSDDCError rss_macos_dcpdp13_probe_mccs_capabilities(RSSMacOSBinding *binding,
+                                                       const RSSDDCDiagnostics *diagnostics) {
+    if (binding == NULL || !binding->dp_safety_gate || binding->display.provider != RSS_DDC_PROVIDER_DCPDP13) {
+        return RSS_DDC_ERROR_SAFETY_GATE;
+    }
+    rss_macos_diagnostic(diagnostics,
+                         "operation=ProbeMCCSCapabilities provider=DCPDP13Service scope=one-f3-offset-zero-request");
+    IOAVServiceRef service = IOAVServiceCreateWithService(kCFAllocatorDefault, binding->service_proxy);
+    if (service == NULL || CFGetTypeID(service) != IOAVServiceGetTypeID()) {
+        if (service != NULL) CFRelease(service);
+        rss_macos_diagnostic(diagnostics, "IOAVServiceCreateWithService=failed");
+        return RSS_DDC_ERROR_SERVICE_CONSTRUCTION;
+    }
+
+    uint8_t request[RSS_DDC_CONVENTIONAL_CAPABILITIES_REQUEST_SIZE] = {};
+    RSSMCCSProbeReplyWindow reply = {};
+    rss_ddc_build_conventional_capabilities_request(0, request);
+    memset(reply.before, 0xa5, sizeof(reply.before));
+    memset(reply.bytes, 0xcc, sizeof(reply.bytes));
+    memset(reply.after, 0x5a, sizeof(reply.after));
+    diagnostic_bytes(diagnostics, "request", request, sizeof(request));
+    diagnostic_bytes(diagnostics, "reply-before", reply.bytes, sizeof(reply.bytes));
+
+    IOReturn write_result = IOAVServiceWriteI2C(service, 0x37, 0x51, request, sizeof(request));
+    char message[256] = {};
+    snprintf(message, sizeof(message), "write chip=0x37 data=0x00000051 length=5 IOReturn=0x%08x",
+             (unsigned int)write_result);
+    rss_macos_diagnostic(diagnostics, message);
+    if (write_result != KERN_SUCCESS) {
+        CFRelease(service);
+        rss_macos_diagnostic(diagnostics, "read=skipped because write failed");
+        return RSS_DDC_ERROR_WRITE;
+    }
+
+    /* Existing conventional-DP GET evidence uses 50 ms; MCCS-specific timing remains unvalidated. */
+    rss_macos_diagnostic(diagnostics, "delay=50ms basis=existing-conventional-get-evidence");
+    usleep(50000);
+    IOReturn read_result = IOAVServiceReadI2C(service, 0x37, 0x51, reply.bytes, sizeof(reply.bytes));
+    CFRelease(service);
+    snprintf(message, sizeof(message), "read chip=0x37 data=0x00000051 requested-length=%zu IOReturn=0x%08x",
+             sizeof(reply.bytes), (unsigned int)read_result);
+    rss_macos_diagnostic(diagnostics, message);
+    diagnostic_bytes(diagnostics, "reply-after", reply.bytes, sizeof(reply.bytes));
+    rss_macos_diagnostic(diagnostics, probe_reply_canaries_intact(&reply) ?
+                         "reply-window-canaries=intact" : "reply-window-canaries=CHANGED");
+    if (read_result != KERN_SUCCESS) return RSS_DDC_ERROR_READ;
+    if (!probe_reply_canaries_intact(&reply)) return RSS_DDC_ERROR_SYSTEM;
+
+    size_t frame_size = 0;
+    RSSDDCError error = rss_ddc_capabilities_reply_frame_size(reply.bytes, sizeof(reply.bytes), &frame_size);
+    if (error != RSS_DDC_OK) {
+        rss_macos_diagnostic(diagnostics, "E3 frame-size=invalid; tail and payload were not interpreted");
+        return error;
+    }
+    size_t unchanged_tail = 0;
+    for (size_t index = frame_size; index < sizeof(reply.bytes); ++index) {
+        if (reply.bytes[index] == 0xcc) ++unchanged_tail;
+    }
+    snprintf(message, sizeof(message), "E3 declared-frame-bytes=%zu tail-sentinel-bytes=%zu/%zu",
+             frame_size, unchanged_tail, sizeof(reply.bytes) - frame_size);
+    rss_macos_diagnostic(diagnostics, message);
+
+    RSSDDCCapabilitiesFragment fragment = {};
+    error = rss_ddc_parse_capabilities_reply(reply.bytes, frame_size, &fragment);
+    if (error != RSS_DDC_OK) {
+        rss_macos_diagnostic(diagnostics, rss_ddc_error_string(error));
+        return error;
+    }
+    if (rss_ddc_validate_capabilities_fragment_offset(&fragment, 0) != RSS_DDC_OK) {
+        snprintf(message, sizeof(message), "E3 echoed-offset=0x%04x expected=0x0000", fragment.offset);
+        rss_macos_diagnostic(diagnostics, message);
+        return RSS_DDC_ERROR_CAPABILITIES_MALFORMED;
+    }
+    diagnostic_capabilities_text(diagnostics, &fragment);
+    rss_macos_diagnostic(diagnostics, "probe=complete; no next offset was requested");
+    return RSS_DDC_OK;
 }
