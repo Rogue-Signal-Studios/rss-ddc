@@ -11,7 +11,7 @@ extern "C" {
 
 /* Pre-1.0 API marker: source compatibility may evolve as provider coverage matures. */
 #define RSS_DDC_VERSION_MAJOR 0
-#define RSS_DDC_VERSION_MINOR 3
+#define RSS_DDC_VERSION_MINOR 2
 #define RSS_DDC_VERSION_PATCH 0
 
 /** Runtime provider classes derived from the macOS registry, never CPU generation. */
