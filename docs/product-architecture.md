@@ -48,11 +48,24 @@ placement, user-facing management, profile-feed network transport, and
 commercial update behavior. A curated Rogue profile database/service may be
 private/commercial and is not part of this MIT library.
 
+## Alien Probe™
+
+**Alien Probe™** is the recognizable Rogue system name for complete monitor
+capability discovery and characterization. It determines what a monitor is,
+what it supports, how capabilities are read or safely changed, which values
+are valid, what evidence supports each conclusion, and how confident Rogue is
+in that knowledge. Its output is structured monitor knowledge/profile data;
+it is not merely a VCP scanner.
+
+The feature name must not become a whimsical public C API prefix. Public APIs
+remain technical—such as `rss_ddc_probe_*`,
+`rss_ddc_characterization_*`, and `rss_ddc_validation_*`.
+
 ## Planned characterization architecture
 
 The following is an architecture roadmap, not an implemented API claim:
 
-- **Quick Auto Probe**: identity, transport, MCCS, standards knowledge, known
+- **Quick Auto Probe**: identity, transport, EDID, MCCS, standards knowledge, known
   profiles, and safe GET-only observation.
 - **Extended Auto Probe**: broader GET-only inventory, stability analysis,
   vendor/private readable controls, and cached monitor-wide inventory.
@@ -69,3 +82,9 @@ Correlation is not semantic identity. A Picture Mode preset can alter
 brightness while `0x10` remains brightness, not a Picture Mode selector.
 Characterization therefore combines mathematical correlation, semantic
 knowledge, evidence/provenance, and explicit validation.
+
+The schema proposal is documented in [Alien Probe™](alien-probe.md),
+[monitor knowledge schema](monitor-knowledge-schema.md),
+[semantic controls](semantic-controls.md), and
+[evidence and confidence](evidence-and-confidence.md). These are design
+documents only; no Alien Probe engine API is implemented by this milestone.

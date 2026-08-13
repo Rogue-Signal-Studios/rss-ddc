@@ -72,6 +72,10 @@ not own SwiftUI, Stream Deck concepts, HTTP profile downloading, telemetry, or
 menu-bar UX.
 
 See [the canonical product architecture](docs/product-architecture.md).
+The proposed semantic-first monitor-knowledge model and its **Alien Probe™**
+roadmap live in [Alien Probe](docs/alien-probe.md) and the
+[monitor knowledge schema](docs/monitor-knowledge-schema.md). They are design
+documents, not a claim of new runtime behavior.
 
 Hardware validation is topology-specific. The authoritative matrix covers the
 Mac mini M4 Pro PS190/DCPDP13 mixed topology and the Mac Studio M2 Ultra
