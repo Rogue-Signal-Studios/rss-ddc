@@ -28,6 +28,7 @@ display/provider binding.
 | Get VCP `0x60` input source | Hardware validated | Maximum `18`, current `0`. Value `0` is not interpreted here as a known safe or settable input code. |
 | Set VCP `0x10` brightness | Hardware validated | Same-state `100` and real change/restore `100 → 99 → 100`. |
 | Set-and-Verify `0x10` | Hardware validated | Default policy verified same-state and real changes; the retry path was also validated. |
+| Semantic Picture Mode | Hardware validated | Exact profile-gated API maps the eight documented OSD modes through its validated internal `0x15` operation. |
 | Alternate input transport | Hardware validated | Caller-selected `LG_ALT`: HDMI 1 `0x90`, HDMI 2 `0x91`, and DisplayPort 1 `0xD0` all switched successfully. |
 | Read DPCD `0x00000` / 16 | Hardware validated | One native read through the same-role scoped `DCPDPDeviceProxy` returned valid bytes. |
 | MCCS capabilities | Hardware validated | 35 requests, 336 raw text bytes, strict E3/offset checks, and explicit zero-length completion. |
@@ -41,6 +42,31 @@ The retrieved capability string advertises VCP `0x60` with raw enum values
 `0x11`, `0x12`, `0x0f`, and `0x00`. These are monitor-advertised candidate
 values only. rss-ddc intentionally assigns no physical-input labels and does
 not attempt a SET for discovered values.
+
+## Picture Mode
+
+Read-only fingerprints captured after manually selecting every known OSD mode
+identified VCP `0x15` as the sole strong stable correlator. Two subsequent
+user-run one-shot SETs visibly validated Vivid and Reader. Production support
+is deliberately restricted to this exact external `LG HDR QHD` /
+`DCPDP13Service` / `DCPEXT0` identity.
+
+| OSD Picture Mode | Validated `0x15` value |
+| --- | --- |
+| Custom | `0x0B` |
+| Vivid | `0x31` |
+| HDR Effect | `0x27` |
+| Cinema | `0x30` |
+| FPS | `0x1E` |
+| RTS | `0x1F` |
+| Color Weakness | `0x06` |
+| Reader | `0x01` |
+
+The monitor advertises `0x15(01 06 11 13 14 18 28 29 32 48)` in MCCS, but
+several observed working values are absent. The advertisement is evidence, not
+the operational mapping. Picture Mode is also not Color Preset `0x14`, and its
+single semantic SET deliberately does not write correlated brightness `0x10`,
+`F6`, `F7`, `F9`, or `FE`. See [Picture Mode](../picture-mode.md).
 
 ## Intermittent post-SET transient
 

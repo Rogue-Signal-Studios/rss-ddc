@@ -14,7 +14,16 @@ provider dispatcher
  DP      MCDP      PS190
 ```
 
-Capabilities are independent flags: Get VCP, Set VCP, EDID read, and DPCD read. A provider receives only the capabilities that have been separately enabled. PS190 Get VCP and Set VCP, plus DCPDP13 Get VCP and Set VCP, are hardware-validated in this project. PS190 Device-path EDID and read-only DPCD, plus DCPDP13 read-only DPCD, are hardware-validated on their documented topologies. DCPDPService Get VCP, Set VCP, read-only DPCD, and Set-and-Verify are hardware-validated on the documented Mac Studio XL2730Z topology (`0x0b`). DCPDP13/MCDP/DCPDPService EDID and MCDP DPCD remain fail-closed.
+Capabilities are independent flags. Provider-owned flags cover Get VCP, Set
+VCP, EDID read, and DPCD read; the only profile-owned flag currently is
+Picture Mode, which is enabled only for the exact documented LG HDR QHD /
+`DCPDP13Service` / `DCPEXT0` display identity. PS190 Get VCP and Set VCP,
+plus DCPDP13 Get VCP and Set VCP, are hardware-validated in this project.
+PS190 Device-path EDID and read-only DPCD, plus DCPDP13 read-only DPCD, are
+hardware-validated on their documented topologies. DCPDPService Get VCP, Set
+VCP, read-only DPCD, and Set-and-Verify are hardware-validated on the
+documented Mac Studio XL2730Z topology (`0x0b`). DCPDP13/MCDP/DCPDPService
+EDID and MCDP DPCD remain fail-closed.
 
 ## Public API and private ABI boundaries
 
@@ -213,7 +222,9 @@ The library currently supports numeric list indices. Stable system/EDID identifi
 Provider transport behavior and monitor observations are documented separately.
 The [monitor compatibility and quirks catalog](monitors/README.md) records
 tested models, VCPs, input labels, and timing observations without turning any
-one monitor's behavior into a provider-wide rule or runtime profile.
+one monitor's behavior into a provider-wide rule. The LG Picture Mode profile
+is the narrow, evidence-backed exception and is documented separately in
+[Picture Mode](picture-mode.md).
 
 ## Opt-in Set-and-Verify
 

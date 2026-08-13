@@ -11,6 +11,7 @@
 #include "correlation.h"
 #include "dpcd.h"
 #include "enumeration.h"
+#include "picture_mode.h"
 #include "reader.h"
 #include "macos_internal.h"
 #include "private/coredisplay_private.h"
@@ -147,6 +148,7 @@ static bool inspect_service(io_service_t service, RSSDDCDisplay *display) {
     display->provider = rss_ddc_provider_from_registry_class(provider_class);
     display->capabilities = rss_ddc_provider_capabilities(display->provider);
     snprintf(display->transport, sizeof(display->transport), "%s", role_text[0] ? role_text : "unknown");
+    display->capabilities |= rss_ddc_picture_mode_profile_capabilities(display);
     if (role != NULL) CFRelease(role);
     if (provider != NULL) CFRelease(provider);
     IOObjectRelease(parent);

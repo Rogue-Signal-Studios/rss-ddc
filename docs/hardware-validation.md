@@ -11,7 +11,7 @@ only; it never substitutes for these results.
 | Provider | Validated runtime capabilities | Unsupported runtime capabilities | Evidence scope |
 | --- | --- | --- | --- |
 | `AppleDCPPS190` | Get VCP, Set VCP, EDID blocks 0–1, read-only DPCD (`0x0f`) | EDID blocks 2+, DPCD writes | Mac mini M4 Pro, macOS 26.5.2 / `25F84`, Odyssey G75F over built-in HDMI |
-| `DCPDP13Service` | Get VCP, Set VCP, Set-and-Verify, read-only DPCD, MCCS capabilities, alternate input transport (`0x3b`) | EDID, DPCD writes | Mac mini M4 Pro, macOS 26.5.2 / `25F84`, LG HDR QHD over DisplayPort |
+| `DCPDP13Service` | Get VCP, Set VCP, Set-and-Verify, read-only DPCD, MCCS capabilities, alternate input transport (`0x3b`); exact LG profile Picture Mode | EDID, DPCD writes | Mac mini M4 Pro, macOS 26.5.2 / `25F84`, LG HDR QHD over DisplayPort |
 | `DCPDPService` | Get VCP, Set VCP, Set-and-Verify, read-only DPCD (`0x0b`) | EDID, DPCD writes | Mac Studio M2 Ultra, macOS 26.5.2 / `25F84`, BenQ XL2730Z over DisplayPort / `DCPEXT2` |
 | `AppleDCPMCDP29XX` | none | GET, SET, EDID, DPCD | Classified only; no validated MCDP topology |
 
@@ -53,6 +53,10 @@ and [BenQ XL2730Z](monitors/benq-xl2730z.md).
 - The DCPDP13 alternate input transport is available only through an explicit
   caller-selected method. Its provider capability does not identify monitors
   or infer that an LG-style mechanism applies to every DCPDP13 display.
+- Picture Mode is a separate profile capability, not a provider capability. It
+  is enabled only for the documented external LG HDR QHD / `DCPDP13Service` /
+  `DCPEXT0` identity, uses its validated internal mode operation only, and
+  does not reproduce correlated brightness or vendor-VCP changes.
 - Unknown and unsupported providers/capabilities fail closed.
 
 ## Next research milestones
@@ -60,5 +64,5 @@ and [BenQ XL2730Z](monitors/benq-xl2730z.md).
 1. DCPDPService EDID research on the pinned Mac Studio topology.
 2. MCDP research when a real MCDP topology is available.
 3. Additional monitor coverage.
-4. Machine-readable profiles only after stronger identity semantics are designed.
+4. Additional fail-closed monitor profiles only when exact identity and control evidence is available.
 5. Stream Deck integration after the low-level foundation is sufficiently mature.

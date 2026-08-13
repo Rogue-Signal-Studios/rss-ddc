@@ -11,7 +11,7 @@ extern "C" {
 
 /* Pre-1.0 API marker: source compatibility may evolve as provider coverage matures. */
 #define RSS_DDC_VERSION_MAJOR 0
-#define RSS_DDC_VERSION_MINOR 2
+#define RSS_DDC_VERSION_MINOR 3
 #define RSS_DDC_VERSION_PATCH 0
 
 /** Runtime provider classes derived from the macOS registry, never CPU generation. */
@@ -36,7 +36,7 @@ typedef enum {
     RSS_DDC_BACKEND_PS190,
 } RSSDDCBackend;
 
-/** Independent capabilities. A provider must opt in to each one after validation. */
+/** Independent capabilities. Most are provider-owned; profile capabilities are documented separately. */
 typedef enum {
     RSS_DDC_CAP_NONE = 0,
     RSS_DDC_CAP_GET_VCP = 1u << 0,
@@ -47,6 +47,8 @@ typedef enum {
     RSS_DDC_CAP_MCCS_CAPABILITIES = 1u << 4,
     /** Provider can issue the separately validated alternate input transport. */
     RSS_DDC_CAP_ALTERNATE_INPUT = 1u << 5,
+    /** Selected monitor profile has an evidence-backed semantic Picture Mode operation. */
+    RSS_DDC_CAP_PICTURE_MODE = 1u << 6,
 } RSSDDCCapability;
 
 /** Stable operation outcomes; reply failures remain specific so malformed data is never accepted. */
@@ -245,6 +247,24 @@ typedef enum {
     RSS_DDC_INPUT_SWITCH_LG_ALT,
 } RSSDDCInputSwitchMethod;
 
+/**
+ * Friendly semantic Picture Mode values. A monitor-specific profile decides
+ * whether this capability exists; these names never imply universal VCP
+ * semantics. UNKNOWN means a supported profile returned a raw value outside
+ * its validated mapping.
+ */
+typedef enum {
+    RSS_DDC_PICTURE_MODE_UNKNOWN = 0,
+    RSS_DDC_PICTURE_MODE_CUSTOM,
+    RSS_DDC_PICTURE_MODE_VIVID,
+    RSS_DDC_PICTURE_MODE_HDR_EFFECT,
+    RSS_DDC_PICTURE_MODE_CINEMA,
+    RSS_DDC_PICTURE_MODE_FPS,
+    RSS_DDC_PICTURE_MODE_RTS,
+    RSS_DDC_PICTURE_MODE_COLOR_WEAKNESS,
+    RSS_DDC_PICTURE_MODE_READER,
+} RSSDDCPictureMode;
+
 /** Returns a static, human-readable name for an error or provider. */
 const char *rss_ddc_error_string(RSSDDCError error);
 const char *rss_ddc_provider_string(RSSDDCProvider provider);
@@ -254,7 +274,7 @@ RSSDDCBackend rss_ddc_provider_backend(RSSDDCProvider provider);
 const char *rss_ddc_backend_name(RSSDDCBackend backend);
 /** Classifies a synthetic or registry-derived provider class without macOS types. */
 RSSDDCProvider rss_ddc_provider_from_registry_class(const char *provider_class);
-/** Returns only the independently validated capabilities for a provider. */
+/** Returns only the independently validated provider-owned capabilities. */
 uint32_t rss_ddc_provider_capabilities(RSSDDCProvider provider);
 
 /**
@@ -369,6 +389,26 @@ RSSDDCError rss_ddc_set_input(uint32_t list_index, RSSDDCInputSwitchMethod metho
 /** Diagnostic form of rss_ddc_set_input with the usual transient callback rules. */
 RSSDDCError rss_ddc_set_input_with_diagnostics(uint32_t list_index, RSSDDCInputSwitchMethod method,
                                                 uint16_t value, const RSSDDCDiagnostics *diagnostics);
+/** Returns a static friendly name for a semantic Picture Mode value. */
+const char *rss_ddc_picture_mode_name(RSSDDCPictureMode mode);
+/**
+ * Gets the selected monitor profile's Picture Mode. Unknown raw profile values
+ * return RSS_DDC_OK with `mode` set to RSS_DDC_PICTURE_MODE_UNKNOWN; they are
+ * never assigned a guessed semantic name. Unsupported displays fail closed.
+ */
+RSSDDCError rss_ddc_get_picture_mode(uint32_t list_index, RSSDDCPictureMode *mode);
+/** Diagnostic form of rss_ddc_get_picture_mode. */
+RSSDDCError rss_ddc_get_picture_mode_with_diagnostics(uint32_t list_index, RSSDDCPictureMode *mode,
+                                                       const RSSDDCDiagnostics *diagnostics);
+/**
+ * Sets exactly one validated semantic Picture Mode operation for the selected
+ * monitor profile. It does not write brightness, contrast, color preset, or
+ * any other correlated secondary VCP.
+ */
+RSSDDCError rss_ddc_set_picture_mode(uint32_t list_index, RSSDDCPictureMode mode);
+/** Diagnostic form of rss_ddc_set_picture_mode. */
+RSSDDCError rss_ddc_set_picture_mode_with_diagnostics(uint32_t list_index, RSSDDCPictureMode mode,
+                                                       const RSSDDCDiagnostics *diagnostics);
 /**
  * Returns the explicit default verification policy: 100 ms settling, then up
  * to three additional GET attempts separated by 250 ms. These are a modest

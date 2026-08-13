@@ -68,6 +68,8 @@ recovered from earlier research.
 
 Keep provider transport facts and monitor quirks separate, link rather than
 duplicate transport documentation, and state unknown identity fields instead
-of guessing. Documentation is not a runtime profile: do not add JSON/YAML,
-automatic matching, timing overrides, or monitor-specific behavior as part of
-a compatibility submission.
+of guessing. Documentation alone is not authorization for a runtime profile:
+do not add JSON/YAML, automatic matching, timing overrides, or monitor-specific
+behavior as part of a compatibility submission. A production profile requires
+separate reviewed implementation, exact fail-closed identity evidence, and
+dedicated synthetic tests, as with the LG Picture Mode profile.

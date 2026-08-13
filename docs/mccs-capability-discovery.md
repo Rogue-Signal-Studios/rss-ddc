@@ -85,9 +85,11 @@ involved. `rss_ddc_mccs_capabilities_has_vcp()` checks an advertised feature;
 `rss_ddc_mccs_capabilities_enum_values()` returns a borrowed slice that remains
 valid until the caller overwrites its `RSSDDCMCCSCapabilities` object.
 
-The public `RSSDDCDisplay.capabilities` bitmask remains provider/runtime
-evidence only. `RSS_DDC_CAP_MCCS_CAPABILITIES` is a transport-support bit, not
-monitor content: it is enabled only for `DCPDP13Service`. The returned
+The public `RSSDDCDisplay.capabilities` bitmask includes both provider/runtime
+and narrowly validated profile evidence. `RSS_DDC_CAP_MCCS_CAPABILITIES` is a
+transport-support bit, not monitor content: it is enabled only for
+`DCPDP13Service`. The separate Picture Mode profile never derives its mapping
+from these enum values. The returned
 `RSSDDCMCCSCapabilities` remains wholly caller-owned, including raw text,
 features, and enum storage; no release function or macOS object is involved.
 `rss_ddc_mccs_capabilities_enum_values()` returns a borrowed slice valid until
@@ -285,4 +287,6 @@ The capabilities string is also often incomplete or wrong. ddcutil explicitly
 warns that monitors can omit features they implement and that multi-exchange
 retrieval is error-prone. Rogue Display Control should eventually use the C API
 directly to present *candidate* raw controls, retain its friendly-label/profile
-layer, and never scrape CLI output.
+layer, and never scrape CLI output. The LG Picture Mode profile is the current
+example: its validated operational values deliberately override the conflicting
+MCCS `0x15` enum advertisement.
