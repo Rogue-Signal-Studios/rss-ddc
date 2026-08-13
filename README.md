@@ -1,6 +1,9 @@
 # rss-ddc
 
-`rss-ddc` is an early-stage, provider-driven macOS DDC/CI library and CLI from Rogue Signal Studios.
+`rss-ddc` is an open-source, provider-driven monitor-control and
+characterization engine from Rogue Signal Studios. It provides reliable
+programmatic display control and monitor capability intelligence through a
+public plain-C API and research CLI.
 
 [![Repository quality](https://github.com/Rogue-Signal-Studios/rss-ddc/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/Rogue-Signal-Studios/rss-ddc/actions/workflows/ci.yml)
 [![Coverage](https://img.shields.io/badge/coverage-LLVM%20report-5f8dd3)](https://rogue-signal-studios.github.io/rss-ddc/quality/)
@@ -37,6 +40,38 @@ separate from validated and research evidence. See
 [Monitor profiles](docs/monitor-profiles.md).
 
 The project uses Apple-private macOS interfaces inside the macOS backend only. Behavior can vary by macOS release, display provider, cable/adapter topology, and monitor firmware.
+
+## Ecosystem and responsibility boundary
+
+rss-ddc is independently usable by any software that can consume its C API.
+It also powers Rogue Signal Studios display products:
+
+- [Rogue Display Control](https://github.com/Rogue-Signal-Studios/rogue-display-control), the standalone native macOS utility and Configurator Full experience
+- [Rogue Display Control for Stream Deck](https://github.com/Rogue-Signal-Studios/rogue-display-control-streamdeck), the focused Stream Deck integration and Configurator Light experience
+
+```text
+Applications
+     |
+     v
+  rss-ddc
+     |
+     v
+providers / transports
+     |
+     v
+monitors
+```
+
+rss-ddc owns monitor identity and correlation, provider/backend abstraction,
+DDC/MCCS/EDID/DPCD transport, VCP primitives, standard semantic controls,
+profile schema/parsing/resolution, evidence and confidence, and the future
+generic probing and characterization framework. Applications own their own
+GUI, product onboarding, filesystem placement, profile-feed networking,
+commercial update scheduling, and product-specific automation. rss-ddc does
+not own SwiftUI, Stream Deck concepts, HTTP profile downloading, telemetry, or
+menu-bar UX.
+
+See [the canonical product architecture](docs/product-architecture.md).
 
 Hardware validation is topology-specific. The authoritative matrix covers the
 Mac mini M4 Pro PS190/DCPDP13 mixed topology and the Mac Studio M2 Ultra
