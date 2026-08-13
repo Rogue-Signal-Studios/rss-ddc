@@ -13,13 +13,11 @@ where checksum is `0x6e xor 0x51 xor 0x84 xor 0x03 xor 0x10 xor hi xor lo`.
 Those production paths are unchanged.
 
 BetterDisplay’s maintainer states that some LG input selection uses data address
-`0x50` instead of `0x51`, with all else the same. The linked m1ddc source and
-PR #52 prove an additional crucial detail: its write checksum uses the selected
-IOAV input address. m1ddc has no inline source-address payload form; its
-alternate command keeps the source address out-of-band and changes both the
-IOAV data argument and checksum input. It uses VCP `0xf4` for its own LG
-alternate command, so this probe does **not** transfer that VCP mapping to this
-LG; it keeps the hardware-advertised VCP `0x60` fixed.
+`0x50` instead of `0x51`. The m1ddc source confirms that `input-alt` is also a
+distinct control code: `0xf4`, not the MCCS input-source VCP `0x60`. m1ddc
+creates an `input-alt` packet with input address `0x50`, and PR #52 corrects
+the write checksum to use that selected IOAV address. The source address is
+out-of-band (the IOAV data argument), not inline in the payload.
 
 Sources: [BetterDisplay discussion #4246](https://github.com/waydabber/BetterDisplay/discussions/4246),
 [m1ddc PR #52](https://github.com/waydabber/m1ddc/pull/52), and
@@ -27,21 +25,31 @@ Sources: [BetterDisplay discussion #4246](https://github.com/waydabber/BetterDis
 
 ## Variants
 
-`conventional` is the sole evidence-backed experiment:
+`lg-alt` mirrors the upstream `m1ddc set input-alt` implementation:
 
 ```text
 chip=0x37 data=0x50
-payload=84 03 60 00 value checksum
-checksum=0x6e xor 0x50 xor 0x84 xor 0x03 xor 0x60 xor 0x00 xor value
-writes=2; pre-write delay=10 ms; no response
+payload=84 03 f4 00 value checksum
+checksum=0x6e xor 0x50 xor 0x84 xor 0x03 xor 0xf4 xor 0x00 xor value
+writes=2; each has a 10 ms pre-write delay; no response
 ```
 
-For value `0x11`, the exact payload is `84 03 60 00 11 c8`. For `0x12`, it is
-`84 03 60 00 12 cb`.
+The exact documented packets are:
 
-`inline` is accepted only so the research question is explicit. It fails closed
-before IOAV construction: upstream provides no inline source-address framing
-for this operation, so rss-ddc deliberately does not invent a raw packet.
+| Input | Value | Payload |
+| --- | --- | --- |
+| HDMI 1 | `0x90` | `84 03 f4 00 90 dd` |
+| HDMI 2 | `0x91` | `84 03 f4 00 91 dc` |
+| DisplayPort 1 | `0xd0` | `84 03 f4 00 d0 9d` |
+
+`conventional` remains the earlier, research-only alternate-address experiment:
+it uses advertised VCP `0x60` with data `0x50`. It is retained for comparison;
+it is not the upstream LG-alt command. `inline` also remains research-only and
+fails closed before IOAV construction.
+
+All variants are confined to this developer-only probe. It performs no GET,
+verification, restore, fallback, or retry; it is restricted to a selected
+`DCPDP13Service` display and writes the two upstream-prescribed packets only.
 
 ## Manual sequence
 
@@ -49,11 +57,10 @@ With the live HDMI 1 source visible to the LG, run one command and observe the
 display before deciding whether to run the next. Do not automate or chain them:
 
 ```sh
-./rss-ddc probe-input-alt 2 conventional 0x11
-./rss-ddc probe-input-alt 2 inline 0x11
-./rss-ddc probe-input-alt 2 conventional 0x12
-./rss-ddc probe-input-alt 2 inline 0x12
+./rss-ddc probe-input-alt 2 lg-alt 0x90  # HDMI 1
+./rss-ddc probe-input-alt 2 lg-alt 0x91  # HDMI 2
+./rss-ddc probe-input-alt 2 lg-alt 0xD0  # DisplayPort 1
 ```
 
-The `inline` commands are expected to report unsupported/no write. Do not test
-`0x0f` unless it is required for an intentional DP candidate/restore attempt.
+Run one command at a time and observe the display manually. No hardware command
+was run while implementing this probe.

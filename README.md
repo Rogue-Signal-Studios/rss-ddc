@@ -35,7 +35,7 @@ make
 ./rss-ddc --verbose dpcd 1 0x00000 16
 ./rss-ddc --verbose dpcd 1 0x00200 8
 ./rss-ddc --verbose probe-dpcd-path 2
-./rss-ddc probe-input-alt 2 conventional 0x11
+./rss-ddc probe-input-alt 2 lg-alt 0x90
 ./rss-ddc --verbose get 2 0x10
 ./rss-ddc --verbose set 2 0x10 61
 ./rss-ddc --verbose set 2 0x10 62 --verify

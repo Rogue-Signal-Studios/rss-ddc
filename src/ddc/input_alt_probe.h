@@ -8,7 +8,10 @@
 #include "protocol.h"
 
 enum {
-    RSS_DDC_INPUT_ALT_PROBE_VCP = 0x60u,
+    /* The earlier alternate-address-only experiment deliberately retained 0x60. */
+    RSS_DDC_INPUT_ALT_PROBE_CONVENTIONAL_VCP = 0x60u,
+    /* m1ddc's LG input-alt command uses this distinct control code. */
+    RSS_DDC_INPUT_ALT_PROBE_LG_ALT_VCP = 0xf4u,
     RSS_DDC_INPUT_ALT_PROBE_CHIP = 0x37u,
     RSS_DDC_INPUT_ALT_PROBE_DATA = 0x50u,
     RSS_DDC_INPUT_ALT_PROBE_WRITE_COUNT = 2u,
@@ -17,6 +20,8 @@ enum {
 
 typedef enum {
     RSS_DDC_INPUT_ALT_PROBE_CONVENTIONAL = 0,
+    /* Exact m1ddc input-alt framing (including PR #52's checksum correction). */
+    RSS_DDC_INPUT_ALT_PROBE_LG_ALT,
     /* No evidence supports an inline source-address form; this always fails closed. */
     RSS_DDC_INPUT_ALT_PROBE_INLINE_UNSUPPORTED,
 } RSSDDCInputAltProbeVariant;

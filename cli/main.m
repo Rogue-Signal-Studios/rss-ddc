@@ -20,7 +20,7 @@ static void usage(const char *program) {
             "  %s [--verbose] dpcd <display-index> <address> <length>\n"
             "  %s [--verbose] capabilities <display-index>\n"
             "  %s [--verbose] probe-dpcd-path <display-index>\n"
-            "  %s probe-input-alt <display-index> <conventional|inline> <value>\n"
+            "  %s probe-input-alt <display-index> <conventional|lg-alt|inline> <value>\n"
             "  %s [--verbose] get <display-index> <vcp>\n"
             "  %s [--verbose] set <display-index> <vcp> <value>\n"
             "  %s [--verbose] set <display-index> <vcp> <value> --verify [--settle-ms <ms>] "

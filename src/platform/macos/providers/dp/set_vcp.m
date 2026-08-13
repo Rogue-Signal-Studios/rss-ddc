@@ -124,7 +124,7 @@ RSSDDCError rss_macos_dp_probe_input_alt(uint32_t list_index, RSSDDCInputAltProb
         return error;
     }
     char message[256] = {};
-    snprintf(message, sizeof(message), "operation=ProbeInputAlt display-index=%u name=%s provider=%s transport=%s variant=%s vcp=0x60 value=0x%02x",
+    snprintf(message, sizeof(message), "operation=ProbeInputAlt display-index=%u name=%s provider=%s transport=%s variant=%s value=0x%02x",
              list_index, binding.display.product_name, rss_ddc_provider_string(binding.display.provider), binding.display.transport,
              rss_ddc_input_alt_probe_variant_name(variant), value);
     rss_macos_diagnostic(diagnostics, message);
@@ -141,8 +141,8 @@ RSSDDCError rss_macos_dp_probe_input_alt(uint32_t list_index, RSSDDCInputAltProb
         rss_macos_release_binding(&binding);
         return error;
     }
-    snprintf(message, sizeof(message), "variant=%s chip=0x%02x data=0x%02x write-count=%u pre-delay=%ums response=none no-get=yes no-restore=yes no-fallback=yes",
-             rss_ddc_input_alt_probe_variant_name(variant), plan.chip, plan.data, plan.write_count,
+    snprintf(message, sizeof(message), "variant=%s vcp=0x%02x chip=0x%02x data=0x%02x write-count=%u pre-delay=%ums response=none no-get=yes no-verify=yes no-restore=yes no-retry=yes no-fallback=yes",
+             rss_ddc_input_alt_probe_variant_name(variant), plan.payload[2], plan.chip, plan.data, plan.write_count,
              plan.prewrite_delay_us / 1000u);
     rss_macos_diagnostic(diagnostics, message);
     diagnostic_bytes(diagnostics, "payload", plan.payload, plan.payload_length);

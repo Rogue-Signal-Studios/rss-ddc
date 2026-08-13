@@ -5,6 +5,7 @@
 const char *rss_ddc_input_alt_probe_variant_name(RSSDDCInputAltProbeVariant variant) {
     switch (variant) {
         case RSS_DDC_INPUT_ALT_PROBE_CONVENTIONAL: return "conventional";
+        case RSS_DDC_INPUT_ALT_PROBE_LG_ALT: return "lg-alt";
         case RSS_DDC_INPUT_ALT_PROBE_INLINE_UNSUPPORTED: return "inline";
     }
     return "unknown";
@@ -13,6 +14,7 @@ const char *rss_ddc_input_alt_probe_variant_name(RSSDDCInputAltProbeVariant vari
 RSSDDCError rss_ddc_input_alt_probe_variant_from_string(const char *text, RSSDDCInputAltProbeVariant *variant_out) {
     if (text == NULL || variant_out == NULL) return RSS_DDC_ERROR_ARGUMENT;
     if (strcmp(text, "conventional") == 0) { *variant_out = RSS_DDC_INPUT_ALT_PROBE_CONVENTIONAL; return RSS_DDC_OK; }
+    if (strcmp(text, "lg-alt") == 0) { *variant_out = RSS_DDC_INPUT_ALT_PROBE_LG_ALT; return RSS_DDC_OK; }
     if (strcmp(text, "inline") == 0) { *variant_out = RSS_DDC_INPUT_ALT_PROBE_INLINE_UNSUPPORTED; return RSS_DDC_OK; }
     return RSS_DDC_ERROR_ARGUMENT;
 }
@@ -22,7 +24,9 @@ RSSDDCError rss_ddc_prepare_dcpdp13_input_alt_probe(RSSDDCInputAltProbeVariant v
     if (plan_out == NULL) return RSS_DDC_ERROR_ARGUMENT;
     *plan_out = (RSSDDCInputAltProbePlan){0};
     if (variant == RSS_DDC_INPUT_ALT_PROBE_INLINE_UNSUPPORTED) return RSS_DDC_ERROR_UNSUPPORTED_CAPABILITY;
-    if (variant != RSS_DDC_INPUT_ALT_PROBE_CONVENTIONAL) return RSS_DDC_ERROR_ARGUMENT;
+    if (variant != RSS_DDC_INPUT_ALT_PROBE_CONVENTIONAL && variant != RSS_DDC_INPUT_ALT_PROBE_LG_ALT) {
+        return RSS_DDC_ERROR_ARGUMENT;
+    }
 
     RSSDDCInputAltProbePlan plan = {
         .chip = RSS_DDC_INPUT_ALT_PROBE_CHIP,
@@ -33,7 +37,8 @@ RSSDDCError rss_ddc_prepare_dcpdp13_input_alt_probe(RSSDDCInputAltProbeVariant v
     };
     plan.payload[0] = 0x84;
     plan.payload[1] = 0x03;
-    plan.payload[2] = RSS_DDC_INPUT_ALT_PROBE_VCP;
+    plan.payload[2] = variant == RSS_DDC_INPUT_ALT_PROBE_LG_ALT ?
+        RSS_DDC_INPUT_ALT_PROBE_LG_ALT_VCP : RSS_DDC_INPUT_ALT_PROBE_CONVENTIONAL_VCP;
     plan.payload[3] = 0x00;
     plan.payload[4] = value;
     /* Upstream m1ddc PR #52 established that alternate IOAV data address 0x50
