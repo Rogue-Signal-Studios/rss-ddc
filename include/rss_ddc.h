@@ -644,6 +644,9 @@ typedef enum {
 /** Heap-owned effective view; returned method pointers are borrowed from the
  * source knowledge objects and remain valid until those sources are destroyed. */
 typedef struct RSSDDCMonitorKnowledgeResolution RSSDDCMonitorKnowledgeResolution;
+typedef struct RSSDDCMonitorKnowledgeValueResolution RSSDDCMonitorKnowledgeValueResolution;
+typedef struct RSSDDCMonitorKnowledgeRangeResolution RSSDDCMonitorKnowledgeRangeResolution;
+typedef struct RSSDDCInputRouteResolution RSSDDCInputRouteResolution;
 
 RSSDDCMonitorKnowledge *rss_ddc_monitor_knowledge_create(void);
 void rss_ddc_monitor_knowledge_destroy(RSSDDCMonitorKnowledge *knowledge);
@@ -675,6 +678,39 @@ const RSSDDCMonitorKnowledgeMethod *rss_ddc_monitor_knowledge_resolution_preferr
 size_t rss_ddc_monitor_knowledge_resolution_method_count(const RSSDDCMonitorKnowledgeResolution *resolution);
 RSSDDCError rss_ddc_monitor_knowledge_resolution_method(const RSSDDCMonitorKnowledgeResolution *resolution,
                                                          size_t index, const RSSDDCMonitorKnowledgeMethod **method);
+size_t rss_ddc_monitor_knowledge_resolution_condition_count(const RSSDDCMonitorKnowledgeResolution *resolution);
+RSSDDCError rss_ddc_monitor_knowledge_resolution_condition(const RSSDDCMonitorKnowledgeResolution *resolution,
+                                                            size_t index, const char **condition);
+RSSDDCError rss_ddc_monitor_knowledge_resolve_value(const RSSDDCMonitorKnowledge *const *sources, size_t source_count,
+                                                     const char *semantic_id, const char *value_id,
+                                                     RSSDDCMonitorKnowledgeValueResolution **resolution);
+void rss_ddc_monitor_knowledge_value_resolution_destroy(RSSDDCMonitorKnowledgeValueResolution *resolution);
+const char *rss_ddc_monitor_knowledge_value_resolution_id(const RSSDDCMonitorKnowledgeValueResolution *resolution);
+size_t rss_ddc_monitor_knowledge_value_resolution_candidate_count(const RSSDDCMonitorKnowledgeValueResolution *resolution);
+RSSDDCError rss_ddc_monitor_knowledge_value_resolution_candidate(const RSSDDCMonitorKnowledgeValueResolution *resolution,
+                                                                  size_t index, const RSSDDCMonitorKnowledgeValue **value);
+const RSSDDCMonitorKnowledgeValue *rss_ddc_monitor_knowledge_value_resolution_preferred_read(const RSSDDCMonitorKnowledgeValueResolution *resolution);
+const RSSDDCMonitorKnowledgeValue *rss_ddc_monitor_knowledge_value_resolution_preferred_write(const RSSDDCMonitorKnowledgeValueResolution *resolution);
+bool rss_ddc_monitor_knowledge_value_resolution_write_authorized(const RSSDDCMonitorKnowledgeValueResolution *resolution);
+bool rss_ddc_monitor_knowledge_value_resolution_has_conflict(const RSSDDCMonitorKnowledgeValueResolution *resolution);
+RSSDDCError rss_ddc_monitor_knowledge_resolve_range(const RSSDDCMonitorKnowledge *const *sources, size_t source_count,
+                                                     const char *semantic_id, RSSDDCMonitorKnowledgeRangeResolution **resolution);
+void rss_ddc_monitor_knowledge_range_resolution_destroy(RSSDDCMonitorKnowledgeRangeResolution *resolution);
+bool rss_ddc_monitor_knowledge_range_resolution_advertised(const RSSDDCMonitorKnowledgeRangeResolution *resolution, RSSDDCRange *range);
+bool rss_ddc_monitor_knowledge_range_resolution_observed(const RSSDDCMonitorKnowledgeRangeResolution *resolution, RSSDDCRange *range);
+bool rss_ddc_monitor_knowledge_range_resolution_validated(const RSSDDCMonitorKnowledgeRangeResolution *resolution, RSSDDCRange *range);
+bool rss_ddc_monitor_knowledge_range_resolution_write_range(const RSSDDCMonitorKnowledgeRangeResolution *resolution, RSSDDCRange *range);
+bool rss_ddc_monitor_knowledge_range_resolution_has_conflict(const RSSDDCMonitorKnowledgeRangeResolution *resolution);
+RSSDDCError rss_ddc_monitor_knowledge_resolve_input_route(const RSSDDCMonitorKnowledge *const *sources, size_t source_count,
+                                                           const char *route_id, RSSDDCInputRouteResolution **resolution);
+void rss_ddc_input_route_resolution_destroy(RSSDDCInputRouteResolution *resolution);
+size_t rss_ddc_input_route_resolution_candidate_count(const RSSDDCInputRouteResolution *resolution);
+RSSDDCError rss_ddc_input_route_resolution_candidate(const RSSDDCInputRouteResolution *resolution, size_t index,
+                                                      const RSSDDCInputRoute **route);
+const RSSDDCInputRoute *rss_ddc_input_route_resolution_preferred_read(const RSSDDCInputRouteResolution *resolution);
+const RSSDDCInputRoute *rss_ddc_input_route_resolution_preferred_switch(const RSSDDCInputRouteResolution *resolution);
+bool rss_ddc_input_route_resolution_switch_authorized(const RSSDDCInputRouteResolution *resolution);
+bool rss_ddc_input_route_resolution_has_conflict(const RSSDDCInputRouteResolution *resolution);
 const RSSDDCSemanticRegistryEntry *rss_ddc_semantic_registry_lookup(const char *semantic_id);
 const RSSDDCSemanticRegistryEntry *rss_ddc_semantic_registry_lookup_vcp(uint8_t vcp_code);
 const char *rss_ddc_confidence_name(RSSDDCConfidence value); RSSDDCError rss_ddc_confidence_parse(const char *name, RSSDDCConfidence *value);

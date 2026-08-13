@@ -14,6 +14,12 @@ static const char *conflict_b =
     "{\"schemaVersion\":\"monitor-knowledge/v0.1\",\"identity\":{\"manufacturer\":\"LG\",\"model\":\"HDR QHD\"},\"capabilities\":[{\"id\":\"display.picture_mode\",\"evidence\":[{\"type\":\"set_confirmed\"}],\"methods\":[{\"id\":\"vendor-mode\",\"type\":\"vendor_protocol\",\"protocolId\":\"vendor\",\"address\":\"mode\",\"readable\":false,\"writable\":true,\"risk\":\"validate_safe_set\"}]}]}";
 static const char *external =
     "{\"schemaVersion\":\"monitor-knowledge/v0.1\",\"identity\":{\"manufacturer\":\"LG\",\"model\":\"HDR QHD\"},\"capabilities\":[{\"id\":\"gaming.response_time\",\"methods\":[{\"id\":\"candidate\",\"type\":\"mccs_vcp\",\"vcpCode\":170,\"readable\":true,\"writable\":false,\"risk\":\"read_extended\",\"evidence\":[{\"type\":\"external_candidate\"}]}]}]}";
+static const char *values_and_routes =
+    "{\"schemaVersion\":\"monitor-knowledge/v0.1\",\"identity\":{\"manufacturer\":\"LG\",\"model\":\"HDR QHD\"},\"capabilities\":["
+    "{\"id\":\"display.picture_mode\",\"confidence\":\"hardware_validated\",\"evidence\":[{\"type\":\"set_confirmed\"}],\"methods\":[{\"id\":\"mode\",\"type\":\"mccs_vcp\",\"vcpCode\":21,\"readable\":true,\"writable\":true,\"risk\":\"validate_safe_set\"}],\"values\":[{\"id\":\"fps\",\"raw\":{\"type\":\"unsigned\",\"value\":30},\"readable\":true,\"writable\":true,\"validation\":\"hardware_validated\"},{\"id\":\"unknown-external\",\"raw\":{\"type\":\"unsigned\",\"value\":99},\"readable\":true,\"writable\":true}]},"
+    "{\"id\":\"display.brightness\",\"advertisedRange\":{\"min\":0,\"max\":100,\"step\":1,\"units\":\"percent\"},\"observedRange\":{\"min\":5,\"max\":95,\"step\":1,\"units\":\"percent\"},\"validatedRange\":{\"min\":10,\"max\":90,\"step\":1,\"units\":\"percent\"},\"methods\":[]},"
+    "{\"id\":\"inputs.switching\",\"confidence\":\"hardware_validated\",\"evidence\":[{\"type\":\"set_confirmed\"}],\"methods\":[{\"id\":\"lg-alt\",\"type\":\"vendor_protocol\",\"readable\":false,\"writable\":true,\"risk\":\"validate_safe_set\"}]}],"
+    "\"inputRoutes\":[{\"id\":\"hdmi-1\",\"connector\":\"hdmi\",\"port\":\"1\",\"switchingSupported\":true,\"currentReadable\":true,\"switchValue\":{\"type\":\"unsigned\",\"value\":144},\"confidence\":\"hardware_validated\",\"evidence\":[{\"type\":\"set_confirmed\"}]}]}";
 
 static RSSDDCMonitorKnowledge *parse(const char *json) {
     RSSDDCMonitorKnowledge *knowledge = NULL;
@@ -31,6 +37,29 @@ int main(void) {
     assert(strcmp(rss_ddc_monitor_knowledge_resolution_preferred_write(resolved)->id, "lg-alt") == 0);
     assert(rss_ddc_monitor_knowledge_resolution_write_authorized(resolved));
     rss_ddc_monitor_knowledge_resolution_destroy(resolved);
+
+    RSSDDCMonitorKnowledge *rich = parse(values_and_routes);
+    const RSSDDCMonitorKnowledge *rich_sources[] = {rich};
+    RSSDDCMonitorKnowledgeValueResolution *value = NULL;
+    assert(rss_ddc_monitor_knowledge_resolve_value(rich_sources, 1, "display.picture_mode", "fps", &value) == RSS_DDC_OK);
+    assert(rss_ddc_monitor_knowledge_value_resolution_write_authorized(value));
+    assert(rss_ddc_monitor_knowledge_value_resolution_preferred_write(value)->raw.unsigned_value == 30);
+    rss_ddc_monitor_knowledge_value_resolution_destroy(value);
+    assert(rss_ddc_monitor_knowledge_resolve_value(rich_sources, 1, "display.picture_mode", "unknown-external", &value) == RSS_DDC_OK);
+    assert(!rss_ddc_monitor_knowledge_value_resolution_write_authorized(value));
+    rss_ddc_monitor_knowledge_value_resolution_destroy(value);
+    RSSDDCMonitorKnowledgeRangeResolution *range = NULL;
+    RSSDDCRange selected = {};
+    assert(rss_ddc_monitor_knowledge_resolve_range(rich_sources, 1, "display.brightness", &range) == RSS_DDC_OK);
+    assert(rss_ddc_monitor_knowledge_range_resolution_advertised(range, &selected) && selected.minimum == 0 && selected.maximum == 100);
+    assert(rss_ddc_monitor_knowledge_range_resolution_write_range(range, &selected) && selected.minimum == 10 && selected.maximum == 90);
+    rss_ddc_monitor_knowledge_range_resolution_destroy(range);
+    RSSDDCInputRouteResolution *route = NULL;
+    assert(rss_ddc_monitor_knowledge_resolve_input_route(rich_sources, 1, "hdmi-1", &route) == RSS_DDC_OK);
+    assert(rss_ddc_input_route_resolution_switch_authorized(route));
+    assert(rss_ddc_input_route_resolution_preferred_switch(route)->switch_value.unsigned_value == 144);
+    rss_ddc_input_route_resolution_destroy(route);
+    rss_ddc_monitor_knowledge_destroy(rich);
     const RSSDDCMonitorKnowledge *reversed[] = {second, first};
     assert(rss_ddc_monitor_knowledge_resolve_capability(reversed, 2, "inputs.switching", &resolved) == RSS_DDC_OK);
     assert(rss_ddc_monitor_knowledge_resolution_preferred_read(resolved)->vcp_code == 0x60);

@@ -28,3 +28,22 @@ authorized methods fail closed.
 Example: MCCS VCP `0x60` may remain the preferred read method for
 `inputs.switching`, while a separately set-confirmed LG protocol becomes the
 only production-authorized write method. Both remain visible to consumers.
+
+## Effective values, ranges, and routes
+
+The same source-set resolver now has independent heap-backed queries for enum
+values, numeric ranges, and input routes. Values are grouped only by their
+stable semantic value ID; labels and coincident raw values do not change that
+identity. Raw comparison is type-aware. A value must have both an authorized
+capability method and its own hardware/set validation before it is selected for
+a production write.
+
+Advertised, observed, and validated ranges are retained separately. Only an
+unconflicted validated range becomes an effective production write range.
+Conditions are retained as opaque metadata for future evaluation; no rule
+engine or live state check is performed.
+
+Input routes are resolved by route ID, retaining DDC-path-change metadata and
+separate read/switch raw representations. A switch also needs route-level
+strong evidence, so authorizing a switching method never authorizes every
+candidate route.
