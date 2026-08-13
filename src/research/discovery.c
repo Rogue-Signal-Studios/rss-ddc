@@ -92,6 +92,8 @@ RSSDDCError rss_ddc_research_validate_options(const RSSDDCResearchOptions *optio
     if (options->allow_set && (options->explicit_vcp_count == 0 || options->mutation_value_count == 0)) {
         return RSS_DDC_ERROR_SAFETY_GATE;
     }
+    if (options->allow_set && !options->restore &&
+        (options->explicit_vcp_count != 1 || options->mutation_value_count != 1)) return RSS_DDC_ERROR_SAFETY_GATE;
     if (options->allow_set) {
         for (size_t index = 0; index < options->explicit_vcp_count; ++index) {
             if (rss_ddc_research_is_mutation_denied(options->explicit_vcps[index])) return RSS_DDC_ERROR_SAFETY_GATE;
@@ -312,8 +314,9 @@ void rss_ddc_research_print_summary(FILE *output, const RSSDDCResearchReport *re
         fprintf(output, "\nMutation validation:\n");
         for (size_t index = 0; index < report->mutation_count; ++index) {
             const RSSDDCResearchMutation *mutation = &report->mutations[index];
-            fprintf(output, "  0x%02X / 0x%04X  changed=%s  restored=%s\n", mutation->vcp, mutation->candidate,
-                    mutation->changed ? "yes" : "no", mutation->restored ? "yes" : "no");
+            fprintf(output, "  0x%02X requested=0x%04X observed=0x%04X changed=%s restored=%s\n", mutation->vcp,
+                    mutation->candidate, mutation->observed, mutation->changed ? "yes" : "no",
+                    mutation->restored ? "yes" : "no");
         }
     }
     if (report_path != NULL) fprintf(output, "\nReport:\n  %s\n", report_path);

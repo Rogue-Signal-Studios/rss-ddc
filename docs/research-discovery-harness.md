@@ -2,6 +2,30 @@
 
 `rss-ddc-research` is a developer/research executable for collecting evidence about one selected display. It is not a consumer feature and it does not make MCCS-advertised values into product controls.
 
+## CLI help and mutation controls
+
+The executable has global and subcommand help, with script-friendly nonzero errors that point to the relevant help page:
+
+```sh
+./rss-ddc-research --help
+./rss-ddc-research discover --help
+./rss-ddc-research compare --help
+```
+
+`discover` is read-only by default. Its JSON `--report` is recommended for durable evidence but optional for an immediate, terminal-only run. Mutation requires all of `--allow-set`, an explicit `--vcp`, and explicit `--values`. `--restore` is the default mutation policy: every requested candidate is restored and verified before the next candidate.
+
+For a deliberate one-shot research write, use `--no-restore`. It is intentionally restrictive: exactly one explicit VCP and exactly one value are permitted, it leaves that monitor state changed, and it still performs one bounded GET to record the observed value. It never falls back to restoring the original value.
+
+```sh
+# Controlled mutation with verified restore (default):
+./rss-ddc-research discover --display 2 --allow-set --vcp 0x15 --values 0x31 --restore
+
+# Deliberate one-shot mutation; leaves 0x15 at the adopted monitor value:
+./rss-ddc-research discover --display 2 --allow-set --vcp 0x15 --values 0x31 --no-restore
+```
+
+`--restore` and `--no-restore` are mutually exclusive. Input/source `0x60`, power `0xD6`, reset `0x04`/`0x05`/`0x08`, degauss `0x01`, and LG's alternate-input `0xF4` remain hard-denied from generic mutation in every mode.
+
 ## OSD-state fingerprints and offline correlation
 
 When a monitor OSD exposes named semantic states, a read-only fingerprint is preferred over blind mutation. Capture a known state, manually change exactly one OSD setting, capture again, and compare the resulting files offline:

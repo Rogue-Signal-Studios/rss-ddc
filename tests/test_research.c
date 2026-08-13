@@ -89,6 +89,11 @@ int main(void) {
     options.explicit_vcps[0] = 0x10;
     assert(rss_ddc_research_validate_options(&options) == RSS_DDC_OK);
     assert(rss_ddc_research_mutation_authorized(&options, 0x10));
+    options.restore = false;
+    options.mutation_values[options.mutation_value_count++] = 2;
+    assert(rss_ddc_research_validate_options(&options) == RSS_DDC_ERROR_SAFETY_GATE);
+    --options.mutation_value_count;
+    options.restore = true;
 
     RSSDDCMCCSCapabilities parsed_capabilities = capabilities();
     uint8_t candidates[RSS_DDC_RESEARCH_MAX_CANDIDATES] = {};
@@ -141,6 +146,26 @@ int main(void) {
     assert(fake.get_value_count == sizeof(expected_gets) / sizeof(expected_gets[0]) &&
            memcmp(fake.get_values, expected_gets, sizeof(expected_gets)) == 0);
     assert(fake.settles == 4); /* SET and verified restore for each candidate. */
+
+    RSSDDCResearchReport one_shot_report = {.capabilities_status = RSS_DDC_OK};
+    assert(rss_ddc_parse_mccs_capabilities(single_vcp_capabilities, strlen(single_vcp_capabilities),
+                                           &one_shot_report.capabilities) == RSS_DDC_OK);
+    options = (RSSDDCResearchOptions){.reads = 1, .allow_set = true, .restore = false, .settle_ms = 250};
+    options.explicit_vcps[options.explicit_vcp_count++] = 0x10;
+    options.mutation_values[options.mutation_value_count++] = 49;
+    fake = (FakeTransport){.value = 50};
+    transport = (RSSDDCResearchTransport){.get_vcp = fake_get, .set_vcp = fake_set, .settle = fake_settle, .context = &fake};
+    assert(rss_ddc_research_run(&one_shot_report, &options, &transport) == RSS_DDC_OK);
+    assert(one_shot_report.mutation_count == 1 && one_shot_report.mutations[0].changed &&
+           !one_shot_report.mutations[0].restore_attempted && !one_shot_report.mutations[0].restored && fake.value == 49);
+    assert(fake.set_value_count == 1 && fake.set_values[0] == 49 && fake.get_value_count == 2 &&
+           fake.get_values[0] == 50 && fake.get_values[1] == 49 && fake.settles == 1);
+    FILE *summary = tmpfile();
+    assert(summary != NULL);
+    rss_ddc_research_print_summary(summary, &one_shot_report, NULL);
+    char summary_text[1024] = {};
+    rewind(summary); assert(fread(summary_text, 1, sizeof(summary_text) - 1, summary) != 0); fclose(summary);
+    assert(strstr(summary_text, "requested=0x0031") != NULL && strstr(summary_text, "observed=0x0031") != NULL);
 
     char first[8192] = {}, second[8192] = {};
     FILE *output = tmpfile();

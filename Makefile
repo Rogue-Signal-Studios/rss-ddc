@@ -46,7 +46,7 @@ TESTS = \
 	$(BUILD)/test_protocol $(BUILD)/test_provider $(BUILD)/test_correlation $(BUILD)/test_enumeration \
 	$(BUILD)/test_dispatch $(BUILD)/test_verify $(BUILD)/test_edid $(BUILD)/test_dpcd \
 	$(BUILD)/test_dcpdpservice $(BUILD)/test_dcpdpservice_get $(BUILD)/test_dcpdpservice_set \
-	$(BUILD)/test_mccs_capabilities $(BUILD)/test_input_switch $(BUILD)/test_input_switch_api $(BUILD)/test_research $(BUILD)/test_research_compare
+	$(BUILD)/test_mccs_capabilities $(BUILD)/test_input_switch $(BUILD)/test_input_switch_api $(BUILD)/test_research $(BUILD)/test_research_compare $(BUILD)/test_research_cli
 
 .DEFAULT_GOAL := all
 
@@ -113,6 +113,9 @@ $(BUILD)/test_research: tests/test_research.c src/research/discovery.c src/core/
 $(BUILD)/test_research_compare: tests/test_research_compare.m src/research/compare.m | $(BUILD)
 	$(CC) $(CFLAGS) -Isrc/research $^ -o $@ $(LDLIBS)
 
+$(BUILD)/test_research_cli: tests/test_research_cli.m $(RESEARCH_NAME) | $(BUILD)
+	$(CC) $(CFLAGS) $< -o $@ $(LDLIBS)
+
 $(BUILD)/test_dcpdpservice: tests/test_dcpdpservice.c src/core/correlation.c src/dpcd/reader.c src/dpcd/dpcd.c | $(BUILD)
 	$(CC) $(CFLAGS) $^ -o $@
 
@@ -141,6 +144,7 @@ test: $(TESTS) check-library-sources
 	$(BUILD)/test_input_switch_api
 	$(BUILD)/test_research
 	$(BUILD)/test_research_compare
+	$(BUILD)/test_research_cli
 	$(BUILD)/test_dcpdpservice
 	$(BUILD)/test_dcpdpservice_get
 	$(BUILD)/test_dcpdpservice_set
