@@ -244,12 +244,15 @@ fragment, 129 total requests (128 data fragments plus completion), and uint16
 offset overflow. It never retries, scans an ignored tail, falls back to another
 framing/provider, or advances by frame/read/tail length. Each transaction logs
 the request number/offset, raw reply, canary state, declared size, text length,
-ignored-tail diagnostics, and resulting next offset. At explicit completion it
-prints the raw assembled string, runs the portable parser, lists advertised VCP
-codes, and reports raw VCP `0x60` enum values without connector-name mapping.
-The historical probe CLI commands were removed once this normal path was
-validated; their packet fixtures and hardware evidence remain in tests and
-this document.
+ignored-tail diagnostics, and resulting next offset. At explicit completion,
+the public library API parses the bounded assembled string into caller-owned
+`RSSDDCMCCSCapabilities` and returns it; optional diagnostics report transport
+activity but do not print presentation output. The normal `rss-ddc capabilities
+<display-index>` command calls that public API, then prints the raw capabilities
+string, advertised VCP codes, and raw VCP `0x60` enum values without
+connector-name mapping. The historical probe CLI commands were removed once
+this normal path was validated; their packet fixtures and hardware evidence
+remain in tests and this document.
 
 The public error model preserves write/read and strict E3 checksum/framing
 errors. It separately reports unsupported provider/capability, accumulated-size
