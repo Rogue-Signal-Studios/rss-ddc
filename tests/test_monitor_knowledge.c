@@ -32,6 +32,17 @@ int main(void) {
     assert(round_trip_error == RSS_DDC_OK);
     assert(rss_ddc_monitor_knowledge_capability_count(round_trip) == 2);
     rss_ddc_monitor_knowledge_destroy(round_trip);
+    RSSDDCMonitorKnowledge *merged = NULL;
+    assert(rss_ddc_monitor_knowledge_merge(knowledge, knowledge, &merged) == RSS_DDC_OK);
+    assert(rss_ddc_monitor_knowledge_capability_count(merged) == 4);
+    assert(rss_ddc_monitor_knowledge_validate(merged) == RSS_DDC_OK);
+    assert(rss_ddc_monitor_knowledge_serialize_json(merged, NULL, 0, &json_size) == RSS_DDC_OK);
+    assert(json_size <= sizeof(json));
+    assert(rss_ddc_monitor_knowledge_serialize_json(merged, json, sizeof(json), &json_size) == RSS_DDC_OK);
+    assert(rss_ddc_monitor_knowledge_parse_json(json, strlen(json), &round_trip) == RSS_DDC_OK);
+    assert(rss_ddc_monitor_knowledge_capability_count(round_trip) == 4);
+    rss_ddc_monitor_knowledge_destroy(round_trip);
+    rss_ddc_monitor_knowledge_destroy(merged);
     assert(rss_ddc_semantic_registry_lookup_vcp(0x10) != NULL);
     assert(rss_ddc_semantic_registry_lookup("display.picture_mode") == NULL);
     RSSDDCConfidence confidence = RSS_DDC_CONFIDENCE_UNKNOWN;

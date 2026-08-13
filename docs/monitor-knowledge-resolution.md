@@ -47,3 +47,15 @@ Input routes are resolved by route ID, retaining DDC-path-change metadata and
 separate read/switch raw representations. A switch also needs route-level
 strong evidence, so authorizing a switching method never authorizes every
 candidate route.
+
+## Retained knowledge and merge
+
+Source documents remain distinct from effective resolution. The offline merge
+API creates a new heap-owned retained-knowledge document transactionally; it
+never mutates either input. Compatible identities may compose, while populated
+manufacturer or model disagreements fail closed. Competing capability records
+are retained as separate records so later resolution can inspect every mapping.
+
+Raw aliases are parsed as typed observations and remain non-authorizing. The
+v0.1 condition field is preserved as opaque condition metadata; runtime
+condition evaluation and boolean grouping remain future schema work.

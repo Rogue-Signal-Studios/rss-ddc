@@ -16,6 +16,10 @@ The core deliberately has no file, network, UI, product, enumeration, GET, or
 SET path. Future Alien Probe Quick/Extended scanning and Guided Discovery are
 planned consumers of this model, not part of it.
 
+Multiple compatible source documents can be combined with
+`rss_ddc_monitor_knowledge_merge`. The result is retained knowledge, not an
+effective operational decision; consumers resolve it separately.
+
 Resolution is also offline. See [monitor knowledge resolution](monitor-knowledge-resolution.md)
 for the distinction between retained records, effective method selection, and
 write authorization.
