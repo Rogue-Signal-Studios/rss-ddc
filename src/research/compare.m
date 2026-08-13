@@ -4,7 +4,7 @@
 
 #include "compare.h"
 
-static NSString *const RSSResearchStateStable = @"stable";
+static NSString *const RSSResearchStateStable = @"readable";
 static NSString *const RSSResearchStateUnstable = @"unstable";
 static NSString *const RSSResearchStateError = @"read-error";
 static NSString *const RSSResearchStateMissing = @"missing";
@@ -18,9 +18,14 @@ static NSString *fallback_label(NSString *path) {
     return [[path lastPathComponent] stringByDeletingPathExtension];
 }
 
+/* Historical development fixtures used "ok"; discovery reports use the public "success" error string. */
+static bool successful_status(NSString *status) {
+    return [status isEqualToString:@"success"] || [status isEqualToString:@"ok"];
+}
+
 static bool stable_read(NSDictionary *read) {
     NSString *classification = string(read[@"classification"]);
-    if (![string(read[@"status"]) isEqualToString:@"ok"] ||
+    if (!successful_status(string(read[@"status"])) ||
         !([classification isEqualToString:@"numeric"] || [classification isEqualToString:@"enum-advertised"] ||
           [classification isEqualToString:@"readable-unknown"])) return false;
     NSNumber *current = number(read[@"current"]);
@@ -29,23 +34,37 @@ static bool stable_read(NSDictionary *read) {
     if (current == nil || maximum == nil || samples.count == 0) return false;
     for (id value in samples) {
         NSDictionary *sample = dictionary(value);
-        if (sample == nil || ![string(sample[@"status"]) isEqualToString:@"ok"] ||
+        if (sample == nil || !successful_status(string(sample[@"status"])) ||
             ![number(sample[@"current"]) isEqual:current] || ![number(sample[@"max"]) isEqual:maximum]) return false;
     }
     return true;
 }
 
-static NSMutableDictionary *read_observation(NSDictionary *read) {
+static NSMutableDictionary *read_observation(NSDictionary *read, NSError **out_error) {
     NSMutableDictionary *observation = [NSMutableDictionary dictionary];
     if (stable_read(read)) {
         observation[@"state"] = RSSResearchStateStable;
         observation[@"current"] = number(read[@"current"]);
         observation[@"max"] = number(read[@"max"]);
         observation[@"classification"] = string(read[@"classification"]);
+        NSArray *advertised_values = array(read[@"advertisedValues"]);
+        if (advertised_values != nil) observation[@"advertisedValues"] = advertised_values;
     } else {
         NSString *classification = string(read[@"classification"]);
-        observation[@"state"] = [classification isEqualToString:@"unstable"] ? RSSResearchStateUnstable : RSSResearchStateError;
-        observation[@"status"] = string(read[@"status"]) ?: @"missing-status";
+        NSString *status = string(read[@"status"]);
+        if (successful_status(status)) {
+            if ([classification isEqualToString:@"unstable"]) {
+                observation[@"state"] = RSSResearchStateUnstable;
+                observation[@"status"] = status;
+            } else {
+                if (out_error != NULL) *out_error = [NSError errorWithDomain:@"rss-ddc-research" code:2 userInfo:@{
+                    NSLocalizedDescriptionKey: @"successful read has invalid classification or samples"}];
+                return nil;
+            }
+        } else {
+            observation[@"state"] = [classification isEqualToString:@"unsupported"] ? @"unsupported" : RSSResearchStateError;
+            observation[@"status"] = status ?: @"missing-status";
+        }
     }
     return observation;
 }
@@ -67,7 +86,13 @@ static NSDictionary *load_report(NSString *path, NSMutableArray *warnings, NSErr
         NSDictionary *read = dictionary(item);
         NSNumber *vcp = number(read[@"vcp"]);
         if (read == nil || vcp == nil || vcp.integerValue < 0 || vcp.integerValue > 255 || observations[vcp] != nil) continue;
-        observations[vcp] = read_observation(read);
+        NSError *read_error = nil;
+        NSMutableDictionary *observation = read_observation(read, &read_error);
+        if (observation == nil) {
+            if (out_error != NULL) *out_error = read_error;
+            return nil;
+        }
+        observations[vcp] = observation;
     }
     NSString *label = string(root[@"label"]);
     if (label.length == 0) {
