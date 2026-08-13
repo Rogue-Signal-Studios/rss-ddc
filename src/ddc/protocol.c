@@ -141,9 +141,11 @@ RSSDDCError rss_ddc_capabilities_collector_append(RSSDDCCapabilitiesCollector *c
     if (collector == NULL || fragment == NULL || (fragment->length != 0 && fragment->bytes == NULL)) {
         return RSS_DDC_ERROR_ARGUMENT;
     }
-    if (collector->complete || collector->request_count >= RSS_DDC_CAPABILITIES_MAX_REQUESTS ||
-        fragment->offset != collector->next_offset || fragment->length > 32) {
+    if (collector->complete || fragment->offset != collector->next_offset || fragment->length > 32) {
         return RSS_DDC_ERROR_CAPABILITIES_MALFORMED;
+    }
+    if (collector->request_count >= RSS_DDC_CAPABILITIES_MAX_REQUESTS) {
+        return RSS_DDC_ERROR_CAPABILITIES_REQUEST_LIMIT;
     }
     if (fragment->length == 0) {
         ++collector->request_count;
@@ -155,7 +157,7 @@ RSSDDCError rss_ddc_capabilities_collector_append(RSSDDCCapabilitiesCollector *c
         return RSS_DDC_ERROR_CAPABILITIES_TOO_LARGE;
     }
     if ((uint32_t)collector->next_offset + fragment->length > UINT16_MAX) {
-        return RSS_DDC_ERROR_CAPABILITIES_MALFORMED;
+        return RSS_DDC_ERROR_CAPABILITIES_OFFSET_OVERFLOW;
     }
     memcpy(collector->bytes + collector->byte_count, fragment->bytes, fragment->length);
     collector->byte_count += fragment->length;

@@ -112,6 +112,26 @@ RSSDDCError rss_ddc_probe_dpcd_path_with_diagnostics(uint32_t list_index, const 
     return rss_macos_probe_dpcd_path(list_index, diagnostics);
 }
 
+RSSDDCError rss_ddc_get_mccs_capabilities(uint32_t list_index, RSSDDCMCCSCapabilities *capabilities) {
+    return rss_ddc_get_mccs_capabilities_with_diagnostics(list_index, capabilities, NULL);
+}
+
+RSSDDCError rss_ddc_get_mccs_capabilities_with_diagnostics(uint32_t list_index,
+                                                           RSSDDCMCCSCapabilities *capabilities,
+                                                           const RSSDDCDiagnostics *diagnostics) {
+    if (capabilities == NULL) return RSS_DDC_ERROR_ARGUMENT;
+    RSSMacOSBinding binding = {0};
+    RSSDDCError error = rss_macos_resolve_binding(list_index, &binding);
+    if (error == RSS_DDC_OK) {
+        diagnostic_binding(&binding, diagnostics);
+        error = rss_macos_provider_get_mccs_capabilities(&binding, capabilities, diagnostics);
+    } else {
+        rss_macos_diagnostic(diagnostics, rss_macos_correlation_failure_string(binding.correlation_failure));
+    }
+    rss_macos_release_binding(&binding);
+    return error;
+}
+
 /* CLI-only developer experiment; intentionally absent from the installed public header. */
 RSSDDCError rss_macos_probe_mccs_capabilities(uint32_t list_index, const RSSDDCDiagnostics *diagnostics) {
     RSSMacOSBinding binding = {0};

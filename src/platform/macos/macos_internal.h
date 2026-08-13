@@ -115,6 +115,12 @@ RSSDDCError rss_macos_provider_read_edid(RSSMacOSBinding *binding, RSSDDCEDID *e
                                          const RSSDDCDiagnostics *diagnostics);
 RSSDDCError rss_macos_provider_read_dpcd(RSSMacOSBinding *binding, uint32_t address, uint8_t *buffer,
                                          size_t length, const RSSDDCDiagnostics *diagnostics);
+RSSDDCError rss_macos_provider_get_mccs_capabilities(RSSMacOSBinding *binding,
+                                                     RSSDDCMCCSCapabilities *capabilities,
+                                                     const RSSDDCDiagnostics *diagnostics);
+RSSDDCError rss_macos_dp_get_mccs_capabilities(RSSMacOSBinding *binding,
+                                               RSSDDCMCCSCapabilities *capabilities,
+                                               const RSSDDCDiagnostics *diagnostics);
 /** Registry-only conventional-DP candidate reporting; it never creates IODP/IOAV objects. */
 RSSDDCError rss_macos_probe_dpcd_path(uint32_t list_index, const RSSDDCDiagnostics *diagnostics);
 /**

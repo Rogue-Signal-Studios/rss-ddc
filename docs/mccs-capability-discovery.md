@@ -3,10 +3,9 @@
 ## Status
 
 rss-ddc has a portable, bounded MCCS capabilities-string parser and strict
-parsers/builders for individual DDC/CI capability packets. It provides one
-developer-only DCPDP13Service experiments. The LG-only full probe is bounded
-and explicitly a validation harness; it does **not** advertise a provider
-capability or provide a normal `rss-ddc capabilities` command.
+parsers/builders for individual DDC/CI capability packets. Normal runtime
+retrieval is available only for `DCPDP13Service`, through the public
+caller-owned API and `rss-ddc capabilities <display-index>` command.
 
 | Claim | Status |
 | --- | --- |
@@ -18,8 +17,9 @@ capability or provide a normal `rss-ddc capabilities` command.
 | DCPDP13Service/LG HDR QHD one-fragment `probe-mccs-capabilities` | Hardware-observed valid prefix; read-window tail unresolved |
 | DCPDP13Service/LG HDR QHD exact-first-frame repeat | Hardware validated at offset zero / 16-byte read |
 | DCPDP13Service/LG HDR QHD one offset-`0x000a` probe | Hardware validated sequential fragment |
-| DCPDP13Service/LG HDR QHD bounded multipart probe | Developer-only pending validation |
-| Any macOS runtime MCCS capability retrieval | Unsupported |
+| DCPDP13Service/LG HDR QHD bounded multipart retrieval | Hardware validated: 35 requests / 336 text bytes / explicit completion |
+| DCPDP13Service runtime MCCS capability retrieval | Supported, bounded public API |
+| PS190, DCPDPService, and MCDP MCCS capability retrieval | Unsupported |
 | AppleDCPMCDP29xx MCCS capability retrieval | Unsupported |
 
 MCCS capability data is neither EDID nor DPCD. EDID describes display identity
@@ -86,8 +86,12 @@ involved. `rss_ddc_mccs_capabilities_has_vcp()` checks an advertised feature;
 valid until the caller overwrites its `RSSDDCMCCSCapabilities` object.
 
 The public `RSSDDCDisplay.capabilities` bitmask remains provider/runtime
-evidence only (`GET`, `SET`, `EDID`, `DPCD`). It intentionally does not encode
-monitor-advertised MCCS data and has no premature capabilities-string bit.
+evidence only. `RSS_DDC_CAP_MCCS_CAPABILITIES` is a transport-support bit, not
+monitor content: it is enabled only for `DCPDP13Service`. The returned
+`RSSDDCMCCSCapabilities` remains wholly caller-owned, including raw text,
+features, and enum storage; no release function or macOS object is involved.
+`rss_ddc_mccs_capabilities_enum_values()` returns a borrowed slice valid until
+the caller overwrites that result object.
 
 ## Parser and size policy
 
@@ -107,10 +111,11 @@ cap itself at 4,096 bytes and 129 requests (128 non-empty 32-byte fragments
 plus one zero-byte completion), reject a wrong offset, and stop immediately on
 malformed framing or a size limit.
 
-## One-fragment DCPDP13 validation probe
+## Historical one-fragment DCPDP13 validation probe
 
-`rss-ddc probe-mccs-capabilities <display-index>` is intentionally available
-only for a selected `DCPDP13Service` display that passes the existing external,
+Before normal runtime support, the removed
+`probe-mccs-capabilities <display-index>` command was available only for a
+selected `DCPDP13Service` display that passed the existing external,
 single-service, correct-EPIC-provider, and UI-support safety gate. It performs:
 
 1. one conventional Service write at `chip=0x37`, `data=0x51`, containing
@@ -169,8 +174,8 @@ request (which begins `83 f3`). The present evidence cannot distinguish the
 driver, lower transport, or monitor as the source. Multipart retrieval remains
 unsupported.
 
-The only approved follow-up is
-`probe-mccs-capabilities-exact-first-frame <display-index>`. It repeats the
+The historical exact-window follow-up,
+`probe-mccs-capabilities-exact-first-frame <display-index>`, repeated the
 same conventional F3 offset-zero transaction once, waits 50 ms, and passes an
 **exact 16-byte** output length to IOAV. The surrounding allocation still has
 22 sentinel bytes after that requested range plus the existing outer canaries.
@@ -198,7 +203,7 @@ offset is `0x000a`. The conventional Service request is:
 
 Its checksum is independently derived as `0x6e ^ 0x83 ^ 0xf3 ^ 0x00 ^ 0x0a =
 0x14`. The developer-only
-`probe-mccs-capabilities-next-fragment <display-index>` command is refused
+removed `probe-mccs-capabilities-next-fragment <display-index>` command was refused
 unless the selected display is exactly the recorded `LG HDR QHD` DCPDP13
 target. It sends exactly that one request, waits 50 ms, and performs one
 guarded 38-byte read. A smaller pre-read is intentionally not attempted: there
@@ -213,12 +218,23 @@ but canaries remained intact. The command validates only the declared E3
 prefix, checksum, and echoed offset; the tail remains diagnostic-only and is
 never parsed.
 
-## Bounded full-retrieval developer harness
+## Bounded DCPDP13 runtime retrieval
 
-`probe-mccs-capabilities-full <display-index>` is now a LG HDR QHD-only,
-DCPDP13Service-only **developer validation** harness. It is not runtime
-capability support. Starting at offset zero, it issues exactly one conventional
-F3 request, 50 ms delay, and guarded 38-byte read per requested offset. It
+The full developer harness completed successfully on `LG HDR QHD` /
+`DCPDP13Service` / `DCPEXT0`: 35 requests produced 336 text bytes, every
+write/read returned success, canaries remained intact, every E3 offset and
+checksum validated, and a zero-length E3 explicitly completed the sequence.
+The assembled string parsed successfully and advertised VCP `0x60` raw values
+`11 12 0f 00` in that order.
+
+That evidence promotes the same bounded transport to
+`rss_ddc_get_mccs_capabilities()` and its diagnostic form. It is currently
+supported for `DCPDP13Service` only; PS190, DCPDPService, and MCDP return an
+explicit unsupported error. The normal CLI command is `rss-ddc capabilities
+<display-index>` and uses the public API rather than a duplicate transport.
+
+Starting at offset zero, runtime retrieval issues exactly one conventional F3
+request, 50 ms delay, and guarded 38-byte read per requested offset. It
 strictly validates the declared E3 prefix and echoed offset, copies only the
 declared text bytes, advances by exactly that text length, and stops only on a
 valid zero-length E3 completion frame.
@@ -231,6 +247,15 @@ the request number/offset, raw reply, canary state, declared size, text length,
 ignored-tail diagnostics, and resulting next offset. At explicit completion it
 prints the raw assembled string, runs the portable parser, lists advertised VCP
 codes, and reports raw VCP `0x60` enum values without connector-name mapping.
+The historical probe CLI commands were removed once this normal path was
+validated; their packet fixtures and hardware evidence remain in tests and
+this document.
+
+The public error model preserves write/read and strict E3 checksum/framing
+errors. It separately reports unsupported provider/capability, accumulated-size
+overflow, request-limit exhaustion, offset overflow, incomplete completion, and
+the final portable-parser error; it never silently treats a failure as an empty
+capabilities string.
 
 ## Why runtime retrieval is not yet enabled
 
@@ -244,13 +269,12 @@ hardware-validated raw GET shape: inline `0x51`, `UINT32_MAX` no-offset, 50
 ms, then a fixed 11-byte read. No source establishes whether PS190 `F3`
 requires the raw or conventional representation, so PS190 is excluded.
 
-The first and offset-`0x000a` DCPDP13 fragments are valid and establish the
-bounded full-retrieval validation harness for this exact LG path. They do not
-establish normal runtime transport support. The 38-byte window remains a
-bounded practical read for an unknown fragment length, not a claim about
-actual-byte-count semantics; only its declared E3 prefix is protocol data.
-The full LG result still needs review for every offset, explicit zero-length
-completion, final parser outcome, and tail/canary behavior.
+The validation establishes normal bounded DCPDP13 transport support, but not a
+portability claim for every monitor, topology, adapter, firmware, or macOS
+release. The 38-byte window remains a bounded practical read for an unknown
+fragment length, not a claim about actual-byte-count semantics; only its
+declared E3 prefix is protocol data. Public retrieval returns raw advertised
+values as candidate/support evidence and never performs a SET based on them.
 DCPDPService needs its own first-fragment evidence, PS190 needs a
 framed-request decision, and MCDP remains out of scope.
 

@@ -8,7 +8,6 @@
 #include <unistd.h>
 
 #include "rss_ddc.h"
-#include "macos_internal.h"
 
 static void usage(const char *program) {
     fprintf(stderr,
@@ -17,16 +16,13 @@ static void usage(const char *program) {
             "  %s [--verbose] info <display-index>\n"
             "  %s [--verbose] edid <display-index> [--decode|--hex|--raw <file>]\n"
             "  %s [--verbose] dpcd <display-index> <address> <length>\n"
+            "  %s [--verbose] capabilities <display-index>\n"
             "  %s [--verbose] probe-dpcd-path <display-index>\n"
-            "  %s probe-mccs-capabilities <display-index>\n"
-            "  %s probe-mccs-capabilities-exact-first-frame <display-index>\n"
-            "  %s probe-mccs-capabilities-next-fragment <display-index>\n"
-            "  %s probe-mccs-capabilities-full <display-index>\n"
             "  %s [--verbose] get <display-index> <vcp>\n"
             "  %s [--verbose] set <display-index> <vcp> <value>\n"
             "  %s [--verbose] set <display-index> <vcp> <value> --verify [--settle-ms <ms>] "
             "[--retries <count>] [--retry-delay-ms <ms>]\n",
-            program, program, program, program, program, program, program, program, program, program, program, program);
+            program, program, program, program, program, program, program, program, program);
 }
 
 static bool parse_unsigned(const char *text, unsigned long maximum, unsigned long *value) {
@@ -124,6 +120,22 @@ static void print_dpcd_decode(uint32_t address, const uint8_t *bytes, size_t len
            capabilities.enhanced_framing ? "yes" : "no", capabilities.downstream_port_present ? "yes" : "no");
 }
 
+/** Uses the public caller-owned MCCS result only; it does not infer friendly labels for raw values. */
+static void print_mccs_capabilities(const RSSDDCMCCSCapabilities *capabilities) {
+    printf("raw-capabilities: %s\n", capabilities->raw);
+    for (size_t index = 0; index < capabilities->feature_count; ++index) {
+        uint8_t vcp = capabilities->features[index].vcp_code;
+        printf("vcp: 0x%02x", vcp);
+        const uint8_t *values = NULL;
+        size_t count = 0;
+        if (rss_ddc_mccs_capabilities_enum_values(capabilities, vcp, &values, &count) == RSS_DDC_OK && count != 0) {
+            printf(" values:");
+            for (size_t value = 0; value < count; ++value) printf(" %02x", values[value]);
+        }
+        printf("\n");
+    }
+}
+
 /** Parses the small public CLI surface; hardware access requires an explicit command. */
 int main(int argc, char **argv) {
     bool verbose = false;
@@ -197,6 +209,16 @@ int main(int argc, char **argv) {
         else print_edid_decode(&info);
         return EXIT_SUCCESS;
     }
+    if (strcmp(argv[argument], "capabilities") == 0) {
+        if (argc != argument + 2) { usage(argv[0]); return EXIT_FAILURE; }
+        RSSDDCMCCSCapabilities capabilities = {};
+        RSSDDCDiagnostics diagnostics = {.callback = write_diagnostic, .context = NULL};
+        RSSDDCError error = rss_ddc_get_mccs_capabilities_with_diagnostics(
+            (uint32_t)display_index, &capabilities, verbose ? &diagnostics : NULL);
+        if (error != RSS_DDC_OK) { fprintf(stderr, "rss-ddc: %s\n", rss_ddc_error_string(error)); return EXIT_FAILURE; }
+        print_mccs_capabilities(&capabilities);
+        return EXIT_SUCCESS;
+    }
     if (strcmp(argv[argument], "probe-dpcd-path") == 0) {
         if (argc != argument + 2) { usage(argv[0]); return EXIT_FAILURE; }
         RSSDDCDiagnostics diagnostics = {.callback = write_diagnostic, .context = NULL};
@@ -204,39 +226,6 @@ int main(int argc, char **argv) {
                                                                        verbose ? &diagnostics : NULL);
         if (error != RSS_DDC_OK) { fprintf(stderr, "rss-ddc: %s\n", rss_ddc_error_string(error)); return EXIT_FAILURE; }
         printf("DPCD path candidate correlation completed; no IODP construction or DPCD read was performed.\n");
-        return EXIT_SUCCESS;
-    }
-    if (strcmp(argv[argument], "probe-mccs-capabilities") == 0) {
-        if (argc != argument + 2) { usage(argv[0]); return EXIT_FAILURE; }
-        RSSDDCDiagnostics diagnostics = {.callback = write_diagnostic, .context = NULL};
-        RSSDDCError error = rss_macos_probe_mccs_capabilities((uint32_t)display_index, &diagnostics);
-        if (error != RSS_DDC_OK) { fprintf(stderr, "rss-ddc: %s\n", rss_ddc_error_string(error)); return EXIT_FAILURE; }
-        printf("MCCS first-fragment probe completed; no additional request was sent.\n");
-        return EXIT_SUCCESS;
-    }
-    if (strcmp(argv[argument], "probe-mccs-capabilities-exact-first-frame") == 0) {
-        if (argc != argument + 2) { usage(argv[0]); return EXIT_FAILURE; }
-        RSSDDCDiagnostics diagnostics = {.callback = write_diagnostic, .context = NULL};
-        RSSDDCError error = rss_macos_probe_mccs_capabilities_exact_first_frame((uint32_t)display_index,
-                                                                                   &diagnostics);
-        if (error != RSS_DDC_OK) { fprintf(stderr, "rss-ddc: %s\n", rss_ddc_error_string(error)); return EXIT_FAILURE; }
-        printf("MCCS exact-first-frame probe completed; no next offset was requested.\n");
-        return EXIT_SUCCESS;
-    }
-    if (strcmp(argv[argument], "probe-mccs-capabilities-next-fragment") == 0) {
-        if (argc != argument + 2) { usage(argv[0]); return EXIT_FAILURE; }
-        RSSDDCDiagnostics diagnostics = {.callback = write_diagnostic, .context = NULL};
-        RSSDDCError error = rss_macos_probe_mccs_capabilities_next_fragment((uint32_t)display_index, &diagnostics);
-        if (error != RSS_DDC_OK) { fprintf(stderr, "rss-ddc: %s\n", rss_ddc_error_string(error)); return EXIT_FAILURE; }
-        printf("MCCS next-fragment probe completed; no additional request was sent.\n");
-        return EXIT_SUCCESS;
-    }
-    if (strcmp(argv[argument], "probe-mccs-capabilities-full") == 0) {
-        if (argc != argument + 2) { usage(argv[0]); return EXIT_FAILURE; }
-        RSSDDCDiagnostics diagnostics = {.callback = write_diagnostic, .context = NULL};
-        RSSDDCError error = rss_macos_probe_mccs_capabilities_full((uint32_t)display_index, &diagnostics);
-        if (error != RSS_DDC_OK) { fprintf(stderr, "rss-ddc: %s\n", rss_ddc_error_string(error)); return EXIT_FAILURE; }
-        printf("MCCS bounded developer retrieval completed; no runtime capability support was enabled.\n");
         return EXIT_SUCCESS;
     }
     if (strcmp(argv[argument], "dpcd") == 0) {

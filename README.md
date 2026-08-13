@@ -6,13 +6,12 @@
 
 This milestone provides real macOS display/provider discovery, strict DDC/CI parsing, and provider-specific Service-path operations. PS190 GET/SET and DCPDP13 GET/SET are hardware-validated in `rss-ddc`; read-only native DPCD is hardware-validated on their documented paths. DCPDPService GET, SET, read-only DPCD, and Set-and-Verify are hardware-validated on the documented Mac Studio XL2730Z three-display topology (capabilities `0x0b`). Unsupported providers and capabilities return explicit errors rather than falling back to a guessed transport.
 
-MCCS capability-string parsing is available as a portable, caller-owned API,
-but runtime MCCS capability retrieval is intentionally unsupported pending
-provider-specific variable-length transaction evidence. DCPDP13-only developer
-validation probes have confirmed the LG offset-zero E3 frame, its clean
-exact-16-byte read, and one sequential offset-`0x000a` frame. A bounded,
-LG-only full-retrieval probe is available for user-run validation; it is not
-normal retrieval. See
+MCCS capability retrieval is a public, caller-owned API for
+`DCPDP13Service` only. It was hardware-validated by a complete 35-request,
+336-byte LG HDR QHD retrieval with explicit completion and strict parsing.
+PS190, DCPDPService, and MCDP capability retrieval remain explicitly
+unsupported. Values are raw monitor-advertised candidates, not input labels or
+authorization for disruptive SET operations. See
 [MCCS capability discovery](docs/mccs-capability-discovery.md).
 
 The project uses Apple-private macOS interfaces inside the macOS backend only. Behavior can vary by macOS release, display provider, cable/adapter topology, and monitor firmware.
@@ -109,7 +108,7 @@ hardware-validated plain GET or plain SET provider transactions.
 
 | Provider | Backend status | Capabilities |
 | --- | --- | --- |
-| `DCPDP13Service` | conventional Service-path GET/SET and opt-in Set-and-Verify, plus native read-only DPCD, hardware-validated on the documented LG DP setup; EDID unsupported | Get VCP, Set VCP, Read DPCD |
+| `DCPDP13Service` | conventional Service-path GET/SET and opt-in Set-and-Verify, native read-only DPCD, and bounded MCCS capability retrieval, hardware-validated on the documented LG DP setup; EDID unsupported | Get VCP, Set VCP, Read DPCD, MCCS Capabilities |
 | `DCPDPService` | distinct registry class; conventional Service-path GET/SET/DPCD and Set-and-Verify hardware-validated on documented XL2730Z path (`0x0b`); EDID unsupported | Get VCP, Set VCP, Read DPCD |
 | `AppleDCPMCDP29XX` | classified only; all runtime capabilities unsupported | none |
 | `AppleDCPPS190` | raw GET, conventional SET, Device-path EDID blocks 0–1, and native DPCD reads hardware validated on the documented Odyssey topology | Get VCP, Set VCP, Read EDID, Read DPCD |
@@ -119,6 +118,24 @@ hardware-validated plain GET or plain SET provider transactions.
 framing. The provider comes from the selected Service proxy's immediate EPIC
 parent; a generic `IOPortTransportStateDisplayPort` node does not choose a
 backend because the PS190 HDMI topology can also expose that class.
+
+## MCCS capability consumer example
+
+```c
+RSSDDCMCCSCapabilities capabilities = {};
+if (rss_ddc_get_mccs_capabilities(display_index, &capabilities) == RSS_DDC_OK &&
+    rss_ddc_mccs_capabilities_has_vcp(&capabilities, 0x60)) {
+    const uint8_t *values = NULL;
+    size_t count = 0;
+    if (rss_ddc_mccs_capabilities_enum_values(&capabilities, 0x60, &values, &count) == RSS_DDC_OK) {
+        /* Consume only raw monitor-advertised values; do not infer connector labels. */
+    }
+}
+```
+
+`capabilities` is caller-owned, needs no cleanup function, and owns the raw
+string plus all parsed storage. On the validated LG, the raw VCP `0x60` values
+are `0x11`, `0x12`, `0x0f`, and `0x00`.
 
 ## Roadmap
 
@@ -197,7 +214,7 @@ The zero-capacity call is the first half of the documented two-call display
 snapshot pattern. It returns the observed count but does not open an IOAV
 client. GET, SET, EDID, and DPCD requests are explicit separate API calls.
 
-The public API is pre-1.0 (`0.1.0`), so source/API compatibility may evolve as
+The public API is pre-1.0 (`0.2.0`), so source/API compatibility may evolve as
 provider coverage matures. Consumers should pin an exact release or commit;
 the planned external consumer will pin rss-ddc rather than track `main`. No
 stable ABI promise is made before 1.0.

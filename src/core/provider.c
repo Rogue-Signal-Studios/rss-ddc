@@ -32,6 +32,9 @@ const char *rss_ddc_error_string(RSSDDCError error) {
         case RSS_DDC_ERROR_VERIFY_UNAVAILABLE: return "SET completed but the original display is unavailable for safe verification";
         case RSS_DDC_ERROR_CAPABILITIES_MALFORMED: return "MCCS capabilities data is malformed or incomplete";
         case RSS_DDC_ERROR_CAPABILITIES_TOO_LARGE: return "MCCS capabilities data exceeds the supported bound";
+        case RSS_DDC_ERROR_CAPABILITIES_REQUEST_LIMIT: return "MCCS capabilities request limit exceeded";
+        case RSS_DDC_ERROR_CAPABILITIES_OFFSET_OVERFLOW: return "MCCS capabilities offset overflow";
+        case RSS_DDC_ERROR_CAPABILITIES_INCOMPLETE: return "MCCS capabilities retrieval did not reach completion";
         case RSS_DDC_ERROR_SYSTEM: return "macOS system error";
     }
     return "unknown error";
@@ -82,7 +85,8 @@ const char *rss_ddc_backend_name(RSSDDCBackend backend) {
 uint32_t rss_ddc_provider_capabilities(RSSDDCProvider provider) {
     switch (provider) {
         case RSS_DDC_PROVIDER_DCPDP13:
-            return RSS_DDC_CAP_GET_VCP | RSS_DDC_CAP_SET_VCP | RSS_DDC_CAP_READ_DPCD;
+            return RSS_DDC_CAP_GET_VCP | RSS_DDC_CAP_SET_VCP | RSS_DDC_CAP_READ_DPCD |
+                   RSS_DDC_CAP_MCCS_CAPABILITIES;
         case RSS_DDC_PROVIDER_DCPDP_SERVICE:
             return RSS_DDC_CAP_GET_VCP | RSS_DDC_CAP_SET_VCP | RSS_DDC_CAP_READ_DPCD;
         case RSS_DDC_PROVIDER_PS190:

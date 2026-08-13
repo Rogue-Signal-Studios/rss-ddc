@@ -29,9 +29,15 @@ display/provider binding.
 | Set VCP `0x10` brightness | Hardware validated | Same-state `100` and real change/restore `100 → 99 → 100`. |
 | Set-and-Verify `0x10` | Hardware validated | Default policy verified same-state and real changes; the retry path was also validated. |
 | Read DPCD `0x00000` / 16 | Hardware validated | One native read through the same-role scoped `DCPDPDeviceProxy` returned valid bytes. |
+| MCCS capabilities | Hardware validated | 35 requests, 336 raw text bytes, strict E3/offset checks, and explicit zero-length completion. |
 
 No broader VCP support, input-source SET semantics, or behavior on other LG
 products is implied.
+
+The retrieved capability string advertises VCP `0x60` with raw enum values
+`0x11`, `0x12`, `0x0f`, and `0x00`. These are monitor-advertised candidate
+values only. rss-ddc intentionally assigns no physical-input labels and does
+not attempt a SET for discovered values.
 
 ## Intermittent post-SET transient
 

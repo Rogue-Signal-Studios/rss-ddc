@@ -11,7 +11,7 @@ extern "C" {
 
 /* Pre-1.0 API marker: source compatibility may evolve as provider coverage matures. */
 #define RSS_DDC_VERSION_MAJOR 0
-#define RSS_DDC_VERSION_MINOR 1
+#define RSS_DDC_VERSION_MINOR 2
 #define RSS_DDC_VERSION_PATCH 0
 
 /** Runtime provider classes derived from the macOS registry, never CPU generation. */
@@ -43,6 +43,8 @@ typedef enum {
     RSS_DDC_CAP_SET_VCP = 1u << 1,
     RSS_DDC_CAP_READ_EDID = 1u << 2,
     RSS_DDC_CAP_READ_DPCD = 1u << 3,
+    /** Provider can retrieve and strictly parse one complete MCCS capabilities string. */
+    RSS_DDC_CAP_MCCS_CAPABILITIES = 1u << 4,
 } RSSDDCCapability;
 
 /** Stable operation outcomes; reply failures remain specific so malformed data is never accepted. */
@@ -74,6 +76,9 @@ typedef enum {
     RSS_DDC_ERROR_VERIFY_UNAVAILABLE,
     RSS_DDC_ERROR_CAPABILITIES_MALFORMED,
     RSS_DDC_ERROR_CAPABILITIES_TOO_LARGE,
+    RSS_DDC_ERROR_CAPABILITIES_REQUEST_LIMIT,
+    RSS_DDC_ERROR_CAPABILITIES_OFFSET_OVERFLOW,
+    RSS_DDC_ERROR_CAPABILITIES_INCOMPLETE,
     RSS_DDC_ERROR_SYSTEM,
 } RSSDDCError;
 
@@ -258,6 +263,16 @@ bool rss_ddc_mccs_capabilities_has_vcp(const RSSDDCMCCSCapabilities *capabilitie
 RSSDDCError rss_ddc_mccs_capabilities_enum_values(const RSSDDCMCCSCapabilities *capabilities,
                                                   uint8_t vcp_code, const uint8_t **values,
                                                   size_t *count);
+/**
+ * Retrieves and parses one complete monitor MCCS capabilities string into
+ * caller-owned storage. On success, `capabilities` owns its raw text and all
+ * feature/enum arrays; enum slices remain valid until this object is overwritten.
+ */
+RSSDDCError rss_ddc_get_mccs_capabilities(uint32_t list_index, RSSDDCMCCSCapabilities *capabilities);
+/** Diagnostic form of rss_ddc_get_mccs_capabilities; callback data is transient as usual. */
+RSSDDCError rss_ddc_get_mccs_capabilities_with_diagnostics(uint32_t list_index,
+                                                           RSSDDCMCCSCapabilities *capabilities,
+                                                           const RSSDDCDiagnostics *diagnostics);
 
 /**
  * Snapshots online displays into caller storage. `displays` may be NULL only

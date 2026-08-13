@@ -25,6 +25,16 @@ int main(void) {
     assert(count == 3);
     assert(values[0] == 0x0f && values[1] == 0x11 && values[2] == 0x12);
 
+    const char lg_hardware_capabilities[] =
+        "(prot(monitor)type(lcd)QN600cmds(01 02 03 0C E3 F3)vcp(02 04 05 08 10 12 14(05 08 0B ) 16 18 1A "
+        "52 60( 11 12 0F 00) AC AE B2 B6 C0 C6 C8 C9 D6(01 04) DF 62 8D F4 F5(00 01 02) F6(00 01 02) "
+        "4D 4E 4F 15(01 06 11 13 14 18 28 29 32 48) F7(00 01 02 03) F8(00 01) F9 E4 E5 E6 E7 E8 E9 EA "
+        "EB EF FD(00 01) FE(00 01 02) FF)mccs_ver(2.1)mswhql(1))";
+    RSSDDCMCCSCapabilities lg = parse(lg_hardware_capabilities);
+    assert(rss_ddc_mccs_capabilities_has_vcp(&lg, 0x60));
+    assert(rss_ddc_mccs_capabilities_enum_values(&lg, 0x60, &values, &count) == RSS_DDC_OK);
+    assert(count == 4 && values[0] == 0x11 && values[1] == 0x12 && values[2] == 0x0f && values[3] == 0x00);
+
     RSSDDCMCCSCapabilities mixed = parse(
         "(prot(monitor)type(lcd)model(Ignored)cmds(01 E3 F3)vcp(10 12 60(0F 11 12) d6(01 04 05)))");
     assert(mixed.feature_count == 4);

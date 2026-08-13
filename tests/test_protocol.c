@@ -229,10 +229,10 @@ int main(void) {
     assert(rss_ddc_capabilities_collector_append(&size_overflow, &fragment) == RSS_DDC_ERROR_CAPABILITIES_TOO_LARGE);
     RSSDDCCapabilitiesCollector request_limit = {.request_count = RSS_DDC_CAPABILITIES_MAX_REQUESTS};
     fragment = (RSSDDCCapabilitiesFragment){.offset = 0, .bytes = (const uint8_t *)"x", .length = 1};
-    assert(rss_ddc_capabilities_collector_append(&request_limit, &fragment) == RSS_DDC_ERROR_CAPABILITIES_MALFORMED);
+    assert(rss_ddc_capabilities_collector_append(&request_limit, &fragment) == RSS_DDC_ERROR_CAPABILITIES_REQUEST_LIMIT);
     RSSDDCCapabilitiesCollector offset_overflow = {.next_offset = UINT16_MAX};
     fragment = (RSSDDCCapabilitiesFragment){.offset = UINT16_MAX, .bytes = (const uint8_t *)"x", .length = 1};
-    assert(rss_ddc_capabilities_collector_append(&offset_overflow, &fragment) == RSS_DDC_ERROR_CAPABILITIES_MALFORMED);
+    assert(rss_ddc_capabilities_collector_append(&offset_overflow, &fragment) == RSS_DDC_ERROR_CAPABILITIES_OFFSET_OVERFLOW);
     puts("test_protocol: passed");
     return 0;
 }
