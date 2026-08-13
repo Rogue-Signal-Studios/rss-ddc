@@ -172,6 +172,14 @@ make library
 make consumer-test  # compile/link an installed-prefix consumer; never runs it
 ```
 
+## Research tooling
+
+`rss-ddc-research` is a bounded developer-only monitor discovery harness. Its
+default operation is inventory plus repeated GET VCP reads; SET requires several
+explicit flags and refuses input, power, reset, and degauss controls. See
+[Bounded monitor discovery harness](docs/research-discovery-harness.md) before
+using it on hardware.
+
 ## Using rss-ddc as a library
 
 `rss-ddc` can be consumed as a static C library without the CLI, test suite,

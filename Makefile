@@ -1,4 +1,5 @@
 NAME = rss-ddc
+RESEARCH_NAME = rss-ddc-research
 LIBRARY = build/librss-ddc.a
 CC = clang
 CXX = clang++
@@ -45,11 +46,11 @@ TESTS = \
 	$(BUILD)/test_protocol $(BUILD)/test_provider $(BUILD)/test_correlation $(BUILD)/test_enumeration \
 	$(BUILD)/test_dispatch $(BUILD)/test_verify $(BUILD)/test_edid $(BUILD)/test_dpcd \
 	$(BUILD)/test_dcpdpservice $(BUILD)/test_dcpdpservice_get $(BUILD)/test_dcpdpservice_set \
-	$(BUILD)/test_mccs_capabilities $(BUILD)/test_input_switch $(BUILD)/test_input_switch_api
+	$(BUILD)/test_mccs_capabilities $(BUILD)/test_input_switch $(BUILD)/test_input_switch_api $(BUILD)/test_research
 
 .DEFAULT_GOAL := all
 
-all: $(NAME) $(LIBRARY)
+all: $(NAME) $(RESEARCH_NAME) $(LIBRARY)
 
 $(BUILD):
 	mkdir -p $@
@@ -67,6 +68,9 @@ $(LIBRARY): $(LIBRARY_OBJECTS)
 
 $(NAME): $(LIBRARY) $(CLI_SOURCES)
 	$(CC) $(CFLAGS) $(CLI_SOURCES) $(LIBRARY) -o $@ $(LDLIBS)
+
+$(RESEARCH_NAME): $(LIBRARY) cli/research.m src/research/discovery.c src/research/discovery.h
+	$(CC) $(CFLAGS) -Isrc/research cli/research.m src/research/discovery.c $(LIBRARY) -o $@ $(LDLIBS)
 
 library: $(LIBRARY)
 
@@ -103,6 +107,9 @@ $(BUILD)/test_input_switch: tests/test_input_switch.c src/ddc/input_switch.c src
 $(BUILD)/test_input_switch_api: tests/test_input_switch_api.c src/core/input_switch.c | $(BUILD)
 	$(CC) $(CFLAGS) $^ -o $@
 
+$(BUILD)/test_research: tests/test_research.c src/research/discovery.c src/core/mccs_capabilities.c | $(BUILD)
+	$(CC) $(CFLAGS) -Isrc/research $^ -o $@
+
 $(BUILD)/test_dcpdpservice: tests/test_dcpdpservice.c src/core/correlation.c src/dpcd/reader.c src/dpcd/dpcd.c | $(BUILD)
 	$(CC) $(CFLAGS) $^ -o $@
 
@@ -129,6 +136,7 @@ test: $(TESTS) check-library-sources
 	$(BUILD)/test_mccs_capabilities
 	$(BUILD)/test_input_switch
 	$(BUILD)/test_input_switch_api
+	$(BUILD)/test_research
 	$(BUILD)/test_dcpdpservice
 	$(BUILD)/test_dcpdpservice_get
 	$(BUILD)/test_dcpdpservice_set
@@ -197,7 +205,7 @@ consumer-test: $(LIBRARY) examples/consumer.c examples/consumer.cpp | $(BUILD)
 	rm -f $(CONSUMER_TEST_BINARY) $(CONSUMER_TEST_CPP_BINARY)
 
 clean:
-	rm -rf $(BUILD) $(NAME)
+	rm -rf $(BUILD) $(NAME) $(RESEARCH_NAME)
 
 .PHONY: all library check-library-sources test coverage dashboard dashboard-test analyze \
 	install-library install-cli install uninstall-library uninstall-cli uninstall consumer-test clean
