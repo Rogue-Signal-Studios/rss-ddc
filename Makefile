@@ -46,7 +46,7 @@ TESTS = \
 	$(BUILD)/test_protocol $(BUILD)/test_provider $(BUILD)/test_correlation $(BUILD)/test_enumeration \
 	$(BUILD)/test_dispatch $(BUILD)/test_verify $(BUILD)/test_edid $(BUILD)/test_dpcd \
 	$(BUILD)/test_dcpdpservice $(BUILD)/test_dcpdpservice_get $(BUILD)/test_dcpdpservice_set \
-	$(BUILD)/test_mccs_capabilities $(BUILD)/test_input_switch $(BUILD)/test_input_switch_api $(BUILD)/test_research
+	$(BUILD)/test_mccs_capabilities $(BUILD)/test_input_switch $(BUILD)/test_input_switch_api $(BUILD)/test_research $(BUILD)/test_research_compare
 
 .DEFAULT_GOAL := all
 
@@ -69,8 +69,8 @@ $(LIBRARY): $(LIBRARY_OBJECTS)
 $(NAME): $(LIBRARY) $(CLI_SOURCES)
 	$(CC) $(CFLAGS) $(CLI_SOURCES) $(LIBRARY) -o $@ $(LDLIBS)
 
-$(RESEARCH_NAME): $(LIBRARY) cli/research.m src/research/discovery.c src/research/discovery.h
-	$(CC) $(CFLAGS) -Isrc/research cli/research.m src/research/discovery.c $(LIBRARY) -o $@ $(LDLIBS)
+$(RESEARCH_NAME): $(LIBRARY) cli/research.m src/research/discovery.c src/research/discovery.h src/research/compare.m src/research/compare.h
+	$(CC) $(CFLAGS) -Isrc/research cli/research.m src/research/discovery.c src/research/compare.m $(LIBRARY) -o $@ $(LDLIBS)
 
 library: $(LIBRARY)
 
@@ -110,6 +110,9 @@ $(BUILD)/test_input_switch_api: tests/test_input_switch_api.c src/core/input_swi
 $(BUILD)/test_research: tests/test_research.c src/research/discovery.c src/core/mccs_capabilities.c | $(BUILD)
 	$(CC) $(CFLAGS) -Isrc/research $^ -o $@
 
+$(BUILD)/test_research_compare: tests/test_research_compare.m src/research/compare.m | $(BUILD)
+	$(CC) $(CFLAGS) -Isrc/research $^ -o $@ $(LDLIBS)
+
 $(BUILD)/test_dcpdpservice: tests/test_dcpdpservice.c src/core/correlation.c src/dpcd/reader.c src/dpcd/dpcd.c | $(BUILD)
 	$(CC) $(CFLAGS) $^ -o $@
 
@@ -137,6 +140,7 @@ test: $(TESTS) check-library-sources
 	$(BUILD)/test_input_switch
 	$(BUILD)/test_input_switch_api
 	$(BUILD)/test_research
+	$(BUILD)/test_research_compare
 	$(BUILD)/test_dcpdpservice
 	$(BUILD)/test_dcpdpservice_get
 	$(BUILD)/test_dcpdpservice_set

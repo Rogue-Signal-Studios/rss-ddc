@@ -8,16 +8,18 @@
 #include <unistd.h>
 
 #include "discovery.h"
+#include "compare.h"
 
 static void usage(const char *program) {
     fprintf(stderr,
             "Usage:\n"
             "  %s discover --display <index> --report <file> [--category all|picture] [--reads 1..10]\n"
-            "      [--vcp <code[,code...]>] [--range <first:last>]\n"
+            "      [--fingerprint] [--label <known-osd-state>] [--vcp <code[,code...]>] [--range <first:last>]\n"
             "      [--allow-set --vcp <code[,code...]> --values <value[,value...]> [--restore] [--settle-ms <ms>]]\n"
+            "  %s compare <report.json> <report.json> [more-report.json ...] [--report <comparison.json>]\n"
             "\nRead-only is the default. --allow-set is deliberately gated, requires an explicit --vcp\n"
             "and --values, and rejects input (0x60/0xF4), power (0xD6), reset (0x04/0x05/0x08), and degauss (0x01).\n",
-            program);
+            program, program);
 }
 
 static bool append_vcp(RSSDDCResearchOptions *options, unsigned long value) {
@@ -89,24 +91,47 @@ static void timestamp_utc(char destination[32]) {
 
 int main(int argc, char **argv) {
     if (argc == 2 && strcmp(argv[1], "--help") == 0) { usage(argv[0]); return EXIT_SUCCESS; }
+    if (argc >= 2 && strcmp(argv[1], "compare") == 0) {
+        const char *paths[16] = {};
+        int path_count = 0;
+        const char *comparison_path = NULL;
+        for (int argument = 2; argument < argc; ++argument) {
+            if (strcmp(argv[argument], "--report") == 0 && ++argument < argc && comparison_path == NULL) {
+                comparison_path = argv[argument];
+            } else if (argv[argument][0] != '-' && path_count < (int)(sizeof(paths) / sizeof(paths[0]))) {
+                paths[path_count++] = argv[argument];
+            } else {
+                fprintf(stderr, "compare requires 2..16 report paths and at most one --report\n");
+                return EXIT_FAILURE;
+            }
+        }
+        if (path_count < 2) { usage(argv[0]); return EXIT_FAILURE; }
+        return rss_ddc_research_compare_files(path_count, paths, comparison_path, stdout, stderr) == 0 ? EXIT_SUCCESS : EXIT_FAILURE;
+    }
     if (argc < 2 || strcmp(argv[1], "discover") != 0) { usage(argv[0]); return EXIT_FAILURE; }
     RSSDDCResearchOptions options = {.category = RSS_DDC_RESEARCH_CATEGORY_ALL, .reads = 1, .restore = true};
     unsigned long display = 0;
     const char *report_path = NULL;
+    const char *label = NULL;
     bool have_display = false;
     for (int argument = 2; argument < argc; ++argument) {
         const char *option = argv[argument];
         if (strcmp(option, "--allow-set") == 0 && !options.allow_set) { options.allow_set = true; continue; }
         if (strcmp(option, "--restore") == 0) { options.restore = true; continue; }
+        if (strcmp(option, "--fingerprint") == 0) { options.category = RSS_DDC_RESEARCH_CATEGORY_ALL; continue; }
         if ((strcmp(option, "--display") == 0 || strcmp(option, "--report") == 0 || strcmp(option, "--category") == 0 ||
              strcmp(option, "--reads") == 0 || strcmp(option, "--vcp") == 0 || strcmp(option, "--values") == 0 ||
-             strcmp(option, "--range") == 0 || strcmp(option, "--settle-ms") == 0) && ++argument < argc) {
+             strcmp(option, "--range") == 0 || strcmp(option, "--settle-ms") == 0 || strcmp(option, "--label") == 0) && ++argument < argc) {
             const char *value = argv[argument];
             unsigned long parsed = 0;
             if (strcmp(option, "--display") == 0) {
                 if (!rss_ddc_research_parse_unsigned(value, UINT32_MAX, &display) || display == 0) { fprintf(stderr, "invalid --display\n"); return EXIT_FAILURE; }
                 have_display = true;
             } else if (strcmp(option, "--report") == 0) report_path = value;
+            else if (strcmp(option, "--label") == 0) {
+                if (value[0] == '\0' || strlen(value) >= RSS_DDC_TEXT_MAX) { fprintf(stderr, "invalid --label\n"); return EXIT_FAILURE; }
+                label = value;
+            }
             else if (strcmp(option, "--category") == 0) {
                 if (!rss_ddc_research_parse_category(value, &options.category)) { fprintf(stderr, "invalid --category (expected all or picture)\n"); return EXIT_FAILURE; }
             } else if (strcmp(option, "--reads") == 0) {
@@ -141,6 +166,7 @@ int main(int argc, char **argv) {
     report.capabilities_status = rss_ddc_get_mccs_capabilities((uint32_t)display, &report.capabilities);
     if (report.capabilities_status != RSS_DDC_OK) snprintf(report.warnings[report.warning_count++], sizeof(report.warnings[0]), "MCCS capabilities unavailable: %s", rss_ddc_error_string(report.capabilities_status));
     timestamp_utc(report.timestamp);
+    if (label != NULL) snprintf(report.label, sizeof(report.label), "%s", label);
     uint32_t display_index = (uint32_t)display;
     RSSDDCResearchTransport transport = {.get_vcp = transport_get, .set_vcp = transport_set, .settle = transport_settle, .context = &display_index};
     error = rss_ddc_research_run(&report, &options, &transport);

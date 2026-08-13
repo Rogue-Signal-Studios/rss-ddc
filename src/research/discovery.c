@@ -245,7 +245,8 @@ static bool write_values(FILE *output, const uint8_t *values, size_t count) {
 
 bool rss_ddc_research_write_json(FILE *output, const RSSDDCResearchReport *report) {
     if (output == NULL || report == NULL) return false;
-    if (fprintf(output, "{\n  \"schemaVersion\": 1,\n  \"timestamp\": ") < 0 || !write_json_string(output, report->timestamp) ||
+    if (fprintf(output, "{\n  \"schemaVersion\": 2,\n  \"timestamp\": ") < 0 || !write_json_string(output, report->timestamp) ||
+        fprintf(output, ",\n  \"label\": ") < 0 || !write_json_string(output, report->label) ||
         fprintf(output, ",\n  \"display\": {\"index\": %u, \"productName\": ", report->display.list_index) < 0 ||
         !write_json_string(output, report->display.product_name) || fprintf(output, ", \"manufacturer\": ") < 0 ||
         !write_json_string(output, report->display.manufacturer) || fprintf(output, ", \"serial\": ") < 0 ||

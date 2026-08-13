@@ -90,6 +90,7 @@ typedef struct {
     char warnings[16][160];
     size_t warning_count;
     char timestamp[32];
+    char label[RSS_DDC_TEXT_MAX];
 } RSSDDCResearchReport;
 
 bool rss_ddc_research_parse_unsigned(const char *text, unsigned long maximum, unsigned long *value);

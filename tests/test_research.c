@@ -149,7 +149,7 @@ int main(void) {
     output = tmpfile(); assert(output != NULL && rss_ddc_research_write_json(output, &mutation_report));
     rewind(output); assert(fread(second, 1, sizeof(second) - 1, output) != 0); fclose(output);
     assert(strcmp(first, second) == 0);
-    assert(strstr(first, "\"schemaVersion\": 1") != NULL && strstr(first, "\"reads\"") != NULL &&
+    assert(strstr(first, "\"schemaVersion\": 2") != NULL && strstr(first, "\"reads\"") != NULL &&
            strstr(first, "\"semantic\"") != NULL && strstr(first, "Fake") == NULL);
     puts("test_research: passed");
     return 0;
