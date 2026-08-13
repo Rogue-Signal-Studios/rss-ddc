@@ -20,6 +20,14 @@ Multiple compatible source documents can be combined with
 `rss_ddc_monitor_knowledge_merge`. The result is retained knowledge, not an
 effective operational decision; consumers resolve it separately.
 
+The core stores every supported field with explicit ownership and serializes a
+canonical JSON document containing identity evidence, capability ranges,
+methods, values and raw aliases, input routes, relationships, and evidence at
+each of those levels. Merge works on a temporary deep clone and returns it
+only after validation, so an allocation or validation failure never publishes
+a partial result. Competing capability records are retained rather than
+collapsed into a guessed effective value.
+
 Resolution is also offline. See [monitor knowledge resolution](monitor-knowledge-resolution.md)
 for the distinction between retained records, effective method selection, and
 write authorization.
@@ -87,6 +95,17 @@ range {
   observed: { minimum, maximum }, advertised, validated
 }
 ```
+
+### Availability conditions
+
+`conditions` remains a legacy human-readable note. New records use
+`conditionGroups`, an array of `all_of` or `any_of` groups. A condition names
+another semantic capability, optionally a value id, and one of `equals`,
+`not_equals`, `enabled`, `disabled`, `present`, `absent`, or the numeric
+comparison operators. Equality and numeric conditions carry a typed
+`RSSDDCRawValue`, plus their own confidence, validation state, and evidence.
+The offline model preserves these groups but does not evaluate them or use
+them to grant access.
 
 `protocol` may be `mccs_vcp`, a vendor protocol, a software provider control,
 or another future transport. For example, the standard input semantic can have
