@@ -40,6 +40,11 @@ const char *rss_ddc_error_string(RSSDDCError error) {
         case RSS_DDC_ERROR_PROFILE_VERSION: return "monitor profile requires a newer rss-ddc version";
         case RSS_DDC_ERROR_PROFILE_CONFLICT: return "monitor profile data is ambiguous or conflicting";
         case RSS_DDC_ERROR_PROFILE_UNSAFE: return "monitor profile requests an unsafe unauthorized operation";
+        case RSS_DDC_ERROR_MONITOR_KNOWLEDGE_MALFORMED: return "monitor knowledge data is malformed";
+        case RSS_DDC_ERROR_MONITOR_KNOWLEDGE_SCHEMA: return "monitor knowledge schema is unsupported";
+        case RSS_DDC_ERROR_MONITOR_KNOWLEDGE_CONFLICT: return "monitor knowledge data is conflicting";
+        case RSS_DDC_ERROR_MONITOR_KNOWLEDGE_UNSAFE: return "monitor knowledge requests an unsafe operation";
+        case RSS_DDC_ERROR_MONITOR_KNOWLEDGE_TOO_LARGE: return "monitor knowledge data exceeds the supported bound";
         case RSS_DDC_ERROR_SYSTEM: return "macOS system error";
     }
     return "unknown error";

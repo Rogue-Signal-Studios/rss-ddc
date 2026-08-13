@@ -35,6 +35,15 @@ writable; a standard brightness method can be `hardware_validated`, readable,
 and writable. Confidence is never inferred solely from the semantic name or
 the method address.
 
+## Implemented model rules
+
+The monitor-knowledge parser retains evidence records separately from their
+confidence interpretation. It rejects a writable `high_risk_denied` method,
+rejects hardware-validated capability confidence without strong local/Rogue/
+set-confirmed evidence, and rejects methods supported only by external-candidate
+evidence from being writable. These are data-model checks, not authorization to
+operate a display.
+
 ## Risk belongs to operations
 
 The initial operation safety classes are `read_standard`, `read_extended`,

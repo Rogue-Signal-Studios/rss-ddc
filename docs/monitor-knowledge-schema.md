@@ -1,7 +1,20 @@
 # Monitor knowledge schema v0.1 proposal
 
-> Status: architecture proposal only. This document creates no parser, storage,
-> migration, public API, monitor operation, or write authority.
+> Status: `monitor-knowledge/v0.1` is implemented as an offline, heap-owned
+> rss-ddc C model with JSON parsing, validation, export, semantic lookup, and
+> bounded fixture support. It creates no monitor operation or write authority.
+
+## Implemented API boundary
+
+`rss_ddc_monitor_knowledge_*` owns a parsed document and exposes borrowed
+views for identity, semantic capabilities, methods, values, input routes, and
+relationships. Parsing is bounded and transactional: malformed or incompatible
+documents leave no partially returned object. The only accepted schema string
+is `monitor-knowledge/v0.1`; future versions fail closed.
+
+The core deliberately has no file, network, UI, product, enumeration, GET, or
+SET path. Future Alien Probe Quick/Extended scanning and Guided Discovery are
+planned consumers of this model, not part of it.
 
 Alien Probe™ needs one durable representation for what Rogue knows about a
 monitor. The representation is semantic first and protocol second: a product

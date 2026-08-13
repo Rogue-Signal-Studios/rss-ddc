@@ -29,6 +29,15 @@ Example semantic IDs are `display.brightness`, `display.picture_mode`,
 expected when research establishes a better hierarchy; unknown capabilities
 remain representable under `vendor` without inventing a false semantic claim.
 
+## Registry
+
+`rss_ddc_semantic_registry_lookup` provides a small standards-known catalog
+without turning semantic IDs into a closed enum: brightness (`0x10`), contrast
+(`0x12`), color preset (`0x14`), and RGB gain (`0x16`, `0x18`, `0x1A`). It
+records the expected value class and that these controls conflict as candidates
+for unrelated semantic discovery, so a brightness observation cannot be
+promoted to Picture Mode merely through correlation.
+
 ## Inputs are structured capabilities
 
 An input is not one global integer. Each input value has a stable semantic ID,

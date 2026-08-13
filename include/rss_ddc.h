@@ -88,6 +88,11 @@ typedef enum {
     RSS_DDC_ERROR_PROFILE_VERSION,
     RSS_DDC_ERROR_PROFILE_CONFLICT,
     RSS_DDC_ERROR_PROFILE_UNSAFE,
+    RSS_DDC_ERROR_MONITOR_KNOWLEDGE_MALFORMED,
+    RSS_DDC_ERROR_MONITOR_KNOWLEDGE_SCHEMA,
+    RSS_DDC_ERROR_MONITOR_KNOWLEDGE_CONFLICT,
+    RSS_DDC_ERROR_MONITOR_KNOWLEDGE_UNSAFE,
+    RSS_DDC_ERROR_MONITOR_KNOWLEDGE_TOO_LARGE,
     RSS_DDC_ERROR_SYSTEM,
 } RSSDDCError;
 
@@ -114,6 +119,9 @@ enum {
     RSS_DDC_PROFILE_MAX_ENUM_VALUES = 32,
     RSS_DDC_PROFILE_ID_MAX = 64,
     RSS_DDC_PROFILE_VERSION_MAX = 64,
+    RSS_DDC_MONITOR_KNOWLEDGE_ID_MAX = 128,
+    RSS_DDC_MONITOR_KNOWLEDGE_NOTE_MAX = 256,
+    RSS_DDC_MONITOR_KNOWLEDGE_RAW_MAX_BYTES = 1024,
 };
 
 /**
@@ -587,6 +595,64 @@ RSSDDCError rss_ddc_set_vcp_and_verify_with_diagnostics(uint32_t list_index, uin
                                                          uint16_t value, const RSSDDCVerifyPolicy *policy,
                                                          RSSDDCVCPResult *result,
                                                          const RSSDDCDiagnostics *diagnostics);
+
+/* Monitor knowledge is an offline, semantic-first representation. None of
+ * these APIs enumerate displays, access files, use networking, or issue DDC. */
+#define RSS_DDC_MONITOR_KNOWLEDGE_SCHEMA "monitor-knowledge/v0.1"
+
+typedef enum { RSS_DDC_CONFIDENCE_UNKNOWN, RSS_DDC_CONFIDENCE_CANDIDATE, RSS_DDC_CONFIDENCE_OBSERVED,
+    RSS_DDC_CONFIDENCE_CORRELATED, RSS_DDC_CONFIDENCE_VALIDATED, RSS_DDC_CONFIDENCE_HARDWARE_VALIDATED } RSSDDCConfidence;
+typedef enum { RSS_DDC_VALIDATION_NOT_VALIDATED, RSS_DDC_VALIDATION_READ_VALIDATED,
+    RSS_DDC_VALIDATION_CORRELATION_VALIDATED, RSS_DDC_VALIDATION_SET_CONFIRMED,
+    RSS_DDC_VALIDATION_HARDWARE_VALIDATED } RSSDDCValidation;
+typedef enum { RSS_DDC_RISK_READ_STANDARD, RSS_DDC_RISK_READ_EXTENDED, RSS_DDC_RISK_GUIDED_READ,
+    RSS_DDC_RISK_VALIDATE_SAFE_SET, RSS_DDC_RISK_VENDOR_EXPERIMENTAL_SET, RSS_DDC_RISK_HIGH_RISK_DENIED } RSSDDCRisk;
+typedef enum { RSS_DDC_EVIDENCE_STANDARD_DEFINED, RSS_DDC_EVIDENCE_MCCS_ADVERTISED, RSS_DDC_EVIDENCE_EDID_DERIVED,
+    RSS_DDC_EVIDENCE_PROFILE_KNOWN, RSS_DDC_EVIDENCE_ROGUE_VALIDATED_PROFILE, RSS_DDC_EVIDENCE_LOCAL_VALIDATED,
+    RSS_DDC_EVIDENCE_STABLE_GET, RSS_DDC_EVIDENCE_EXTENDED_DISCOVERY, RSS_DDC_EVIDENCE_EXTERNAL_CANDIDATE,
+    RSS_DDC_EVIDENCE_MANUFACTURER_FAMILY_HINT, RSS_DDC_EVIDENCE_MODEL_FAMILY_HINT, RSS_DDC_EVIDENCE_OSD_CORRELATED,
+    RSS_DDC_EVIDENCE_SET_CONFIRMED } RSSDDCEvidenceType;
+typedef enum { RSS_DDC_AVAILABILITY_UNKNOWN, RSS_DDC_AVAILABILITY_SUPPORTED,
+    RSS_DDC_AVAILABILITY_UNSUPPORTED, RSS_DDC_AVAILABILITY_CONDITIONAL } RSSDDCAvailability;
+typedef enum { RSS_DDC_METHOD_MCCS_VCP, RSS_DDC_METHOD_VENDOR_PROTOCOL,
+    RSS_DDC_METHOD_PROVIDER_SPECIFIC, RSS_DDC_METHOD_UNKNOWN } RSSDDCMethodType;
+typedef enum { RSS_DDC_RAW_UNSIGNED, RSS_DDC_RAW_SIGNED, RSS_DDC_RAW_BYTES, RSS_DDC_RAW_STRING } RSSDDCRawType;
+typedef enum { RSS_DDC_RELATIONSHIP_SECONDARY_EFFECT, RSS_DDC_RELATIONSHIP_CORRELATES_WITH,
+    RSS_DDC_RELATIONSHIP_DEPENDS_ON, RSS_DDC_RELATIONSHIP_CONFLICTS_WITH, RSS_DDC_RELATIONSHIP_ENABLED_BY } RSSDDCRelationshipType;
+
+typedef struct { RSSDDCRawType type; uint64_t unsigned_value; int64_t signed_value; const uint8_t *data; size_t data_length; } RSSDDCRawValue;
+typedef struct { bool present; int64_t minimum; int64_t maximum; int64_t step; const char *units; } RSSDDCRange;
+typedef struct { RSSDDCEvidenceType type; const char *source_id; const char *reference; const char *timestamp; const char *scope; RSSDDCConfidence contribution; } RSSDDCEvidence;
+typedef struct { const char *id; const char *label; RSSDDCRawValue raw; size_t raw_alias_count; const RSSDDCRawValue *raw_aliases; bool readable; bool writable; RSSDDCConfidence confidence; RSSDDCValidation validation; RSSDDCAvailability availability; size_t evidence_count; const RSSDDCEvidence *evidence; } RSSDDCMonitorKnowledgeValue;
+typedef struct { const char *id; RSSDDCMethodType type; uint32_t vcp_code; const char *protocol_id; const char *address; bool readable; bool writable; RSSDDCRisk risk; const char *parameters; RSSDDCConfidence confidence; size_t evidence_count; const RSSDDCEvidence *evidence; } RSSDDCMonitorKnowledgeMethod;
+typedef struct { const char *id; const char *label; RSSDDCAvailability availability; const char *conditions; RSSDDCConfidence confidence; RSSDDCValidation validation; RSSDDCRange advertised_range; RSSDDCRange observed_range; RSSDDCRange validated_range; size_t method_count; const RSSDDCMonitorKnowledgeMethod *methods; size_t value_count; const RSSDDCMonitorKnowledgeValue *values; size_t evidence_count; const RSSDDCEvidence *evidence; } RSSDDCMonitorKnowledgeCapability;
+typedef struct { const char *id; const char *connector; const char *port; const char *label; bool switching_supported; bool current_readable; bool ddc_path_may_change; RSSDDCRawValue read_value; RSSDDCRawValue switch_value; RSSDDCConfidence confidence; size_t evidence_count; const RSSDDCEvidence *evidence; } RSSDDCInputRoute;
+typedef struct { const char *source_id; const char *target_id; const char *source_value_id; const char *target_value_id; RSSDDCRelationshipType type; RSSDDCConfidence confidence; size_t evidence_count; const RSSDDCEvidence *evidence; } RSSDDCRelationship;
+typedef struct { const char *manufacturer; const char *model; const char *edid_manufacturer; uint32_t edid_product_code; bool edid_product_code_present; const char *serial; const char *provider; const char *transport; const char *branch; const char *family_hint; RSSDDCConfidence confidence; size_t evidence_count; const RSSDDCEvidence *evidence; } RSSDDCMonitorIdentity;
+typedef struct { const char *semantic_id; uint8_t vcp_code; const char *value_kind; bool typical_readable; bool typical_writable; bool unrelated_candidate_conflict; } RSSDDCSemanticRegistryEntry;
+typedef struct RSSDDCMonitorKnowledge RSSDDCMonitorKnowledge;
+
+RSSDDCMonitorKnowledge *rss_ddc_monitor_knowledge_create(void);
+void rss_ddc_monitor_knowledge_destroy(RSSDDCMonitorKnowledge *knowledge);
+RSSDDCError rss_ddc_monitor_knowledge_parse_json(const char *data, size_t length, RSSDDCMonitorKnowledge **knowledge);
+RSSDDCError rss_ddc_monitor_knowledge_serialize_json(const RSSDDCMonitorKnowledge *knowledge, char *buffer, size_t capacity, size_t *required);
+RSSDDCError rss_ddc_monitor_knowledge_validate(const RSSDDCMonitorKnowledge *knowledge);
+const char *rss_ddc_monitor_knowledge_schema_version(const RSSDDCMonitorKnowledge *knowledge);
+RSSDDCError rss_ddc_monitor_knowledge_identity(const RSSDDCMonitorKnowledge *knowledge, RSSDDCMonitorIdentity *identity);
+size_t rss_ddc_monitor_knowledge_capability_count(const RSSDDCMonitorKnowledge *knowledge);
+RSSDDCError rss_ddc_monitor_knowledge_capability(const RSSDDCMonitorKnowledge *knowledge, size_t index, RSSDDCMonitorKnowledgeCapability *capability);
+RSSDDCError rss_ddc_monitor_knowledge_find_capability(const RSSDDCMonitorKnowledge *knowledge, const char *semantic_id, RSSDDCMonitorKnowledgeCapability *capability);
+size_t rss_ddc_monitor_knowledge_input_route_count(const RSSDDCMonitorKnowledge *knowledge);
+RSSDDCError rss_ddc_monitor_knowledge_input_route(const RSSDDCMonitorKnowledge *knowledge, size_t index, RSSDDCInputRoute *route);
+size_t rss_ddc_monitor_knowledge_relationship_count(const RSSDDCMonitorKnowledge *knowledge);
+RSSDDCError rss_ddc_monitor_knowledge_relationship(const RSSDDCMonitorKnowledge *knowledge, size_t index, RSSDDCRelationship *relationship);
+RSSDDCError rss_ddc_monitor_knowledge_merge(const RSSDDCMonitorKnowledge *base, const RSSDDCMonitorKnowledge *overlay, RSSDDCMonitorKnowledge **merged);
+const RSSDDCSemanticRegistryEntry *rss_ddc_semantic_registry_lookup(const char *semantic_id);
+const RSSDDCSemanticRegistryEntry *rss_ddc_semantic_registry_lookup_vcp(uint8_t vcp_code);
+const char *rss_ddc_confidence_name(RSSDDCConfidence value); RSSDDCError rss_ddc_confidence_parse(const char *name, RSSDDCConfidence *value);
+const char *rss_ddc_validation_name(RSSDDCValidation value); RSSDDCError rss_ddc_validation_parse(const char *name, RSSDDCValidation *value);
+const char *rss_ddc_risk_name(RSSDDCRisk value); RSSDDCError rss_ddc_risk_parse(const char *name, RSSDDCRisk *value);
+const char *rss_ddc_evidence_type_name(RSSDDCEvidenceType value); RSSDDCError rss_ddc_evidence_type_parse(const char *name, RSSDDCEvidenceType *value);
 
 #ifdef __cplusplus
 }
