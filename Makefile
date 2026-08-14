@@ -45,7 +45,7 @@ TESTS = \
 	$(BUILD)/test_protocol $(BUILD)/test_provider $(BUILD)/test_correlation $(BUILD)/test_enumeration \
 	$(BUILD)/test_dispatch $(BUILD)/test_verify $(BUILD)/test_edid $(BUILD)/test_dpcd \
 	$(BUILD)/test_dcpdpservice $(BUILD)/test_dcpdpservice_get $(BUILD)/test_dcpdpservice_set $(BUILD)/test_monitor_knowledge $(BUILD)/test_monitor_knowledge_resolution \
-	$(BUILD)/test_mccs_capabilities $(BUILD)/test_input_switch $(BUILD)/test_input_switch_api $(BUILD)/test_picture_mode $(BUILD)/test_profile_store $(BUILD)/test_probe
+	$(BUILD)/test_mccs_capabilities $(BUILD)/test_input_switch $(BUILD)/test_input_switch_api $(BUILD)/test_picture_mode $(BUILD)/test_profile_store $(BUILD)/test_probe $(BUILD)/test_probe_display_resolution
 
 .DEFAULT_GOAL := all
 
@@ -67,6 +67,11 @@ $(LIBRARY): $(LIBRARY_OBJECTS)
 
 $(NAME): $(LIBRARY) $(CLI_SOURCES)
 	$(CC) $(CFLAGS) $(CLI_SOURCES) $(LIBRARY) -o $@ $(LDLIBS)
+
+# Public snapshots are embedded in private bindings. Rebuild every object and
+# the CLI when their layout changes so incremental builds cannot mix an older
+# caller with a newer resolver.
+$(LIBRARY_OBJECTS) $(NAME): include/rss_ddc.h src/platform/macos/macos_internal.h
 
 library: $(LIBRARY)
 
@@ -118,6 +123,9 @@ $(BUILD)/test_monitor_knowledge_resolution: tests/test_monitor_knowledge_resolut
 $(BUILD)/test_probe: tests/test_probe.c src/core/probe.c src/core/monitor_knowledge.c src/core/mccs_capabilities.c src/core/provider.c | $(BUILD)
 	$(CC) $(CFLAGS) $^ -o $@
 
+$(BUILD)/test_probe_display_resolution: tests/test_probe_display_resolution.c src/core/rss_ddc.c src/core/probe.c src/core/monitor_knowledge.c src/core/mccs_capabilities.c src/core/provider.c | $(BUILD)
+	$(CC) $(CFLAGS) -pthread $^ -o $@
+
 $(BUILD)/test_dcpdpservice: tests/test_dcpdpservice.c src/core/correlation.c src/dpcd/reader.c src/dpcd/dpcd.c | $(BUILD)
 	$(CC) $(CFLAGS) $^ -o $@
 
@@ -149,6 +157,7 @@ test: $(TESTS) check-library-sources
 	$(BUILD)/test_monitor_knowledge
 	$(BUILD)/test_monitor_knowledge_resolution
 	$(BUILD)/test_probe
+	$(BUILD)/test_probe_display_resolution
 	$(BUILD)/test_dcpdpservice
 	$(BUILD)/test_dcpdpservice_get
 	$(BUILD)/test_dcpdpservice_set

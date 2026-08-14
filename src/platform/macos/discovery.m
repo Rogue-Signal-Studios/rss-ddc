@@ -678,6 +678,27 @@ RSSDDCError rss_macos_resolve_binding(uint32_t list_index, RSSMacOSBinding *bind
     return RSS_DDC_OK;
 }
 
+/* Keep this evolving private layout out of public convenience API frames. */
+RSSDDCError rss_macos_get_display_snapshot(uint32_t list_index, RSSDDCDisplay *display,
+                                           RSSMacOSCorrelationFailure *failure,
+                                           char *detail, size_t detail_capacity) {
+    if (display == NULL) return RSS_DDC_ERROR_ARGUMENT;
+    if (failure != NULL) *failure = RSS_MACOS_CORRELATION_NONE;
+    if (detail != NULL && detail_capacity != 0) detail[0] = '\0';
+
+    RSSMacOSBinding *binding = calloc(1, sizeof(*binding));
+    if (binding == NULL) return RSS_DDC_ERROR_SYSTEM;
+    RSSDDCError error = rss_macos_resolve_binding(list_index, binding);
+    if (error == RSS_DDC_OK) *display = binding->display;
+    if (failure != NULL) *failure = binding->correlation_failure;
+    const char *binding_detail = rss_macos_correlation_detail_string(binding);
+    if (detail != NULL && detail_capacity != 0 && binding_detail != NULL)
+        snprintf(detail, detail_capacity, "%s", binding_detail);
+    rss_macos_release_binding(binding);
+    free(binding);
+    return error;
+}
+
 /** Balances service_for_display's retained proxy on every success and error path. */
 void rss_macos_release_binding(RSSMacOSBinding *binding) {
     if (binding != NULL && binding->service_proxy != MACH_PORT_NULL) IOObjectRelease(binding->service_proxy);
