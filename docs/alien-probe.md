@@ -87,3 +87,78 @@ Run `./rss-ddc probe-quick <display-index>`. Its first line explicitly states
 `READ-ONLY; writes=0`, and each line reports the separate transport, protocol,
 semantic, advertisement, profile, value, and stability states. Obtain a fresh
 index with `./rss-ddc list`; list indexes are process-local snapshots.
+
+## Extended Probe observation core
+
+Slice 8 restores read-only Extended Probe on top of the validated Quick Probe
+semantics. It scans exactly `0x00` through `0xFF` in ascending order with no
+write callback, input switching, picture-mode mutation, fallback transport, or
+write authorization.
+
+### Shared observation machinery
+
+Quick and Extended Probe share one single-VCP observation path:
+
+- the same `RSSDDCProbeResultCategory` classification rules
+- the same strict parser acceptance inherited from `rss_ddc_get_vcp`
+- the same echoed-VCP request-match defense at the injected transport boundary
+- the same two-read stability policy (`stable` vs `variable`)
+- the same conservative monitor-knowledge provenance (`OBSERVED` live reads and
+  separate `DECLARED` MCCS facts, always `write_authorized=false`)
+
+Extended Probe does not implement a looser parser or a separate “readable”
+capability counter.
+
+### Scan bounds and timing
+
+| Parameter | Value |
+| --- | --- |
+| Address range | `0x00`..`0xFF` (256 requested VCPs) |
+| Repeat count | `2` immediate GETs per address |
+| Inter-address delay | `25 ms` |
+| Repeat delay | `25 ms` before the second GET |
+| Maximum GET count | `512` (256 × 2) |
+| Optional MCCS retrieval | `1` when `RSS_DDC_CAP_MCCS_CAPABILITIES` is already supported |
+| Transport-failure abort | `8` consecutive transport-level failures stop the scan; remaining addresses are `unattempted` |
+
+Providers without a validated GET path (`AppleDCPMCDP29XX`, unknown) fail
+closed. `AppleDCPPS190`, `DCPDP13Service`, and `DCPDPService` are supported.
+
+There is no retry-until-success behavior.
+
+### Classifications and interpretation
+
+Each address records transport state, strict protocol validity, request match,
+first/repeat errors, MCCS-advertised state (`yes`/`no`/`unknown`), profile-known
+state, stability, current/max when protocol-valid, and an interpretation label:
+
+- `observed-protocol-valid`
+- `observed-advertised`
+- `observed-unadvertised`
+
+Counters distinguish `strict-valid`, `stable-valid`, `variable-valid`,
+`protocol-reported`, `semantic-mismatch`, `malformed`, and `transport-errors`,
+plus `advertised-valid` and `unadvertised-valid` among strict-valid results.
+
+A stable, protocol-valid, unadvertised reply with unusual `current > maximum`
+remains an observation only. It is not labeled “supported” and does not create
+write authority. When MCCS advertises enum values for a VCP, observed currents
+are correlated against that declared enum set where present; `current <= maximum`
+is not required for enumerated controls.
+
+### Ownership and bounds
+
+Extended observations live in a heap-backed array of 256
+`RSSDDCProbeExtendedObservation` records. Knowledge routes are individually
+heap-allocated and copied into the bounded monitor-knowledge object. The scan
+loop keeps only pointer/index state and two `RSSDDCVCPResult` locals on its stack
+frame; it never constructs `RSSMacOSBinding` or places the observation array on
+the stack.
+
+### CLI
+
+Run `./rss-ddc probe-extended <display-index>`. The summary line states
+`READ-ONLY; writes=0`, reports request/timing policy, aggregate counters,
+duration, and abort state. Each attempted VCP prints transport, protocol,
+semantic, advertisement, enum-correlation, value, and stability fields.
+Obtain a fresh index with `./rss-ddc list`.

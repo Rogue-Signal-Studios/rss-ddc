@@ -18,6 +18,7 @@ static void usage(const char *program) {
             "  %s [--verbose] dpcd <display-index> <address> <length>\n"
             "  %s [--verbose] probe-dpcd-path <display-index>\n"
             "  %s probe-quick <display-index>\n"
+            "  %s probe-extended <display-index>\n"
             "  %s [--verbose] mccs <display-index>\n"
             "  %s [--verbose] input <display-index> <standard|lg-alt> <value>\n"
             "  %s [--verbose] picture-mode <display-index> <vivid|reader>\n"
@@ -25,7 +26,7 @@ static void usage(const char *program) {
             "  %s [--verbose] set <display-index> <vcp> <value>\n"
             "  %s [--verbose] set <display-index> <vcp> <value> --verify [--settle-ms <ms>] "
             "[--retries <count>] [--retry-delay-ms <ms>]\n",
-            program, program, program, program, program, program, program, program, program, program, program, program);
+            program, program, program, program, program, program, program, program, program, program, program, program, program);
 }
 
 static bool parse_unsigned(const char *text, unsigned long maximum, unsigned long *value) {
@@ -154,6 +155,48 @@ static void print_probe_quick(const RSSDDCProbeDiagnostics *diagnostics) {
     }
 }
 
+static void print_probe_extended(const RSSDDCProbeExtendedDiagnostics *diagnostics) {
+    printf("Alien Probe Extended: READ-ONLY; writes=0; repeats=%u; inter-address-delay-ms=%u; repeat-delay-ms=%u\n",
+           RSS_DDC_PROBE_EXTENDED_REPEAT_COUNT, RSS_DDC_PROBE_EXTENDED_INTER_ADDRESS_DELAY_MS,
+           RSS_DDC_PROBE_EXTENDED_REPEAT_DELAY_MS);
+    printf("display=%u provider=%s transport=%s mccs=%s\n", diagnostics->display.list_index,
+           rss_ddc_provider_string(diagnostics->display.provider), diagnostics->display.transport,
+           diagnostics->mccs_available ? "available" : rss_ddc_error_string(diagnostics->mccs_error));
+    printf("requested=%zu attempted=%zu strict-valid=%zu stable-valid=%zu variable-valid=%zu "
+           "protocol-reported=%zu semantic-mismatch=%zu malformed=%zu transport-errors=%zu "
+           "advertised-valid=%zu unadvertised-valid=%zu duration-ms=%llu aborted=%s\n",
+           diagnostics->requested, diagnostics->attempted, diagnostics->strict_valid, diagnostics->stable_valid,
+           diagnostics->variable_valid, diagnostics->protocol_reported, diagnostics->semantic_mismatch,
+           diagnostics->malformed, diagnostics->transport_errors, diagnostics->advertised_valid,
+           diagnostics->unadvertised_valid, (unsigned long long)diagnostics->duration_ms,
+           diagnostics->aborted ? "yes" : "no");
+    for (size_t index = 0; index < diagnostics->observation_count; ++index) {
+        const RSSDDCProbeExtendedObservation *extended = &diagnostics->observations[index];
+        const RSSDDCProbeObservation *observation = &extended->observation;
+        if (observation->category == RSS_DDC_PROBE_RESULT_UNATTEMPTED) {
+            continue;
+        }
+        printf("vcp=0x%02x semantic=%s category=%s interpretation=%s transport=%s protocol-valid=%s "
+               "request-match=%s advertised=%s profile-known=%s enum-list=%s current-in-declared-enum=%s",
+               observation->requested_vcp, observation->semantic_id,
+               rss_ddc_probe_result_category_name(observation->category),
+               rss_ddc_probe_interpretation_name(extended->interpretation),
+               observation->transport == RSS_DDC_PROBE_TRANSPORT_SUCCEEDED ? "succeeded" : "failed",
+               observation->protocol_valid ? "yes" : "no", observation->semantic_request_match ? "yes" : "no",
+               probe_knowledge_state_name(observation->advertised),
+               probe_knowledge_state_name(observation->profile_known),
+               extended->enum_list_present ? "present" : "absent",
+               extended->enum_list_present ? (extended->current_in_declared_enum ? "yes" : "no") : "unknown");
+        if (observation->protocol_valid) {
+            printf(" current=%u maximum=%u stable=%s unusual-current-gt-max=%s", observation->current_value,
+                   observation->maximum_value, observation->stable ? "yes" : "no",
+                   observation->current_exceeds_maximum ? "yes" : "no");
+        }
+        printf(" first=%s repeat=%s\n", rss_ddc_error_string(observation->first_error),
+               rss_ddc_error_string(observation->repeat_error));
+    }
+}
+
 /** Parses the small public CLI surface; hardware access is limited to explicit GET/SET/EDID/DPCD commands. */
 int main(int argc, char **argv) {
     bool verbose = false;
@@ -244,6 +287,18 @@ int main(int argc, char **argv) {
         RSSDDCProbeDiagnostics diagnostics = {};
         error = rss_ddc_probe_diagnostics(probe, &diagnostics);
         if (error == RSS_DDC_OK) print_probe_quick(&diagnostics);
+        rss_ddc_probe_destroy(probe);
+        if (error != RSS_DDC_OK) fprintf(stderr, "rss-ddc: %s\n", rss_ddc_error_string(error));
+        return error == RSS_DDC_OK ? EXIT_SUCCESS : EXIT_FAILURE;
+    }
+    if (strcmp(argv[argument], "probe-extended") == 0) {
+        if (argc != argument + 2) { usage(argv[0]); return EXIT_FAILURE; }
+        RSSDDCProbe *probe = NULL;
+        RSSDDCError error = rss_ddc_probe_extended_for_display((uint32_t)display_index, &probe);
+        if (error != RSS_DDC_OK) { fprintf(stderr, "rss-ddc: %s\n", rss_ddc_error_string(error)); return EXIT_FAILURE; }
+        RSSDDCProbeExtendedDiagnostics diagnostics = {};
+        error = rss_ddc_probe_extended_diagnostics(probe, &diagnostics);
+        if (error == RSS_DDC_OK) print_probe_extended(&diagnostics);
         rss_ddc_probe_destroy(probe);
         if (error != RSS_DDC_OK) fprintf(stderr, "rss-ddc: %s\n", rss_ddc_error_string(error));
         return error == RSS_DDC_OK ? EXIT_SUCCESS : EXIT_FAILURE;

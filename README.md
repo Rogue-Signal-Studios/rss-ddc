@@ -118,6 +118,11 @@ knowledge](docs/monitor-knowledge.md).
 six standard VCPs are each read twice, with optional existing MCCS retrieval.
 It neither scans arbitrary VCPs nor performs a write. See [Alien Probe Quick](docs/alien-probe.md).
 
+`probe-extended` is a paced, read-only `0x00`–`0xFF` discovery pass that reuses the
+same strict observation semantics as Quick Probe. It records protocol-valid
+observations separately from MCCS advertisement and never promotes unadvertised
+stable replies into capability claims. See [Alien Probe Quick](docs/alien-probe.md).
+
 ## Provider model
 
 | Provider | Backend status | Capabilities |
