@@ -76,6 +76,15 @@ RSSDDCError rss_macos_discover_displays(RSSDDCDisplay *displays, size_t capacity
  * correlation before any provider backend is allowed to construct IOAVService.
  */
 RSSDDCError rss_macos_resolve_binding(uint32_t list_index, RSSMacOSBinding *binding);
+/**
+ * Resolves and releases a private binding while returning only a public
+ * snapshot. Keeping the binding allocation platform-owned prevents an
+ * incremental build from mixing a caller's old stack layout with a newer
+ * resolver layout.
+ */
+RSSDDCError rss_macos_get_display_snapshot(uint32_t list_index, RSSDDCDisplay *display,
+                                           RSSMacOSCorrelationFailure *failure,
+                                           char *detail, size_t detail_capacity);
 /** Captures optional identity evidence for Set-and-Verify without affecting plain GET/SET resolution. */
 bool rss_macos_capture_binding_identity(RSSMacOSBinding *binding);
 /** True only when a freshly correlated binding still proves the original display identity. */

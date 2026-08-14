@@ -33,7 +33,8 @@ TEST_SUPPORT_SOURCES = src/ddc/get_validation.c src/ddc/set_validation.c
 TESTS = \
 	$(BUILD)/test_protocol $(BUILD)/test_provider $(BUILD)/test_correlation $(BUILD)/test_enumeration \
 	$(BUILD)/test_dispatch $(BUILD)/test_verify $(BUILD)/test_edid $(BUILD)/test_dpcd \
-	$(BUILD)/test_dcpdpservice $(BUILD)/test_dcpdpservice_get $(BUILD)/test_dcpdpservice_set
+	$(BUILD)/test_dcpdpservice $(BUILD)/test_dcpdpservice_get $(BUILD)/test_dcpdpservice_set \
+	$(BUILD)/test_display_resolution
 
 .DEFAULT_GOAL := all
 
@@ -55,6 +56,10 @@ $(LIBRARY): $(LIBRARY_OBJECTS)
 
 $(NAME): $(LIBRARY) $(CLI_SOURCES)
 	$(CC) $(CFLAGS) $(CLI_SOURCES) $(LIBRARY) -o $@ $(LDLIBS)
+
+# Private bindings embed public display snapshots. Rebuild every library
+# object and the CLI together whenever either layout-defining header changes.
+$(LIBRARY_OBJECTS) $(NAME): include/rss_ddc.h src/platform/macos/macos_internal.h
 
 library: $(LIBRARY)
 
@@ -93,6 +98,9 @@ $(BUILD)/test_dcpdpservice_set: tests/test_dcpdpservice_set.c src/core/correlati
 	src/ddc/set_validation.c src/ddc/protocol.c | $(BUILD)
 	$(CC) $(CFLAGS) $^ -o $@
 
+$(BUILD)/test_display_resolution: tests/test_display_resolution.c src/core/rss_ddc.c src/core/provider.c | $(BUILD)
+	$(CC) $(CFLAGS) -pthread $^ -o $@
+
 check-library-sources: $(LIBRARY) $(TEST_SUPPORT_SOURCES)
 	@! $(AR) t $(LIBRARY) | grep -E '(get_validation|set_validation|(^|/)tests/|(^|/)cli/)'
 
@@ -108,6 +116,7 @@ test: $(TESTS) check-library-sources
 	$(BUILD)/test_dcpdpservice
 	$(BUILD)/test_dcpdpservice_get
 	$(BUILD)/test_dcpdpservice_set
+	$(BUILD)/test_display_resolution
 
 install-library: $(LIBRARY)
 	install -d $(DESTDIR)$(PREFIX)/include $(DESTDIR)$(PREFIX)/lib

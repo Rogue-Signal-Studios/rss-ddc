@@ -38,15 +38,14 @@ RSSDDCError rss_ddc_get_display(uint32_t list_index, RSSDDCDisplay *display) {
 RSSDDCError rss_ddc_get_display_with_diagnostics(uint32_t list_index, RSSDDCDisplay *display,
                                                   const RSSDDCDiagnostics *diagnostics) {
     if (display == NULL) return RSS_DDC_ERROR_ARGUMENT;
-    RSSMacOSBinding binding = {0};
-    RSSDDCError error = rss_macos_resolve_binding(list_index, &binding);
-    if (error == RSS_DDC_OK) *display = binding.display;
-    else {
-        rss_macos_diagnostic(diagnostics, rss_macos_correlation_failure_string(binding.correlation_failure));
-        const char *detail = rss_macos_correlation_detail_string(&binding);
-        if (detail != NULL) rss_macos_diagnostic(diagnostics, detail);
+    RSSMacOSCorrelationFailure failure = RSS_MACOS_CORRELATION_NONE;
+    char detail[RSS_DDC_TEXT_MAX * 2] = {};
+    RSSDDCError error = rss_macos_get_display_snapshot(list_index, display, &failure,
+                                                        detail, sizeof(detail));
+    if (error != RSS_DDC_OK) {
+        rss_macos_diagnostic(diagnostics, rss_macos_correlation_failure_string(failure));
+        if (detail[0] != '\0') rss_macos_diagnostic(diagnostics, detail);
     }
-    rss_macos_release_binding(&binding);
     return error;
 }
 
