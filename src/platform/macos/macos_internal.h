@@ -93,6 +93,10 @@ RSSDDCError rss_macos_get_mccs_capabilities_snapshot(uint32_t list_index,
 /** Resolves a heap-owned private binding and performs only the gated LG alternate-input write path. */
 RSSDDCError rss_macos_set_lg_alt_input_snapshot(uint32_t list_index, uint16_t value,
                                                 const RSSDDCDiagnostics *diagnostics);
+/** Experimental CLI-only snapshot helper; only write counts one and two are accepted. */
+RSSDDCError rss_macos_test_lg_alt_input_snapshot(uint32_t list_index, uint16_t value,
+                                                 unsigned int write_count,
+                                                 const RSSDDCDiagnostics *diagnostics);
 /** Captures optional identity evidence for Set-and-Verify without affecting plain GET/SET resolution. */
 bool rss_macos_capture_binding_identity(RSSMacOSBinding *binding);
 /** True only when a freshly correlated binding still proves the original display identity. */
@@ -125,6 +129,10 @@ RSSDDCError rss_macos_dp_set_vcp(RSSMacOSBinding *binding, uint8_t vcp_code, uin
 /** Executes the separately gated LG alternate-input transport; it never uses conventional Set VCP. */
 RSSDDCError rss_macos_dp_set_lg_alt_input(RSSMacOSBinding *binding, uint16_t value,
                                           const RSSDDCDiagnostics *diagnostics);
+/** Experimental CLI-only LG_ALT execution with an explicit one- or two-write count. */
+RSSDDCError rss_macos_dp_test_lg_alt_input(RSSMacOSBinding *binding, uint16_t value,
+                                           unsigned int write_count,
+                                           const RSSDDCDiagnostics *diagnostics);
 RSSDDCError rss_macos_mcdp_get_vcp(RSSMacOSBinding *binding, uint8_t vcp_code, RSSDDCVCPResult *result,
                                     const RSSDDCDiagnostics *diagnostics);
 RSSDDCError rss_macos_provider_get_vcp(RSSMacOSBinding *binding, uint8_t vcp_code, RSSDDCVCPResult *result,

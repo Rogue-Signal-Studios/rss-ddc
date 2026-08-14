@@ -12,6 +12,7 @@ enum {
     RSS_DDC_LG_ALT_INPUT_VCP = 0xf4u,
     RSS_DDC_LG_ALT_INPUT_CHIP = 0x37u,
     RSS_DDC_LG_ALT_INPUT_DATA = 0x50u,
+    RSS_DDC_LG_ALT_INPUT_MIN_WRITE_COUNT = 1u,
     RSS_DDC_LG_ALT_INPUT_WRITE_COUNT = 2u,
     RSS_DDC_LG_ALT_INPUT_PREWRITE_DELAY_US = 10000u,
 };
@@ -36,6 +37,8 @@ typedef struct {
 
 /** Returns true only for the three values hardware-validated on the documented LG. */
 bool rss_ddc_lg_alt_input_value_is_supported(uint16_t value);
+/** Test-only execution accepts only the experimental one-write or production two-write count. */
+bool rss_ddc_lg_alt_input_write_count_is_supported(unsigned int write_count);
 /**
  * Validates the exact target evidence before an alternate write: DCPDP13,
  * its normal safety gate, product name LG HDR QHD, and service role DCPEXT0.
@@ -44,8 +47,15 @@ RSSDDCError rss_ddc_validate_lg_alt_input_target(RSSDDCProvider provider, bool d
                                                  const char *product_name, const char *transport);
 /** Builds the fixed, six-byte validated alternate-input request. */
 RSSDDCError rss_ddc_prepare_lg_alt_input(uint16_t value, RSSDDCLGAltInputPlan *plan_out);
-/** Runs exactly two delayed writes; this interface has no read, verify, retry, or fallback callback. */
+/** Runs the production default of exactly two delayed writes. */
 RSSDDCError rss_ddc_run_lg_alt_input(RSSDDCProvider provider, uint16_t value,
                                      const RSSDDCLGAltInputCallbacks *callbacks);
+/**
+ * Internal test-only runner for a controlled one-write/two-write comparison.
+ * It has no read, verification, retry, restore, or fallback callback.
+ */
+RSSDDCError rss_ddc_run_lg_alt_input_with_write_count(RSSDDCProvider provider, uint16_t value,
+                                                       unsigned int write_count,
+                                                       const RSSDDCLGAltInputCallbacks *callbacks);
 
 #endif

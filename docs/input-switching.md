@@ -57,3 +57,11 @@ The CLI equivalent is:
 `LG_ALT` rejects every other value before display resolution or IOAV service
 construction. The provider capability reports only that DCPDP13 can issue this
 transport; the exact target gate is required before the first write.
+
+## Temporary A/B diagnostic
+
+The public API always performs two writes. During the controlled duplicate-write
+investigation only, the CLI also exposes an explicitly verbose, non-public test
+path: `rss-ddc --verbose input-test <display> lg-alt <value> --writes <1|2>`.
+It accepts only one or two writes, retains the exact packet and 10 ms pre-write
+delay, and never adds GET, verification, retry, restore, or fallback behavior.
