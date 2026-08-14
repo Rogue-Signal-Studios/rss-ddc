@@ -16,6 +16,13 @@ The core deliberately has no file, network, UI, product, enumeration, GET, or
 SET path. Future Alien Probe Quick/Extended scanning and Guided Discovery are
 planned consumers of this model, not part of it.
 
+Quick Auto Probe v1 is one such consumer. Its selected-display, read-only
+observations serialize into this same document format: standard VCP reads use
+their centralized semantic ids, `stable_get` evidence records stable replies,
+and MCCS advertisement uses `mccs_advertised`. Read current/max fields become
+observed ranges only; neither observation nor advertisement grants write
+authorization.
+
 Multiple compatible source documents can be combined with
 `rss_ddc_monitor_knowledge_merge`. The result is retained knowledge, not an
 effective operational decision; consumers resolve it separately.

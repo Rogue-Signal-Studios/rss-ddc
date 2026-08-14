@@ -921,6 +921,63 @@ typedef struct RSSDDCMonitorKnowledgeRangeResolution
     RSSDDCMonitorKnowledgeRangeResolution;
 typedef struct RSSDDCInputRouteResolution RSSDDCInputRouteResolution;
 
+/* Quick observation accepts an injected read-only transport. There is
+ * deliberately no write callback in this API. The selected display snapshot
+ * must come from one successful correlation, never a global match. */
+typedef enum {
+  RSS_DDC_PROBE_CORRELATION_EXACT = 0,
+  RSS_DDC_PROBE_CORRELATION_AMBIGUOUS,
+} RSSDDCProbeCorrelation;
+typedef RSSDDCError (*RSSDDCProbeGetVCP)(void *context, uint8_t vcp_code,
+                                         RSSDDCVCPResult *result);
+typedef RSSDDCError (*RSSDDCProbeGetMCCSCapabilities)(
+    void *context, RSSDDCMCCSCapabilities *capabilities);
+typedef struct {
+  void *context;
+  RSSDDCProbeGetVCP get_vcp;
+  RSSDDCProbeGetMCCSCapabilities get_mccs_capabilities;
+} RSSDDCProbeReadTransport;
+typedef struct {
+  RSSDDCDisplay display;
+  RSSDDCProbeCorrelation correlation;
+} RSSDDCProbeTarget;
+typedef struct {
+  const char *semantic_id;
+  uint8_t vcp_code;
+  RSSDDCError first_error;
+  RSSDDCError repeat_error;
+  bool readable;
+  bool stable;
+  uint16_t current_value;
+  uint16_t maximum_value;
+} RSSDDCProbeControlDiagnostic;
+typedef struct {
+  RSSDDCDisplay display;
+  RSSDDCError mccs_error;
+  size_t controls_attempted;
+  size_t controls_readable;
+  size_t controls_stable;
+  size_t controls_variable;
+  size_t controls_failed;
+  size_t control_count;
+  const RSSDDCProbeControlDiagnostic *controls;
+} RSSDDCProbeDiagnostics;
+typedef struct RSSDDCProbe RSSDDCProbe;
+
+RSSDDCError rss_ddc_probe_create(const RSSDDCProbeTarget *target,
+                                 const RSSDDCProbeReadTransport *transport,
+                                 RSSDDCProbe **probe);
+void rss_ddc_probe_destroy(RSSDDCProbe *probe);
+RSSDDCError rss_ddc_probe_quick(RSSDDCProbe *probe);
+RSSDDCError rss_ddc_probe_knowledge(const RSSDDCProbe *probe,
+                                    const RSSDDCMonitorKnowledge **knowledge);
+RSSDDCError rss_ddc_probe_diagnostics(const RSSDDCProbe *probe,
+                                      RSSDDCProbeDiagnostics *diagnostics);
+/** Convenience form for exactly one current list index. It performs only the
+ * public correlated display, Get VCP, and MCCS-capability reads. */
+RSSDDCError rss_ddc_probe_quick_for_display(uint32_t list_index,
+                                            RSSDDCProbe **probe);
+
 RSSDDCMonitorKnowledge *rss_ddc_monitor_knowledge_create(void);
 void rss_ddc_monitor_knowledge_destroy(RSSDDCMonitorKnowledge *knowledge);
 RSSDDCError

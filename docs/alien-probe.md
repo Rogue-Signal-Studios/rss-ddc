@@ -46,11 +46,30 @@ provenance, confidence, and hardware validation. Known semantic controls can
 be recorded as `secondary-correlator` rather than candidates for an unrelated
 feature.
 
-## Scope status
+## Quick Auto Probe v1
 
-This document establishes terminology and design direction. It does not claim
-that Quick/Extended Auto Probe or generic characterization APIs exist today.
+Quick Auto Probe is now available through the technical `rss_ddc_probe_*` API
+and `rss-ddc probe-quick <display-index>`. It accepts exactly one correlated
+display and performs only two kinds of provider operation: Get VCP for the
+six registry-defined standard controls and, where the selected provider
+already supports it, MCCS capabilities retrieval. The implementation has no
+write callback, so it cannot issue Set VCP, input switching, alternate LG
+writes, power changes, or experimental validation writes.
 
-The offline monitor-knowledge resolver is now a foundation dependency for
-those future stages. It performs no scanning, validation writes, or hardware
-access; it only selects and explains retained parsed knowledge.
+Each successful standard read is repeated once. Equal replies receive
+`stable_get` evidence; changing or failed repeats remain read observations and
+are surfaced as variable in probe diagnostics. Current/max values are retained
+as observed ranges, never as a safe write range. MCCS advertisement supplies
+`mccs_advertised` evidence and advertised enum raw values, but never write
+authority.
+
+Quick Probe produces a canonical `monitor-knowledge/v0.1` document with the
+selected display identity, provider/transport/branch metadata, observations,
+and diagnostics. It does not probe unknown VCP codes, discover Picture Mode,
+or compose profile knowledge; those belong to later Extended Auto Probe and
+profile-resolution consumers respectively.
+
+For a user-run inspection, first obtain the explicit display index with
+`./rss-ddc list`, then run `./rss-ddc probe-quick <display-index>` or add
+`--json` for canonical MonitorKnowledge output. Never use a list index from an
+earlier process invocation.
