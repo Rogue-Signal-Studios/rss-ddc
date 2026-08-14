@@ -1,6 +1,7 @@
 #include "rss_ddc.h"
 
 #include <ctype.h>
+#include <stdlib.h>
 #include <string.h>
 
 typedef struct {
@@ -8,14 +9,8 @@ typedef struct {
     size_t length;
 } RSSMCCSRange;
 
-static bool is_space(char value) {
-    return isspace((unsigned char)value) != 0;
-}
-
-static bool is_identifier_start(char value) {
-    return isalpha((unsigned char)value) != 0 || value == '_';
-}
-
+static bool is_space(char value) { return isspace((unsigned char)value) != 0; }
+static bool is_identifier_start(char value) { return isalpha((unsigned char)value) != 0 || value == '_'; }
 static bool is_identifier_char(char value) {
     return isalnum((unsigned char)value) != 0 || value == '_' || value == '-';
 }
@@ -31,8 +26,9 @@ static RSSDDCError validate_balanced(const char *raw, size_t length) {
     size_t depth = 0;
     for (size_t index = 0; index < length; ++index) {
         if (raw[index] == '\0') return RSS_DDC_ERROR_CAPABILITIES_MALFORMED;
-        if (raw[index] == '(') ++depth;
-        if (raw[index] == ')') {
+        if (raw[index] == '(') {
+            if (++depth > RSS_DDC_MCCS_CAPABILITIES_MAX_NESTING) return RSS_DDC_ERROR_CAPABILITIES_TOO_LARGE;
+        } else if (raw[index] == ')') {
             if (depth == 0) return RSS_DDC_ERROR_CAPABILITIES_MALFORMED;
             --depth;
         }
@@ -41,10 +37,14 @@ static RSSDDCError validate_balanced(const char *raw, size_t length) {
 }
 
 static RSSDDCError matching_parenthesis(RSSMCCSRange range, size_t open_index, size_t *close_index) {
+    if (close_index == NULL || open_index >= range.length || range.bytes[open_index] != '(') {
+        return RSS_DDC_ERROR_CAPABILITIES_MALFORMED;
+    }
     size_t depth = 0;
     for (size_t index = open_index; index < range.length; ++index) {
         if (range.bytes[index] == '(') ++depth;
-        if (range.bytes[index] == ')') {
+        else if (range.bytes[index] == ')') {
+            if (depth == 0) return RSS_DDC_ERROR_CAPABILITIES_MALFORMED;
             if (--depth == 0) {
                 *close_index = index;
                 return RSS_DDC_OK;
@@ -73,6 +73,7 @@ static RSSDDCError append_feature(RSSDDCMCCSCapabilities *capabilities, uint8_t 
 }
 
 static RSSDDCError parse_exact_hex_byte(RSSMCCSRange range, size_t *index, uint8_t *value) {
+    if (index == NULL || value == NULL || *index >= range.length) return RSS_DDC_ERROR_CAPABILITIES_MALFORMED;
     size_t start = *index;
     while (*index < range.length && isxdigit((unsigned char)range.bytes[*index])) ++*index;
     if (*index - start != 2) return RSS_DDC_ERROR_CAPABILITIES_MALFORMED;
@@ -163,27 +164,32 @@ RSSDDCError rss_ddc_parse_mccs_capabilities(const char *raw, size_t raw_length,
     RSSDDCError error = validate_balanced(raw, raw_length);
     if (error != RSS_DDC_OK) return error;
 
-    RSSDDCMCCSCapabilities parsed = {};
-    memcpy(parsed.raw, raw, raw_length);
-    parsed.raw_length = raw_length;
+    RSSDDCMCCSCapabilities *parsed = calloc(1, sizeof(*parsed));
+    if (parsed == NULL) return RSS_DDC_ERROR_SYSTEM;
+    memcpy(parsed->raw, raw, raw_length);
+    parsed->raw_length = raw_length;
     size_t start = 0;
     size_t end = raw_length;
     while (start < end && is_space(raw[start])) ++start;
     while (end > start && is_space(raw[end - 1])) --end;
-    if (start == end) return RSS_DDC_ERROR_CAPABILITIES_MALFORMED;
-    if (raw[start] == '(') {
+    if (start == end) error = RSS_DDC_ERROR_CAPABILITIES_MALFORMED;
+    if (error == RSS_DDC_OK && raw[start] == '(') {
         size_t close = 0;
         RSSMCCSRange whole = {.bytes = raw, .length = end};
         error = matching_parenthesis(whole, start, &close);
-        if (error != RSS_DDC_OK || close != end - 1) return RSS_DDC_ERROR_CAPABILITIES_MALFORMED;
-        ++start;
-        --end;
+        if (error == RSS_DDC_OK && close != end - 1) error = RSS_DDC_ERROR_CAPABILITIES_MALFORMED;
+        if (error == RSS_DDC_OK) {
+            ++start;
+            --end;
+        }
     }
-    RSSMCCSRange top_level = {.bytes = raw + start, .length = end - start};
-    error = parse_top_level_sections(top_level, &parsed);
-    if (error != RSS_DDC_OK) return error;
-    *capabilities = parsed;
-    return RSS_DDC_OK;
+    if (error == RSS_DDC_OK) {
+        RSSMCCSRange top_level = {.bytes = raw + start, .length = end - start};
+        error = parse_top_level_sections(top_level, parsed);
+    }
+    if (error == RSS_DDC_OK) *capabilities = *parsed;
+    free(parsed);
+    return error;
 }
 
 bool rss_ddc_mccs_capabilities_has_vcp(const RSSDDCMCCSCapabilities *capabilities, uint8_t vcp_code) {
@@ -195,8 +201,7 @@ bool rss_ddc_mccs_capabilities_has_vcp(const RSSDDCMCCSCapabilities *capabilitie
 }
 
 RSSDDCError rss_ddc_mccs_capabilities_enum_values(const RSSDDCMCCSCapabilities *capabilities,
-                                                  uint8_t vcp_code, const uint8_t **values,
-                                                  size_t *count) {
+                                                  uint8_t vcp_code, const uint8_t **values, size_t *count) {
     if (capabilities == NULL || values == NULL || count == NULL) return RSS_DDC_ERROR_ARGUMENT;
     for (size_t index = 0; index < capabilities->feature_count; ++index) {
         const RSSDDCMCCSVcpCapability *feature = &capabilities->features[index];

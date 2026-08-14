@@ -193,12 +193,6 @@ not make the providers interchangeable: the DP backend is selected only after
 the DCPDP13 per-display safety gate. The transaction was hardware-validated
 only as a same-state brightness SET on the documented LG DP path.
 
-Input selection is deliberately separate from generic VCP semantics. The
-public `rss_ddc_set_input` API keeps `STANDARD` on the existing `SetVCP(0x60)`
-dispatch, while its explicit `LG_ALT` method is gated to the validated
-`DCPDP13Service` transport. This gate asserts only transport availability; the
-caller must use monitor-specific evidence or an override to choose `LG_ALT`.
-
 SET remains write-only and GET remains an independent operation. On the tested
 LG, an immediate GET after SET returned an all-zero 11-byte frame; the strict
 parser rejected it as malformed. A GET after approximately one second, and

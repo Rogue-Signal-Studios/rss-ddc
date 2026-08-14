@@ -2,26 +2,9 @@
 
 `rss-ddc` is an early-stage, provider-driven macOS DDC/CI library and CLI from Rogue Signal Studios.
 
-[![Repository quality](https://github.com/Rogue-Signal-Studios/rss-ddc/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/Rogue-Signal-Studios/rss-ddc/actions/workflows/ci.yml)
-[![Coverage](https://img.shields.io/badge/coverage-LLVM%20report-5f8dd3)](https://rogue-signal-studios.github.io/rss-ddc/quality/)
-[![Security](https://img.shields.io/badge/security-CodeQL-2b6cb0)](https://github.com/Rogue-Signal-Studios/rss-ddc/security/code-scanning)
-[![Dependency review](https://img.shields.io/badge/dependencies-review%20on%20PR-6c7a89)](https://github.com/Rogue-Signal-Studios/rss-ddc/actions/workflows/dependency-review.yml)
-[![License](https://img.shields.io/github/license/Rogue-Signal-Studios/rss-ddc)](LICENSE)
-[![rss-ddc API](https://img.shields.io/badge/rss--ddc%20API-0.2.0-58d69c)](include/rss_ddc.h)
-
-The [Quality Dashboard](https://rogue-signal-studios.github.io/rss-ddc/quality/) shows the current main-build evidence, generated from CI artifacts rather than hand-maintained values. See [Quality and CI](docs/quality.md) for scope, local commands, and the GitHub Pages setup requirement.
-
 ## Status
 
 This milestone provides real macOS display/provider discovery, strict DDC/CI parsing, and provider-specific Service-path operations. PS190 GET/SET and DCPDP13 GET/SET are hardware-validated in `rss-ddc`; read-only native DPCD is hardware-validated on their documented paths. DCPDPService GET, SET, read-only DPCD, and Set-and-Verify are hardware-validated on the documented Mac Studio XL2730Z three-display topology (capabilities `0x0b`). Unsupported providers and capabilities return explicit errors rather than falling back to a guessed transport.
-
-MCCS capability retrieval is a public, caller-owned API for
-`DCPDP13Service` only. It was hardware-validated by a complete 35-request,
-336-byte LG HDR QHD retrieval with explicit completion and strict parsing.
-PS190, DCPDPService, and MCDP capability retrieval remain explicitly
-unsupported. Values are raw monitor-advertised candidates, not input labels or
-authorization for disruptive SET operations. See
-[MCCS capability discovery](docs/mccs-capability-discovery.md).
 
 The project uses Apple-private macOS interfaces inside the macOS backend only. Behavior can vary by macOS release, display provider, cable/adapter topology, and monitor firmware.
 
@@ -32,9 +15,15 @@ No portability beyond those documented setups is implied.
 
 ## CLI
 
+Presentation settings (`color`, `table`, `unicode`) are configurable via
+`~/.config/rss-ddc/rss-ddc.conf` or CLI flags such as `--color=no`. See
+[CLI output presentation](docs/cli-output.md).
+
 ```sh
 make
 ./rss-ddc list
+./rss-ddc --color=no --table=no list
+./rss-ddc --table=yes list
 ./rss-ddc info 1
 ./rss-ddc --verbose info 1
 ./rss-ddc get 1 0x10
@@ -46,6 +35,7 @@ make
 ./rss-ddc --verbose probe-dpcd-path 2
 ./rss-ddc --verbose get 2 0x10
 ./rss-ddc --verbose set 2 0x10 61
+./rss-ddc --verbose picture-mode 2 vivid
 ./rss-ddc --verbose set 2 0x10 62 --verify
 ./rss-ddc --verbose dpcd 2 0x00000 16
 ./rss-ddc --verbose get 1 0x10
@@ -53,12 +43,6 @@ make
 ./rss-ddc set 1 0x10 50 --verify
 ./rss-ddc --verbose set 2 0x10 100 --verify --settle-ms 100 --retries 3 --retry-delay-ms 250
 ```
-
-Input switching has an explicit public API with standard VCP `0x60` and the
-separately validated alternate transport. See
-[Input switching](docs/input-switching.md) for provider gating and
-monitor-profile requirements; the research record remains in
-[research-lg-input-framing.md](docs/research-lg-input-framing.md).
 
 PS190 `set` is hardware-validated only in the documented 25F84/Odyssey G75F scope. Do not assume that GET, SET, EDID, or the documented PS190 DPCD path applies to another provider, blocks 2+, or broader DPCD access.
 
@@ -119,11 +103,37 @@ This establishes an intermittent post-SET transient on that monitor, not a
 universal delay/retry requirement. Set-and-Verify does not alter the separately
 hardware-validated plain GET or plain SET provider transactions.
 
+`picture-mode` is a separate, profile-gated write-only semantic operation for
+the documented external `LG HDR QHD` / `DCPDP13Service` / `DCPEXT0` target.
+Only historically SET-validated `vivid` and `reader` are exposed. It uses the
+existing conventional DCPDP13 SetVCP framing for VCP `0x15`, not the LG F4
+input command, and performs no GET, verification, retry, restore, or fallback.
+See [Picture Mode](docs/picture-mode.md).
+
+Monitor profiles are now an offline JSON store/resolver with bounded parsing,
+transactional loads, atomic saves, and deterministic exact matching. They are
+metadata only in this slice and introduce no display transport behavior. See
+[Monitor profiles](docs/monitor-profiles.md).
+
+Monitor knowledge is a separate, bounded offline model that retains competing
+routes, values, and provenance before producing a deterministic effective view.
+It does not authorize or execute a monitor operation. See [Monitor
+knowledge](docs/monitor-knowledge.md).
+
+`probe-quick` is a bounded, explicitly read-only Alien Probe observation pass:
+six standard VCPs are each read twice, with optional existing MCCS retrieval.
+It neither scans arbitrary VCPs nor performs a write. See [Alien Probe Quick](docs/alien-probe.md).
+
+`probe-extended` is a paced, read-only `0x00`–`0xFF` discovery pass that reuses the
+same strict observation semantics as Quick Probe. It records protocol-valid
+observations separately from MCCS advertisement and never promotes unadvertised
+stable replies into capability claims. See [Alien Probe Quick](docs/alien-probe.md).
+
 ## Provider model
 
 | Provider | Backend status | Capabilities |
 | --- | --- | --- |
-| `DCPDP13Service` | conventional Service-path GET/SET and opt-in Set-and-Verify, native read-only DPCD, and bounded MCCS capability retrieval, hardware-validated on the documented LG DP setup; EDID unsupported | Get VCP, Set VCP, Read DPCD, MCCS Capabilities |
+| `DCPDP13Service` | conventional Service-path GET/SET and opt-in Set-and-Verify, plus native read-only DPCD, hardware-validated on the documented LG DP setup; EDID unsupported | Get VCP, Set VCP, Read DPCD |
 | `DCPDPService` | distinct registry class; conventional Service-path GET/SET/DPCD and Set-and-Verify hardware-validated on documented XL2730Z path (`0x0b`); EDID unsupported | Get VCP, Set VCP, Read DPCD |
 | `AppleDCPMCDP29XX` | classified only; all runtime capabilities unsupported | none |
 | `AppleDCPPS190` | raw GET, conventional SET, Device-path EDID blocks 0–1, and native DPCD reads hardware validated on the documented Odyssey topology | Get VCP, Set VCP, Read EDID, Read DPCD |
@@ -133,24 +143,6 @@ hardware-validated plain GET or plain SET provider transactions.
 framing. The provider comes from the selected Service proxy's immediate EPIC
 parent; a generic `IOPortTransportStateDisplayPort` node does not choose a
 backend because the PS190 HDMI topology can also expose that class.
-
-## MCCS capability consumer example
-
-```c
-RSSDDCMCCSCapabilities capabilities = {};
-if (rss_ddc_get_mccs_capabilities(display_index, &capabilities) == RSS_DDC_OK &&
-    rss_ddc_mccs_capabilities_has_vcp(&capabilities, 0x60)) {
-    const uint8_t *values = NULL;
-    size_t count = 0;
-    if (rss_ddc_mccs_capabilities_enum_values(&capabilities, 0x60, &values, &count) == RSS_DDC_OK) {
-        /* Consume only raw monitor-advertised values; do not infer connector labels. */
-    }
-}
-```
-
-`capabilities` is caller-owned, needs no cleanup function, and owns the raw
-string plus all parsed storage. On the validated LG, the raw VCP `0x60` values
-are `0x11`, `0x12`, `0x0f`, and `0x00`.
 
 ## Roadmap
 
@@ -229,7 +221,7 @@ The zero-capacity call is the first half of the documented two-call display
 snapshot pattern. It returns the observed count but does not open an IOAV
 client. GET, SET, EDID, and DPCD requests are explicit separate API calls.
 
-The public API is pre-1.0 (`0.2.0`), so source/API compatibility may evolve as
+The public API is pre-1.0 (`0.1.0`), so source/API compatibility may evolve as
 provider coverage matures. Consumers should pin an exact release or commit;
 the planned external consumer will pin rss-ddc rather than track `main`. No
 stable ABI promise is made before 1.0.

@@ -10,7 +10,7 @@ int main(void) {
     assert(rss_ddc_enumeration_write_count(3, 0) == 0);
     assert(rss_ddc_enumeration_write_count(3, 3) == 3);
     assert(rss_ddc_enumeration_write_count(3, 1) == 1);
-    assert(RSS_DDC_VERSION_MAJOR == 0 && RSS_DDC_VERSION_MINOR == 2 && RSS_DDC_VERSION_PATCH == 0);
+    assert(RSS_DDC_VERSION_MAJOR == 0 && RSS_DDC_VERSION_MINOR == 1 && RSS_DDC_VERSION_PATCH == 0);
     puts("test_enumeration: passed");
     return 0;
 }

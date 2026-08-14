@@ -38,15 +38,14 @@ RSSDDCError rss_ddc_get_display(uint32_t list_index, RSSDDCDisplay *display) {
 RSSDDCError rss_ddc_get_display_with_diagnostics(uint32_t list_index, RSSDDCDisplay *display,
                                                   const RSSDDCDiagnostics *diagnostics) {
     if (display == NULL) return RSS_DDC_ERROR_ARGUMENT;
-    RSSMacOSBinding binding = {0};
-    RSSDDCError error = rss_macos_resolve_binding(list_index, &binding);
-    if (error == RSS_DDC_OK) *display = binding.display;
-    else {
-        rss_macos_diagnostic(diagnostics, rss_macos_correlation_failure_string(binding.correlation_failure));
-        const char *detail = rss_macos_correlation_detail_string(&binding);
-        if (detail != NULL) rss_macos_diagnostic(diagnostics, detail);
+    RSSMacOSCorrelationFailure failure = RSS_MACOS_CORRELATION_NONE;
+    char detail[RSS_DDC_TEXT_MAX * 2] = {};
+    RSSDDCError error = rss_macos_get_display_snapshot(list_index, display, &failure,
+                                                        detail, sizeof(detail));
+    if (error != RSS_DDC_OK) {
+        rss_macos_diagnostic(diagnostics, rss_macos_correlation_failure_string(failure));
+        if (detail[0] != '\0') rss_macos_diagnostic(diagnostics, detail);
     }
-    rss_macos_release_binding(&binding);
     return error;
 }
 
@@ -112,6 +111,7 @@ RSSDDCError rss_ddc_probe_dpcd_path_with_diagnostics(uint32_t list_index, const 
     return rss_macos_probe_dpcd_path(list_index, diagnostics);
 }
 
+/** Retrieves only the independently validated DCPDP13 MCCS capabilities path. */
 RSSDDCError rss_ddc_get_mccs_capabilities(uint32_t list_index, RSSDDCMCCSCapabilities *capabilities) {
     return rss_ddc_get_mccs_capabilities_with_diagnostics(list_index, capabilities, NULL);
 }
@@ -120,16 +120,7 @@ RSSDDCError rss_ddc_get_mccs_capabilities_with_diagnostics(uint32_t list_index,
                                                            RSSDDCMCCSCapabilities *capabilities,
                                                            const RSSDDCDiagnostics *diagnostics) {
     if (capabilities == NULL) return RSS_DDC_ERROR_ARGUMENT;
-    RSSMacOSBinding binding = {0};
-    RSSDDCError error = rss_macos_resolve_binding(list_index, &binding);
-    if (error == RSS_DDC_OK) {
-        diagnostic_binding(&binding, diagnostics);
-        error = rss_macos_provider_get_mccs_capabilities(&binding, capabilities, diagnostics);
-    } else {
-        rss_macos_diagnostic(diagnostics, rss_macos_correlation_failure_string(binding.correlation_failure));
-    }
-    rss_macos_release_binding(&binding);
-    return error;
+    return rss_macos_get_mccs_capabilities_snapshot(list_index, capabilities, diagnostics);
 }
 
 /** Keeps the concise API free of diagnostics while sharing the same validation path. */

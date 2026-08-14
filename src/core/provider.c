@@ -30,12 +30,17 @@ const char *rss_ddc_error_string(RSSDDCError error) {
         case RSS_DDC_ERROR_VERIFY_MISMATCH: return "verification value did not match after all attempts";
         case RSS_DDC_ERROR_VERIFY_RETRY_EXHAUSTED: return "verification retries exhausted after transient GET failures";
         case RSS_DDC_ERROR_VERIFY_UNAVAILABLE: return "SET completed but the original display is unavailable for safe verification";
-        case RSS_DDC_ERROR_CAPABILITIES_MALFORMED: return "MCCS capabilities data is malformed or incomplete";
-        case RSS_DDC_ERROR_CAPABILITIES_TOO_LARGE: return "MCCS capabilities data exceeds the supported bound";
+        case RSS_DDC_ERROR_SYSTEM: return "macOS system error";
+        case RSS_DDC_ERROR_CAPABILITIES_MALFORMED: return "MCCS capabilities string is malformed";
+        case RSS_DDC_ERROR_CAPABILITIES_TOO_LARGE: return "MCCS capabilities data exceeds its supported bound";
         case RSS_DDC_ERROR_CAPABILITIES_REQUEST_LIMIT: return "MCCS capabilities request limit exceeded";
         case RSS_DDC_ERROR_CAPABILITIES_OFFSET_OVERFLOW: return "MCCS capabilities offset overflow";
         case RSS_DDC_ERROR_CAPABILITIES_INCOMPLETE: return "MCCS capabilities retrieval did not reach completion";
-        case RSS_DDC_ERROR_SYSTEM: return "macOS system error";
+        case RSS_DDC_ERROR_PROFILE_MALFORMED: return "monitor profile data is malformed";
+        case RSS_DDC_ERROR_PROFILE_SCHEMA: return "monitor profile schema is unsupported";
+        case RSS_DDC_ERROR_PROFILE_VERSION: return "monitor profile requires a newer rss-ddc version";
+        case RSS_DDC_ERROR_PROFILE_CONFLICT: return "monitor profile data is ambiguous or conflicting";
+        case RSS_DDC_ERROR_PROFILE_UNSAFE: return "monitor profile requests an unsafe unauthorized operation";
     }
     return "unknown error";
 }

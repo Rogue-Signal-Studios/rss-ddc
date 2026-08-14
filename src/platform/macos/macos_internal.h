@@ -77,6 +77,26 @@ RSSDDCError rss_macos_discover_displays(RSSDDCDisplay *displays, size_t capacity
  * correlation before any provider backend is allowed to construct IOAVService.
  */
 RSSDDCError rss_macos_resolve_binding(uint32_t list_index, RSSMacOSBinding *binding);
+/**
+ * Resolves and releases a private binding while returning only a public
+ * snapshot. Keeping the binding allocation platform-owned prevents an
+ * incremental build from mixing a caller's old stack layout with a newer
+ * resolver layout.
+ */
+RSSDDCError rss_macos_get_display_snapshot(uint32_t list_index, RSSDDCDisplay *display,
+                                           RSSMacOSCorrelationFailure *failure,
+                                           char *detail, size_t detail_capacity);
+/** Resolves a private binding on the heap and performs only DCPDP13 MCCS retrieval. */
+RSSDDCError rss_macos_get_mccs_capabilities_snapshot(uint32_t list_index,
+                                                      RSSDDCMCCSCapabilities *capabilities,
+                                                      const RSSDDCDiagnostics *diagnostics);
+/** Resolves a heap-owned private binding and performs only the gated LG alternate-input write path. */
+RSSDDCError rss_macos_set_lg_alt_input_snapshot(uint32_t list_index, uint16_t value,
+                                                const RSSDDCDiagnostics *diagnostics);
+/** Resolves a heap-owned binding and performs only the exact profile-gated Picture Mode SET. */
+RSSDDCError rss_macos_set_lg_picture_mode_snapshot(uint32_t list_index, uint8_t vcp_code, uint16_t value,
+                                                    const char *mode_name,
+                                                    const RSSDDCDiagnostics *diagnostics);
 /** Captures optional identity evidence for Set-and-Verify without affecting plain GET/SET resolution. */
 bool rss_macos_capture_binding_identity(RSSMacOSBinding *binding);
 /** True only when a freshly correlated binding still proves the original display identity. */
@@ -106,7 +126,7 @@ RSSDDCError rss_macos_dcpdpservice_get_vcp(RSSMacOSBinding *binding, uint8_t vcp
                                             const RSSDDCDiagnostics *diagnostics);
 RSSDDCError rss_macos_dp_set_vcp(RSSMacOSBinding *binding, uint8_t vcp_code, uint16_t value,
                                  const RSSDDCDiagnostics *diagnostics);
-/** Hardware-validated alternate input transport; caller selection remains monitor-profile driven. */
+/** Executes the separately gated LG alternate-input transport; it never uses conventional Set VCP. */
 RSSDDCError rss_macos_dp_set_lg_alt_input(RSSMacOSBinding *binding, uint16_t value,
                                           const RSSDDCDiagnostics *diagnostics);
 RSSDDCError rss_macos_mcdp_get_vcp(RSSMacOSBinding *binding, uint8_t vcp_code, RSSDDCVCPResult *result,
@@ -115,18 +135,22 @@ RSSDDCError rss_macos_provider_get_vcp(RSSMacOSBinding *binding, uint8_t vcp_cod
                                         const RSSDDCDiagnostics *diagnostics);
 RSSDDCError rss_macos_provider_set_vcp(RSSMacOSBinding *binding, uint8_t vcp_code, uint16_t value,
                                         const RSSDDCDiagnostics *diagnostics);
+/** Dispatches only the explicit LG alternate-input backend; no sibling-provider fallback exists. */
 RSSDDCError rss_macos_provider_set_lg_alt_input(RSSMacOSBinding *binding, uint16_t value,
                                                  const RSSDDCDiagnostics *diagnostics);
 RSSDDCError rss_macos_provider_read_edid(RSSMacOSBinding *binding, RSSDDCEDID *edid,
                                          const RSSDDCDiagnostics *diagnostics);
 RSSDDCError rss_macos_provider_read_dpcd(RSSMacOSBinding *binding, uint32_t address, uint8_t *buffer,
                                          size_t length, const RSSDDCDiagnostics *diagnostics);
+/** Dispatches only the explicitly supported DCPDP13 MCCS capabilities backend. */
 RSSDDCError rss_macos_provider_get_mccs_capabilities(RSSMacOSBinding *binding,
                                                      RSSDDCMCCSCapabilities *capabilities,
                                                      const RSSDDCDiagnostics *diagnostics);
+/** Reads bounded F3/E3 MCCS fragments through the DCPDP13-specific service tuple. */
 RSSDDCError rss_macos_dp_get_mccs_capabilities(RSSMacOSBinding *binding,
                                                RSSDDCMCCSCapabilities *capabilities,
                                                const RSSDDCDiagnostics *diagnostics);
 /** Registry-only conventional-DP candidate reporting; it never creates IODP/IOAV objects. */
 RSSDDCError rss_macos_probe_dpcd_path(uint32_t list_index, const RSSDDCDiagnostics *diagnostics);
+
 #endif

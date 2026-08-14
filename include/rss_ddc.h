@@ -11,7 +11,7 @@ extern "C" {
 
 /* Pre-1.0 API marker: source compatibility may evolve as provider coverage matures. */
 #define RSS_DDC_VERSION_MAJOR 0
-#define RSS_DDC_VERSION_MINOR 2
+#define RSS_DDC_VERSION_MINOR 1
 #define RSS_DDC_VERSION_PATCH 0
 
 /** Runtime provider classes derived from the macOS registry, never CPU generation. */
@@ -36,17 +36,19 @@ typedef enum {
     RSS_DDC_BACKEND_PS190,
 } RSSDDCBackend;
 
-/** Independent capabilities. A provider must opt in to each one after validation. */
+/** Independent capabilities. Provider and exact-profile capabilities are documented separately. */
 typedef enum {
     RSS_DDC_CAP_NONE = 0,
     RSS_DDC_CAP_GET_VCP = 1u << 0,
     RSS_DDC_CAP_SET_VCP = 1u << 1,
     RSS_DDC_CAP_READ_EDID = 1u << 2,
     RSS_DDC_CAP_READ_DPCD = 1u << 3,
-    /** Provider can retrieve and strictly parse one complete MCCS capabilities string. */
+    /** DCPDP13 can retrieve and strictly parse a complete MCCS capabilities string. */
     RSS_DDC_CAP_MCCS_CAPABILITIES = 1u << 4,
-    /** Provider can issue the separately validated alternate input transport. */
+    /** DCPDP13 can issue the separately validated LG alternate-input transport. */
     RSS_DDC_CAP_ALTERNATE_INPUT = 1u << 5,
+    /** An exact monitor profile has an evidence-backed semantic Picture Mode operation. */
+    RSS_DDC_CAP_PICTURE_MODE = 1u << 6,
 } RSSDDCCapability;
 
 /** Stable operation outcomes; reply failures remain specific so malformed data is never accepted. */
@@ -76,12 +78,22 @@ typedef enum {
     RSS_DDC_ERROR_VERIFY_MISMATCH,
     RSS_DDC_ERROR_VERIFY_RETRY_EXHAUSTED,
     RSS_DDC_ERROR_VERIFY_UNAVAILABLE,
-    RSS_DDC_ERROR_CAPABILITIES_MALFORMED,
-    RSS_DDC_ERROR_CAPABILITIES_TOO_LARGE,
-    RSS_DDC_ERROR_CAPABILITIES_REQUEST_LIMIT,
-    RSS_DDC_ERROR_CAPABILITIES_OFFSET_OVERFLOW,
-    RSS_DDC_ERROR_CAPABILITIES_INCOMPLETE,
     RSS_DDC_ERROR_SYSTEM,
+    /** A bounded MCCS capabilities string is syntactically invalid. */
+    RSS_DDC_ERROR_CAPABILITIES_MALFORMED,
+    /** A capabilities string or parsed model exceeds an explicit bound. */
+    RSS_DDC_ERROR_CAPABILITIES_TOO_LARGE,
+    /** MCCS retrieval exceeded its bounded fragment request count. */
+    RSS_DDC_ERROR_CAPABILITIES_REQUEST_LIMIT,
+    /** MCCS fragment progression would exceed the 16-bit protocol offset. */
+    RSS_DDC_ERROR_CAPABILITIES_OFFSET_OVERFLOW,
+    /** MCCS retrieval ended without an explicit zero-length terminator. */
+    RSS_DDC_ERROR_CAPABILITIES_INCOMPLETE,
+    RSS_DDC_ERROR_PROFILE_MALFORMED,
+    RSS_DDC_ERROR_PROFILE_SCHEMA,
+    RSS_DDC_ERROR_PROFILE_VERSION,
+    RSS_DDC_ERROR_PROFILE_CONFLICT,
+    RSS_DDC_ERROR_PROFILE_UNSAFE,
 } RSSDDCError;
 
 enum {
@@ -93,15 +105,20 @@ enum {
     RSS_DDC_DPCD_MAX_READ_BYTES = 16,
     /** DisplayPort DPCD uses a 20-bit register address. */
     RSS_DDC_DPCD_MAX_ADDRESS = 0x000fffff,
-    /**
-     * MCCS capabilities strings are variable length. This bound permits more
-     * than 100 maximum-size (32-byte) protocol fragments while keeping the
-     * caller-owned parsed object bounded and stack-safe.
-     */
+    /** Maximum raw bytes preserved by the pure MCCS capabilities parser. */
     RSS_DDC_MCCS_CAPABILITIES_MAX_BYTES = 4096,
+    /** Maximum monitor-advertised VCP feature codes represented in one model. */
     RSS_DDC_MCCS_CAPABILITIES_MAX_FEATURES = 256,
-    /** 4096 bytes cannot encode more than 1365 separated two-digit values. */
+    /** Maximum raw enum bytes represented across all advertised VCP features. */
     RSS_DDC_MCCS_CAPABILITIES_MAX_ENUM_VALUES = 1400,
+    /** Nested unknown MCCS tokens are accepted only to this structural depth. */
+    RSS_DDC_MCCS_CAPABILITIES_MAX_NESTING = 32,
+    RSS_DDC_PROFILE_FILE_MAX_BYTES = 65536,
+    RSS_DDC_PROFILE_MAX_PROFILES = 32,
+    RSS_DDC_PROFILE_MAX_CONTROLS = 16,
+    RSS_DDC_PROFILE_MAX_ENUM_VALUES = 32,
+    RSS_DDC_PROFILE_ID_MAX = 64,
+    RSS_DDC_PROFILE_VERSION_MAX = 64,
 };
 
 /**
@@ -129,7 +146,7 @@ typedef struct {
     uint16_t current_value;
 } RSSDDCVCPResult;
 
-/** One monitor-advertised VCP feature, with an optional slice of enum_values. */
+/** One monitor-advertised VCP code and its optional raw enum-value slice. */
 typedef struct {
     uint8_t vcp_code;
     size_t enum_value_offset;
@@ -138,9 +155,8 @@ typedef struct {
 
 /**
  * Caller-owned, bounded result of parsing an MCCS capabilities string. The
- * `raw` bytes are preserved verbatim and NUL-terminated for diagnostics.
- * Values are raw monitor-advertised bytes; rss-ddc intentionally assigns no
- * friendly labels and does not infer that a SET is safe.
+ * raw bytes preserve unknown tokens verbatim and are NUL-terminated solely
+ * for diagnostics. No capability in this model authorizes a display write.
  */
 typedef struct {
     char raw[RSS_DDC_MCCS_CAPABILITIES_MAX_BYTES + 1];
@@ -235,15 +251,100 @@ typedef struct {
 } RSSDDCDiagnostics;
 
 /**
- * An explicit input-switching mechanism selected by the caller's monitor
- * profile or user preference. This says nothing about a monitor's identity.
+ * Input selection deliberately distinguishes the ordinary MCCS VCP from the
+ * one independently validated LG-specific transport.  The caller must choose
+ * the method from monitor-specific evidence; this enum does not infer it.
  */
 typedef enum {
-    /** Standards-oriented MCCS input-source selection through VCP 0x60. */
+    /** Use the existing provider-specific Set VCP path for MCCS VCP 0x60. */
     RSS_DDC_INPUT_SWITCH_STANDARD = 0,
-    /** Hardware-validated alternate transport; provider support is independently gated. */
+    /** Use the narrowly gated, write-only LG alternate-input transport. */
     RSS_DDC_INPUT_SWITCH_LG_ALT,
 } RSSDDCInputSwitchMethod;
+
+/**
+ * Friendly Picture Mode values for the one documented monitor profile. These
+ * names are not generic MCCS semantics and deliberately expose no raw value.
+ */
+typedef enum {
+    RSS_DDC_PICTURE_MODE_UNKNOWN = 0,
+    RSS_DDC_PICTURE_MODE_VIVID,
+    RSS_DDC_PICTURE_MODE_READER,
+} RSSDDCPictureMode;
+
+/** Profile provenance and evidence remain pure metadata in this slice. */
+typedef enum { RSS_DDC_PROFILE_SOURCE_BUILTIN = 0, RSS_DDC_PROFILE_SOURCE_VALIDATED_PACK,
+               RSS_DDC_PROFILE_SOURCE_LOCAL, RSS_DDC_PROFILE_SOURCE_RESEARCH } RSSDDCProfileSource;
+typedef enum { RSS_DDC_PROFILE_CONFIDENCE_UNKNOWN = 0, RSS_DDC_PROFILE_CONFIDENCE_CANDIDATE,
+               RSS_DDC_PROFILE_CONFIDENCE_OBSERVED, RSS_DDC_PROFILE_CONFIDENCE_CORRELATED,
+               RSS_DDC_PROFILE_CONFIDENCE_SET_OBSERVED,
+               RSS_DDC_PROFILE_CONFIDENCE_HARDWARE_VALIDATED } RSSDDCProfileConfidence;
+typedef enum { RSS_DDC_PROFILE_CONTROL_UNKNOWN = 0, RSS_DDC_PROFILE_CONTROL_PICTURE_MODE,
+               RSS_DDC_PROFILE_CONTROL_INPUT, RSS_DDC_PROFILE_CONTROL_BRIGHTNESS,
+               RSS_DDC_PROFILE_CONTROL_CONTRAST, RSS_DDC_PROFILE_CONTROL_COLOR_PRESET,
+               RSS_DDC_PROFILE_CONTROL_RESPONSE_TIME, RSS_DDC_PROFILE_CONTROL_ADAPTIVE_SYNC,
+               RSS_DDC_PROFILE_CONTROL_ENERGY_SAVING, RSS_DDC_PROFILE_CONTROL_BLACK_STABILIZER,
+               RSS_DDC_PROFILE_CONTROL_GAMMA, RSS_DDC_PROFILE_CONTROL_SHARPNESS,
+               RSS_DDC_PROFILE_CONTROL_AUDIO_MUTE } RSSDDCProfileControlID;
+typedef enum { RSS_DDC_PROFILE_METHOD_UNKNOWN = 0, RSS_DDC_PROFILE_METHOD_VCP,
+               RSS_DDC_PROFILE_METHOD_LG_ALT_INPUT } RSSDDCProfileMethod;
+
+/** Persistable matching facts; live list indexes and IOKit identities are intentionally absent. */
+typedef struct {
+    char manufacturer[RSS_DDC_TEXT_MAX], product_name[RSS_DDC_TEXT_MAX], serial[RSS_DDC_TEXT_MAX];
+    char branch_device_id[RSS_DDC_TEXT_MAX], transport[RSS_DDC_TEXT_MAX];
+    RSSDDCProvider provider;
+    bool external;
+} RSSDDCProfileIdentity;
+typedef struct { char id[RSS_DDC_PROFILE_ID_MAX], name[RSS_DDC_TEXT_MAX]; uint16_t raw_value; } RSSDDCProfileEnumValue;
+/** Stored control data only; `write_authorized` cannot execute a transport operation. */
+typedef struct {
+    RSSDDCProfileControlID id; RSSDDCProfileMethod method; uint16_t address;
+    bool readable, writable, write_authorized;
+    RSSDDCProfileSource source; RSSDDCProfileConfidence confidence;
+    size_t enum_value_count;
+    RSSDDCProfileEnumValue enum_values[RSS_DDC_PROFILE_MAX_ENUM_VALUES];
+} RSSDDCProfileControl;
+/** Caller-owned result; resolver changes it only on success. */
+typedef struct {
+    RSSDDCProfileIdentity identity; size_t control_count;
+    RSSDDCProfileControl controls[RSS_DDC_PROFILE_MAX_CONTROLS];
+} RSSDDCEffectiveProfile;
+typedef struct {
+    uint32_t schema_version;
+    char database_version[RSS_DDC_PROFILE_VERSION_MAX], minimum_rss_ddc_version[RSS_DDC_PROFILE_VERSION_MAX];
+    char pack_id[RSS_DDC_PROFILE_ID_MAX];
+} RSSDDCProfilePackInfo;
+/** Opaque, heap-owned store. Parsing and resolution never contact hardware. */
+typedef struct RSSDDCProfileStore RSSDDCProfileStore;
+
+/**
+ * Pure monitor-knowledge facts. Distinct sources are retained even when their
+ * values agree; a resolved view never erases their provenance.
+ */
+typedef enum { RSS_DDC_KNOWLEDGE_VALUE_UNKNOWN = 0, RSS_DDC_KNOWLEDGE_VALUE_UNSIGNED,
+               RSS_DDC_KNOWLEDGE_VALUE_STRING, RSS_DDC_KNOWLEDGE_VALUE_UNSUPPORTED } RSSDDCKnowledgeValueState;
+typedef enum { RSS_DDC_KNOWLEDGE_ROUTE_UNKNOWN = 0, RSS_DDC_KNOWLEDGE_ROUTE_STANDARD_VCP,
+               RSS_DDC_KNOWLEDGE_ROUTE_LG_ALT_INPUT, RSS_DDC_KNOWLEDGE_ROUTE_PICTURE_MODE,
+               RSS_DDC_KNOWLEDGE_ROUTE_UNSUPPORTED } RSSDDCKnowledgeRouteKind;
+typedef enum { RSS_DDC_KNOWLEDGE_FACT_DECLARED = 0, RSS_DDC_KNOWLEDGE_FACT_PROFILE,
+               RSS_DDC_KNOWLEDGE_FACT_OBSERVED, RSS_DDC_KNOWLEDGE_FACT_INFERRED,
+               RSS_DDC_KNOWLEDGE_FACT_RESOLVED } RSSDDCKnowledgeFactKind;
+typedef enum { RSS_DDC_KNOWLEDGE_RESOLUTION_UNRESOLVED = 0,
+               RSS_DDC_KNOWLEDGE_RESOLUTION_RESOLVED,
+               RSS_DDC_KNOWLEDGE_RESOLUTION_CONFLICT } RSSDDCKnowledgeResolutionState;
+typedef struct { RSSDDCKnowledgeValueState state; uint16_t unsigned_value; char string_value[RSS_DDC_TEXT_MAX]; } RSSDDCKnowledgeValue;
+typedef struct { char source_id[RSS_DDC_PROFILE_ID_MAX]; RSSDDCProfileSource source;
+                 RSSDDCProfileConfidence confidence; RSSDDCKnowledgeFactKind fact_kind;
+                 char evidence_id[RSS_DDC_PROFILE_ID_MAX]; } RSSDDCKnowledgeProvenance;
+typedef struct { char semantic_id[RSS_DDC_TEXT_MAX], route_id[RSS_DDC_PROFILE_ID_MAX];
+                 RSSDDCKnowledgeRouteKind kind; uint16_t address; bool readable, writable;
+                 bool write_authorized; char transport_family[RSS_DDC_TEXT_MAX];
+                 char command_semantics[RSS_DDC_TEXT_MAX]; char applicability[RSS_DDC_TEXT_MAX];
+                 bool reported_maximum_present; uint16_t reported_maximum;
+                 RSSDDCKnowledgeValue value; RSSDDCKnowledgeProvenance provenance; } RSSDDCKnowledgeRoute;
+typedef struct RSSDDCMonitorKnowledge RSSDDCMonitorKnowledge;
+typedef struct RSSDDCMonitorKnowledgeResolution RSSDDCMonitorKnowledgeResolution;
 
 /** Returns a static, human-readable name for an error or provider. */
 const char *rss_ddc_error_string(RSSDDCError error);
@@ -257,32 +358,168 @@ RSSDDCProvider rss_ddc_provider_from_registry_class(const char *provider_class);
 /** Returns only the independently validated capabilities for a provider. */
 uint32_t rss_ddc_provider_capabilities(RSSDDCProvider provider);
 
+/** Create/destroy transfer sole ownership of a heap-backed offline profile store. */
+RSSDDCProfileStore *rss_ddc_profile_store_create(void);
+void rss_ddc_profile_store_destroy(RSSDDCProfileStore *store);
+/** All loads are transactional: failure leaves `store` unchanged. */
+RSSDDCError rss_ddc_profile_store_load_builtin(RSSDDCProfileStore *store);
+RSSDDCError rss_ddc_profile_store_load_pack_data(RSSDDCProfileStore *store, const char *data, size_t length);
+RSSDDCError rss_ddc_profile_store_load_local_data(RSSDDCProfileStore *store, const char *data, size_t length);
+RSSDDCError rss_ddc_profile_store_load_research_data(RSSDDCProfileStore *store, const char *data, size_t length);
+RSSDDCError rss_ddc_profile_store_load_pack_file(RSSDDCProfileStore *store, const char *path);
+RSSDDCError rss_ddc_profile_store_load_local_file(RSSDDCProfileStore *store, const char *path);
+RSSDDCError rss_ddc_profile_store_load_research_file(RSSDDCProfileStore *store, const char *path);
+/** Validates bytes without changing a store; `info` is written only after success. */
+RSSDDCError rss_ddc_profile_validate_pack_data(const char *data, size_t length, RSSDDCProfileSource source,
+                                               RSSDDCProfilePackInfo *info);
+RSSDDCError rss_ddc_profile_store_pack_info(const RSSDDCProfileStore *store, RSSDDCProfilePackInfo *info);
+/** Export is caller-buffer owned; NULL/0 queries required bytes including NUL. */
+RSSDDCError rss_ddc_profile_store_export_json(const RSSDDCProfileStore *store, char *buffer, size_t capacity,
+                                              size_t *required);
+/** Save writes a complete temporary file and atomically renames it over `path` on success. */
+RSSDDCError rss_ddc_profile_store_save_file(const RSSDDCProfileStore *store, const char *path);
+/** Pure deterministic resolution; caller output remains unchanged on failure. */
+RSSDDCError rss_ddc_profile_store_resolve(const RSSDDCProfileStore *store, const RSSDDCProfileIdentity *identity,
+                                          RSSDDCEffectiveProfile *effective);
+size_t rss_ddc_effective_profile_control_count(const RSSDDCEffectiveProfile *effective);
+RSSDDCError rss_ddc_effective_profile_control(const RSSDDCEffectiveProfile *effective, size_t index,
+                                              RSSDDCProfileControl *control);
+RSSDDCError rss_ddc_profile_control_enum_value(const RSSDDCProfileControl *control, size_t index,
+                                               RSSDDCProfileEnumValue *value);
+/** Copies only an existing public snapshot into a persistable identity; it never discovers displays. */
+void rss_ddc_profile_identity_from_display(const RSSDDCDisplay *display, RSSDDCProfileIdentity *identity);
+const char *rss_ddc_profile_control_name(RSSDDCProfileControlID id);
+const char *rss_ddc_profile_source_name(RSSDDCProfileSource source);
+const char *rss_ddc_profile_confidence_name(RSSDDCProfileConfidence confidence);
+/** Heap-owned pure knowledge objects; add/merge never executes a monitor operation. */
+RSSDDCMonitorKnowledge *rss_ddc_monitor_knowledge_create(void);
+void rss_ddc_monitor_knowledge_destroy(RSSDDCMonitorKnowledge *knowledge);
+RSSDDCError rss_ddc_monitor_knowledge_add_route(RSSDDCMonitorKnowledge *knowledge,
+                                                 const RSSDDCKnowledgeRoute *route);
+/**
+ * Copies a Slice 5 profile control as one profile-derived fact. The resulting
+ * record is metadata only: it neither selects a live display nor authorizes
+ * or performs a transport operation.
+ */
+RSSDDCError rss_ddc_monitor_knowledge_add_profile_control(RSSDDCMonitorKnowledge *knowledge,
+                                                           const char *semantic_id,
+                                                           const char *source_id,
+                                                           const RSSDDCProfileControl *control);
+size_t rss_ddc_monitor_knowledge_route_count(const RSSDDCMonitorKnowledge *knowledge);
+/** Returns a borrowed immutable route valid until `knowledge` is changed or destroyed. */
+const RSSDDCKnowledgeRoute *rss_ddc_monitor_knowledge_route_at(const RSSDDCMonitorKnowledge *knowledge, size_t index);
+/** Transactionally creates a deep-copied union retaining every non-identical source route. */
+RSSDDCError rss_ddc_monitor_knowledge_merge(const RSSDDCMonitorKnowledge *first,
+                                            const RSSDDCMonitorKnowledge *second,
+                                            RSSDDCMonitorKnowledge **merged);
+/** Resolves one semantic control; all candidate routes and provenance remain borrowed from the sources. */
+RSSDDCError rss_ddc_monitor_knowledge_resolve(const RSSDDCMonitorKnowledge *const *sources, size_t source_count,
+                                              const char *semantic_id, RSSDDCMonitorKnowledgeResolution **resolution);
+void rss_ddc_monitor_knowledge_resolution_destroy(RSSDDCMonitorKnowledgeResolution *resolution);
+RSSDDCKnowledgeResolutionState rss_ddc_monitor_knowledge_resolution_state(const RSSDDCMonitorKnowledgeResolution *resolution);
+bool rss_ddc_monitor_knowledge_resolution_has_conflict(const RSSDDCMonitorKnowledgeResolution *resolution);
+const RSSDDCKnowledgeRoute *rss_ddc_monitor_knowledge_resolution_preferred_read(const RSSDDCMonitorKnowledgeResolution *resolution);
+const RSSDDCKnowledgeRoute *rss_ddc_monitor_knowledge_resolution_preferred_write(const RSSDDCMonitorKnowledgeResolution *resolution);
+/** A selected writable route is not automatically authorized. */
+bool rss_ddc_monitor_knowledge_resolution_write_authorized(const RSSDDCMonitorKnowledgeResolution *resolution);
+size_t rss_ddc_monitor_knowledge_resolution_candidate_count(const RSSDDCMonitorKnowledgeResolution *resolution);
+const RSSDDCKnowledgeRoute *rss_ddc_monitor_knowledge_resolution_candidate_at(const RSSDDCMonitorKnowledgeResolution *resolution,size_t index);
+
+/** Alien Probe Quick is a bounded, read-only observation consumer. */
+enum { RSS_DDC_PROBE_QUICK_CONTROL_COUNT = 6, RSS_DDC_PROBE_QUICK_REPEAT_COUNT = 2,
+       RSS_DDC_PROBE_QUICK_REPEAT_DELAY_MS = 0 };
+/** Alien Probe Extended scans 0x00..0xFF with paced, read-only GET requests. */
+enum { RSS_DDC_PROBE_EXTENDED_ADDRESS_COUNT = 256, RSS_DDC_PROBE_EXTENDED_REPEAT_COUNT = 2,
+       RSS_DDC_PROBE_EXTENDED_INTER_ADDRESS_DELAY_MS = 25,
+       RSS_DDC_PROBE_EXTENDED_REPEAT_DELAY_MS = 25,
+       RSS_DDC_PROBE_EXTENDED_TRANSPORT_FAILURE_LIMIT = 8 };
+typedef enum { RSS_DDC_PROBE_CORRELATION_EXACT = 0, RSS_DDC_PROBE_CORRELATION_AMBIGUOUS } RSSDDCProbeCorrelation;
+typedef enum { RSS_DDC_PROBE_TRANSPORT_NOT_ATTEMPTED = 0, RSS_DDC_PROBE_TRANSPORT_SUCCEEDED,
+               RSS_DDC_PROBE_TRANSPORT_FAILED } RSSDDCProbeTransportState;
+typedef enum { RSS_DDC_PROBE_KNOWLEDGE_UNKNOWN = 0, RSS_DDC_PROBE_KNOWLEDGE_YES,
+               RSS_DDC_PROBE_KNOWLEDGE_NO } RSSDDCProbeKnowledgeState;
+typedef enum { RSS_DDC_PROBE_RESULT_UNATTEMPTED = 0, RSS_DDC_PROBE_RESULT_STABLE,
+               RSS_DDC_PROBE_RESULT_VARIABLE, RSS_DDC_PROBE_RESULT_PROTOCOL_REPORTED,
+               RSS_DDC_PROBE_RESULT_MALFORMED, RSS_DDC_PROBE_RESULT_SEMANTIC_MISMATCH,
+               RSS_DDC_PROBE_RESULT_TRANSPORT_ERROR } RSSDDCProbeResultCategory;
+typedef enum { RSS_DDC_PROBE_INTERPRETATION_UNKNOWN = 0,
+               RSS_DDC_PROBE_INTERPRETATION_OBSERVED_PROTOCOL_VALID,
+               RSS_DDC_PROBE_INTERPRETATION_OBSERVED_ADVERTISED,
+               RSS_DDC_PROBE_INTERPRETATION_OBSERVED_UNADVERTISED } RSSDDCProbeInterpretationConfidence;
+typedef RSSDDCError (*RSSDDCProbeGetVCP)(void *context, uint8_t vcp_code, RSSDDCVCPResult *result);
+typedef RSSDDCError (*RSSDDCProbeGetMCCSCapabilities)(void *context, RSSDDCMCCSCapabilities *capabilities);
+/** Optional pacing callback for read-only probe scans; it has no write capability. */
+typedef void (*RSSDDCProbeDelay)(void *context, uint32_t milliseconds);
+typedef struct { void *context; RSSDDCProbeGetVCP get_vcp;
+                 RSSDDCProbeGetMCCSCapabilities get_mccs_capabilities;
+                 RSSDDCProbeDelay delay; } RSSDDCProbeReadTransport;
+typedef struct { RSSDDCDisplay display; RSSDDCProbeCorrelation correlation;
+                 const RSSDDCMonitorKnowledge *profile_knowledge; } RSSDDCProbeTarget;
+typedef struct { const char *semantic_id; uint8_t requested_vcp; RSSDDCProbeResultCategory category;
+                 RSSDDCProbeTransportState transport; RSSDDCError first_error, repeat_error;
+                 bool protocol_valid, semantic_request_match, stable, current_exceeds_maximum, repeat_attempted;
+                 RSSDDCProbeKnowledgeState advertised, profile_known; uint16_t current_value, maximum_value; } RSSDDCProbeObservation;
+typedef struct { RSSDDCProbeObservation observation; char semantic_id_buffer[32];
+                 RSSDDCProbeInterpretationConfidence interpretation;
+                 bool enum_list_present, current_in_declared_enum; } RSSDDCProbeExtendedObservation;
+typedef struct { RSSDDCDisplay display; RSSDDCError mccs_error; bool mccs_available;
+                 size_t controls_attempted, controls_protocol_valid, controls_stable, controls_variable,
+                        controls_protocol_reported, controls_malformed, controls_transport_error;
+                 size_t observation_count; const RSSDDCProbeObservation *observations; } RSSDDCProbeDiagnostics;
+typedef struct { RSSDDCDisplay display; RSSDDCError mccs_error; bool mccs_available; uint64_t duration_ms;
+                 bool aborted; size_t requested, attempted, strict_valid, stable_valid, variable_valid,
+                        protocol_reported, semantic_mismatch, malformed, transport_errors, advertised_valid,
+                        unadvertised_valid; size_t observation_count;
+                 const RSSDDCProbeExtendedObservation *observations; } RSSDDCProbeExtendedDiagnostics;
+typedef struct RSSDDCProbe RSSDDCProbe;
+/** Creates a heap-backed observer. The target's optional profile knowledge is borrowed. */
+RSSDDCError rss_ddc_probe_create(const RSSDDCProbeTarget *target, const RSSDDCProbeReadTransport *transport,
+                                 RSSDDCProbe **probe);
+void rss_ddc_probe_destroy(RSSDDCProbe *probe);
+/** Makes exactly two immediate reads of each of six fixed VCPs; it has no write callback or mutation path. */
+RSSDDCError rss_ddc_probe_quick(RSSDDCProbe *probe);
+/** Scans 0x00..0xFF with paced, read-only GET requests on validated provider transports only. */
+RSSDDCError rss_ddc_probe_extended(RSSDDCProbe *probe);
+/** Returns probe-owned knowledge; it is valid until the probe changes or is destroyed. */
+RSSDDCError rss_ddc_probe_knowledge(const RSSDDCProbe *probe, const RSSDDCMonitorKnowledge **knowledge);
+RSSDDCError rss_ddc_probe_diagnostics(const RSSDDCProbe *probe, RSSDDCProbeDiagnostics *diagnostics);
+RSSDDCError rss_ddc_probe_extended_diagnostics(const RSSDDCProbe *probe,
+                                             RSSDDCProbeExtendedDiagnostics *diagnostics);
+/** Returns the heap-backed parsed MCCS observation when available, otherwise NOT_FOUND. */
+RSSDDCError rss_ddc_probe_mccs_capabilities(const RSSDDCProbe *probe, const RSSDDCMCCSCapabilities **capabilities);
+/** Convenience form using only the existing public display, GetVCP, and MCCS APIs. */
+RSSDDCError rss_ddc_probe_quick_for_display(uint32_t list_index, RSSDDCProbe **probe);
+RSSDDCError rss_ddc_probe_extended_for_display(uint32_t list_index, RSSDDCProbe **probe);
+const char *rss_ddc_probe_result_category_name(RSSDDCProbeResultCategory category);
+const char *rss_ddc_probe_interpretation_name(RSSDDCProbeInterpretationConfidence interpretation);
+/** Returns "not-attempted" when the stability repeat GET was not executed. */
+const char *rss_ddc_probe_repeat_error_name(const RSSDDCProbeObservation *observation);
+
 /**
  * Parses a bounded MCCS capabilities string without contacting a display.
- * `raw` need not be NUL-terminated; its supplied length is authoritative.
- * The result is written only on success. Duplicate VCP features, malformed
- * syntax, and nested/empty malformed enum lists fail closed.
+ * `raw` need not be NUL-terminated; `raw_length` is authoritative. On
+ * failure `capabilities` remains unchanged. Unknown top-level tokens remain
+ * available in `raw`, while VCP declarations and enum values are modeled.
  */
 RSSDDCError rss_ddc_parse_mccs_capabilities(const char *raw, size_t raw_length,
                                             RSSDDCMCCSCapabilities *capabilities);
-/** Returns true when `vcp_code` is explicitly advertised in a parsed result. */
+/** Returns whether one VCP code was explicitly advertised by the parsed model. */
 bool rss_ddc_mccs_capabilities_has_vcp(const RSSDDCMCCSCapabilities *capabilities, uint8_t vcp_code);
 /**
- * Returns the advertised raw enum-value slice for one VCP feature. A
- * successful lookup may return count zero: MCCS does not require every VCP
- * feature to advertise enumerated values. The pointer remains owned by
- * `capabilities` and valid until that caller-owned object is overwritten.
+ * Returns a caller-owned model's raw enum-value slice for one advertised VCP.
+ * A successful lookup may have a zero count when the monitor advertised no
+ * finite enum list for that VCP.
  */
 RSSDDCError rss_ddc_mccs_capabilities_enum_values(const RSSDDCMCCSCapabilities *capabilities,
                                                   uint8_t vcp_code, const uint8_t **values,
                                                   size_t *count);
 /**
- * Retrieves and parses one complete monitor MCCS capabilities string into
- * caller-owned storage. On success, `capabilities` owns its raw text and all
- * feature/enum arrays; enum slices remain valid until this object is overwritten.
+ * Retrieves and parses DCPDP13's complete MCCS capabilities string. This is
+ * read-only, provider-gated, and leaves unsupported providers—including
+ * PS190—unsupported rather than attempting another transport family.
  */
 RSSDDCError rss_ddc_get_mccs_capabilities(uint32_t list_index, RSSDDCMCCSCapabilities *capabilities);
-/** Diagnostic form of rss_ddc_get_mccs_capabilities; callback data is transient as usual. */
+/** Diagnostic form of rss_ddc_get_mccs_capabilities; callback text is transient. */
 RSSDDCError rss_ddc_get_mccs_capabilities_with_diagnostics(uint32_t list_index,
                                                            RSSDDCMCCSCapabilities *capabilities,
                                                            const RSSDDCDiagnostics *diagnostics);
@@ -360,15 +597,25 @@ RSSDDCError rss_ddc_set_vcp(uint32_t list_index, uint8_t vcp_code, uint16_t valu
 RSSDDCError rss_ddc_set_vcp_with_diagnostics(uint32_t list_index, uint8_t vcp_code, uint16_t value,
                                               const RSSDDCDiagnostics *diagnostics);
 /**
- * Selects an input using an explicit mechanism. STANDARD is exactly the
- * ordinary VCP 0x60 Set VCP path. LG_ALT is a write-only alternate transport
- * available only on validated provider paths; callers must select it from
- * monitor-specific evidence or an explicit override.
+ * Selects an input through an explicit method. STANDARD is exactly the
+ * ordinary Set VCP(0x60) path. LG_ALT is restricted to the documented LG HDR
+ * QHD / DCPDP13Service / DCPEXT0 target and its three validated values.
  */
 RSSDDCError rss_ddc_set_input(uint32_t list_index, RSSDDCInputSwitchMethod method, uint16_t value);
-/** Diagnostic form of rss_ddc_set_input with the usual transient callback rules. */
+/** Diagnostic form of rss_ddc_set_input; diagnostics do not alter its writes or timing. */
 RSSDDCError rss_ddc_set_input_with_diagnostics(uint32_t list_index, RSSDDCInputSwitchMethod method,
                                                 uint16_t value, const RSSDDCDiagnostics *diagnostics);
+/** Returns a static friendly name for one supported semantic Picture Mode. */
+const char *rss_ddc_picture_mode_name(RSSDDCPictureMode mode);
+/**
+ * Sets one documented LG HDR QHD Picture Mode. This write-only semantic
+ * operation is profile-gated and performs no GET, verification, retry,
+ * restore, or transport fallback.
+ */
+RSSDDCError rss_ddc_set_picture_mode(uint32_t list_index, RSSDDCPictureMode mode);
+/** Diagnostic form of rss_ddc_set_picture_mode. */
+RSSDDCError rss_ddc_set_picture_mode_with_diagnostics(uint32_t list_index, RSSDDCPictureMode mode,
+                                                       const RSSDDCDiagnostics *diagnostics);
 /**
  * Returns the explicit default verification policy: 100 ms settling, then up
  * to three additional GET attempts separated by 250 ms. These are a modest

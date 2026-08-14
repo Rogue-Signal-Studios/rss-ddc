@@ -9,31 +9,26 @@ DESTDIR ?=
 CONSUMER_TEST_PREFIX = $(abspath $(BUILD)/consumer-prefix)
 CONSUMER_TEST_BINARY = $(BUILD)/consumer
 CONSUMER_TEST_CPP_BINARY = $(BUILD)/consumer-cpp
-COVERAGE_DIR = $(BUILD)/coverage
-COVERAGE_PROFILE = $(COVERAGE_DIR)/coverage.profdata
-COVERAGE_JSON = $(COVERAGE_DIR)/coverage.json
-COVERAGE_SUMMARY = $(COVERAGE_DIR)/coverage.txt
-COVERAGE_CFLAGS = $(CFLAGS) -fprofile-instr-generate -fcoverage-mapping
-QUALITY_DIR = $(BUILD)/quality
-QUALITY_SITE = $(BUILD)/pages/quality
-DASHBOARD_COVERAGE ?= $(COVERAGE_JSON)
-DASHBOARD_STATUS ?= local
-DASHBOARD_SECURITY ?= not-run
+
+CLI_PRESENTATION_SOURCES = \
+	cli/presentation/tri_state.c cli/presentation/config.c cli/presentation/terminal.c \
+	cli/presentation/output_settings.c cli/presentation/color.c cli/presentation/table.c \
+	cli/presentation/plain.c cli/presentation/render.c cli/presentation/args.c cli/presentation/visible_width.c
 
 CFLAGS = -std=c11 -Wall -Wextra -Werror -Wformat=2 -fmodules -Iinclude -Isrc/core -Isrc/ddc -Isrc/dpcd -Isrc/platform/macos
+CLI_CFLAGS = $(CFLAGS) -Icli/presentation
 # On the current supported macOS SDK, CoreDisplay re-exports the CoreGraphics,
 # ColorSync, IOKit, CoreFoundation, and Objective-C dependencies used by the
 # private backend. Keep the external consumer contract to this proven minimum.
 LDLIBS = -framework CoreDisplay
 
 PORTABLE_CORE_SOURCES = \
-	src/core/correlation.c src/core/enumeration.c src/core/input_switch.c src/core/mccs_capabilities.c src/core/provider.c src/core/rss_ddc.c src/core/verify.c \
-	src/ddc/input_switch.c \
-	src/ddc/protocol.c src/ddc/edid.c src/dpcd/dpcd.c src/dpcd/reader.c \
+	src/core/correlation.c src/core/enumeration.c src/core/input_switch.c src/core/mccs_capabilities.c src/core/mccs_retrieval.c src/core/monitor_knowledge.c src/core/picture_mode.c src/core/probe.c src/core/profile_store.c src/core/provider.c src/core/rss_ddc.c src/core/verify.c \
+	src/ddc/input_switch.c src/ddc/protocol.c src/ddc/edid.c src/dpcd/dpcd.c src/dpcd/reader.c \
 	src/platform/macos/providers/dispatch.c src/platform/macos/providers/mcdp/get_vcp.c
 MACOS_BACKEND_SOURCES = \
 	src/platform/macos/discovery.m src/platform/macos/providers/ps190.m \
-	src/platform/macos/providers/dp/get_vcp.m src/platform/macos/providers/dp/set_vcp.m
+	src/platform/macos/providers/dp/get_vcp.m src/platform/macos/providers/dp/input_switch.m src/platform/macos/providers/dp/mccs_capabilities.m src/platform/macos/providers/dp/set_vcp.m
 LIBRARY_SOURCES = $(PORTABLE_CORE_SOURCES) $(MACOS_BACKEND_SOURCES)
 LIBRARY_OBJECTS = $(patsubst %.c,$(BUILD)/%.o,$(filter %.c,$(LIBRARY_SOURCES))) \
 	$(patsubst %.m,$(BUILD)/%.o,$(filter %.m,$(LIBRARY_SOURCES)))
@@ -45,7 +40,10 @@ TESTS = \
 	$(BUILD)/test_protocol $(BUILD)/test_provider $(BUILD)/test_correlation $(BUILD)/test_enumeration \
 	$(BUILD)/test_dispatch $(BUILD)/test_verify $(BUILD)/test_edid $(BUILD)/test_dpcd \
 	$(BUILD)/test_dcpdpservice $(BUILD)/test_dcpdpservice_get $(BUILD)/test_dcpdpservice_set \
-	$(BUILD)/test_mccs_capabilities $(BUILD)/test_input_switch $(BUILD)/test_input_switch_api
+	$(BUILD)/test_display_resolution $(BUILD)/test_mccs_capabilities $(BUILD)/test_mccs_retrieval \
+	$(BUILD)/test_input_switch $(BUILD)/test_input_switch_api $(BUILD)/test_picture_mode $(BUILD)/test_profile_store \
+	$(BUILD)/test_monitor_knowledge $(BUILD)/test_probe $(BUILD)/test_probe_extended $(BUILD)/test_cli_presentation \
+	$(BUILD)/test_library_strings
 
 .DEFAULT_GOAL := all
 
@@ -65,12 +63,16 @@ $(BUILD)/%.o: %.m | $(BUILD)
 $(LIBRARY): $(LIBRARY_OBJECTS)
 	$(AR) rcs $@ $^
 
-$(NAME): $(LIBRARY) $(CLI_SOURCES)
-	$(CC) $(CFLAGS) $(CLI_SOURCES) $(LIBRARY) -o $@ $(LDLIBS)
+$(NAME): $(LIBRARY) $(CLI_SOURCES) $(CLI_PRESENTATION_SOURCES)
+	$(CC) $(CLI_CFLAGS) $(CLI_SOURCES) $(CLI_PRESENTATION_SOURCES) $(LIBRARY) -o $@ $(LDLIBS)
+
+# Private bindings embed public display snapshots. Rebuild every library
+# object and the CLI together whenever either layout-defining header changes.
+$(LIBRARY_OBJECTS) $(NAME): include/rss_ddc.h src/platform/macos/macos_internal.h
 
 library: $(LIBRARY)
 
-$(BUILD)/test_protocol: tests/test_protocol.c src/ddc/protocol.c src/core/mccs_capabilities.c src/core/provider.c | $(BUILD)
+$(BUILD)/test_protocol: tests/test_protocol.c src/ddc/protocol.c src/core/provider.c | $(BUILD)
 	$(CC) $(CFLAGS) $^ -o $@
 
 $(BUILD)/test_provider: tests/test_provider.c src/core/provider.c | $(BUILD)
@@ -94,15 +96,6 @@ $(BUILD)/test_edid: tests/test_edid.c src/ddc/edid.c | $(BUILD)
 $(BUILD)/test_dpcd: tests/test_dpcd.c src/dpcd/dpcd.c src/dpcd/reader.c | $(BUILD)
 	$(CC) $(CFLAGS) $^ -o $@
 
-$(BUILD)/test_mccs_capabilities: tests/test_mccs_capabilities.c src/core/mccs_capabilities.c | $(BUILD)
-	$(CC) $(CFLAGS) $^ -o $@
-
-$(BUILD)/test_input_switch: tests/test_input_switch.c src/ddc/input_switch.c src/ddc/protocol.c | $(BUILD)
-	$(CC) $(CFLAGS) $^ -o $@
-
-$(BUILD)/test_input_switch_api: tests/test_input_switch_api.c src/core/input_switch.c | $(BUILD)
-	$(CC) $(CFLAGS) $^ -o $@
-
 $(BUILD)/test_dcpdpservice: tests/test_dcpdpservice.c src/core/correlation.c src/dpcd/reader.c src/dpcd/dpcd.c | $(BUILD)
 	$(CC) $(CFLAGS) $^ -o $@
 
@@ -113,6 +106,42 @@ $(BUILD)/test_dcpdpservice_get: tests/test_dcpdpservice_get.c src/core/correlati
 $(BUILD)/test_dcpdpservice_set: tests/test_dcpdpservice_set.c src/core/correlation.c src/core/provider.c \
 	src/ddc/set_validation.c src/ddc/protocol.c | $(BUILD)
 	$(CC) $(CFLAGS) $^ -o $@
+
+$(BUILD)/test_display_resolution: tests/test_display_resolution.c src/core/rss_ddc.c src/core/provider.c | $(BUILD)
+	$(CC) $(CFLAGS) -pthread $^ -o $@
+
+$(BUILD)/test_mccs_capabilities: tests/test_mccs_capabilities.c src/core/mccs_capabilities.c | $(BUILD)
+	$(CC) $(CFLAGS) $^ -o $@
+
+$(BUILD)/test_mccs_retrieval: tests/test_mccs_retrieval.c src/core/mccs_capabilities.c src/core/mccs_retrieval.c src/ddc/protocol.c | $(BUILD)
+	$(CC) $(CFLAGS) $^ -o $@
+
+$(BUILD)/test_input_switch: tests/test_input_switch.c src/ddc/input_switch.c src/ddc/protocol.c | $(BUILD)
+	$(CC) $(CFLAGS) $^ -o $@
+
+$(BUILD)/test_input_switch_api: tests/test_input_switch_api.c src/core/input_switch.c src/ddc/input_switch.c src/ddc/protocol.c | $(BUILD)
+	$(CC) $(CFLAGS) $^ -o $@
+
+$(BUILD)/test_picture_mode: tests/test_picture_mode.c src/core/picture_mode.c | $(BUILD)
+	$(CC) $(CFLAGS) $^ -o $@
+
+$(BUILD)/test_profile_store: tests/test_profile_store.c src/core/profile_store.c src/core/provider.c | $(BUILD)
+	$(CC) $(CFLAGS) -pthread $^ -o $@
+
+$(BUILD)/test_monitor_knowledge: tests/test_monitor_knowledge.c src/core/monitor_knowledge.c src/core/profile_store.c src/core/provider.c | $(BUILD)
+	$(CC) $(CFLAGS) -pthread $^ -o $@
+
+$(BUILD)/test_probe: tests/test_probe.c src/core/probe.c src/core/monitor_knowledge.c src/core/profile_store.c src/core/provider.c src/core/mccs_capabilities.c | $(BUILD)
+	$(CC) $(CFLAGS) -DRSS_DDC_TESTING -pthread $^ -o $@
+
+$(BUILD)/test_probe_extended: tests/test_probe_extended.c src/core/probe.c src/core/monitor_knowledge.c src/core/profile_store.c src/core/provider.c src/core/mccs_capabilities.c | $(BUILD)
+	$(CC) $(CFLAGS) -DRSS_DDC_TESTING -pthread $^ -o $@
+
+$(BUILD)/test_cli_presentation: tests/test_cli_presentation.c tests/cli_presentation_support.c $(CLI_PRESENTATION_SOURCES) src/core/provider.c | $(BUILD)
+	$(CC) $(CLI_CFLAGS) $^ -o $@
+
+$(BUILD)/test_library_strings: tests/test_library_strings.c $(LIBRARY) | $(BUILD)
+	$(CC) $(CFLAGS) tests/test_library_strings.c $(LIBRARY) -o $@ $(LDLIBS)
 
 check-library-sources: $(LIBRARY) $(TEST_SUPPORT_SOURCES)
 	@! $(AR) t $(LIBRARY) | grep -E '(get_validation|set_validation|(^|/)tests/|(^|/)cli/)'
@@ -126,41 +155,21 @@ test: $(TESTS) check-library-sources
 	$(BUILD)/test_verify
 	$(BUILD)/test_edid
 	$(BUILD)/test_dpcd
-	$(BUILD)/test_mccs_capabilities
-	$(BUILD)/test_input_switch
-	$(BUILD)/test_input_switch_api
 	$(BUILD)/test_dcpdpservice
 	$(BUILD)/test_dcpdpservice_get
 	$(BUILD)/test_dcpdpservice_set
-
-# LLVM coverage is intentionally synthetic: it executes only the existing
-# offline test binaries and produces both JSON and readable report artifacts.
-coverage:
-	$(MAKE) clean
-	mkdir -p $(COVERAGE_DIR)
-	LLVM_PROFILE_FILE="$(abspath $(COVERAGE_DIR))/%m_%p.profraw" $(MAKE) test CFLAGS='$(COVERAGE_CFLAGS)'
-	xcrun llvm-profdata merge -sparse $(COVERAGE_DIR)/*.profraw -o $(COVERAGE_PROFILE)
-	xcrun llvm-cov export $(word 1,$(TESTS)) $(foreach binary,$(wordlist 2,$(words $(TESTS)),$(TESTS)),-object $(binary)) -instr-profile=$(COVERAGE_PROFILE) -ignore-filename-regex='(tests/|src/ddc/(get_validation|set_validation)\.c)' > $(COVERAGE_JSON)
-	xcrun llvm-cov report $(word 1,$(TESTS)) $(foreach binary,$(wordlist 2,$(words $(TESTS)),$(TESTS)),-object $(binary)) -instr-profile=$(COVERAGE_PROFILE) -ignore-filename-regex='(tests/|src/ddc/(get_validation|set_validation)\.c)' > $(COVERAGE_SUMMARY)
-
-$(QUALITY_DIR)/provider-metadata: tools/quality_metadata.c src/core/provider.c include/rss_ddc.h | $(BUILD)
-	mkdir -p $(dir $@)
-	$(CC) -std=c11 -Wall -Wextra -Werror -Wformat=2 -Iinclude -Isrc/core $< src/core/provider.c -o $@
-
-# Creates a standalone static Pages payload. DASHBOARD_COVERAGE may point to a
-# downloaded CI artifact; a local dashboard correctly records coverage as not run.
-dashboard: $(QUALITY_DIR)/provider-metadata docs/quality/index.html docs/quality/style.css docs/quality/app.js tools/generate_quality_dashboard.py
-	rm -rf $(QUALITY_SITE)
-	mkdir -p $(QUALITY_SITE)
-	cp docs/quality/index.html docs/quality/style.css docs/quality/app.js $(QUALITY_SITE)/
-	$(QUALITY_DIR)/provider-metadata > $(QUALITY_DIR)/provider-metadata.json
-	python3 tools/generate_quality_dashboard.py --metadata $(QUALITY_DIR)/provider-metadata.json --coverage $(DASHBOARD_COVERAGE) --output $(QUALITY_SITE)/quality.json --commit "$$(git rev-parse --short HEAD)" --timestamp "$$(date -u +%FT%TZ)" --test-executables $(words $(TESTS)) --compiler "$$($(CC) --version | head -1)" --status $(DASHBOARD_STATUS) --security $(DASHBOARD_SECURITY)
-
-dashboard-test:
-	python3 tests/test_quality_dashboard.py
-
-analyze:
-	$(CC) --analyze -Xanalyzer -analyzer-output=text $(CFLAGS) $(PORTABLE_CORE_SOURCES) $(MACOS_BACKEND_SOURCES)
+	$(BUILD)/test_display_resolution
+	$(BUILD)/test_mccs_capabilities
+	$(BUILD)/test_mccs_retrieval
+	$(BUILD)/test_input_switch
+	$(BUILD)/test_input_switch_api
+	$(BUILD)/test_picture_mode
+	$(BUILD)/test_profile_store
+	$(BUILD)/test_monitor_knowledge
+	$(BUILD)/test_probe
+	$(BUILD)/test_probe_extended
+	$(BUILD)/test_cli_presentation
+	$(BUILD)/test_library_strings
 
 install-library: $(LIBRARY)
 	install -d $(DESTDIR)$(PREFIX)/include $(DESTDIR)$(PREFIX)/lib
@@ -199,5 +208,5 @@ consumer-test: $(LIBRARY) examples/consumer.c examples/consumer.cpp | $(BUILD)
 clean:
 	rm -rf $(BUILD) $(NAME)
 
-.PHONY: all library check-library-sources test coverage dashboard dashboard-test analyze \
-	install-library install-cli install uninstall-library uninstall-cli uninstall consumer-test clean
+.PHONY: all library check-library-sources test install-library install-cli install \
+	uninstall-library uninstall-cli uninstall consumer-test clean

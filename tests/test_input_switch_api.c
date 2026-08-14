@@ -1,42 +1,58 @@
 #include <assert.h>
 #include <stdio.h>
 
-#include "macos_internal.h"
+#include "rss_ddc.h"
+#include "input_switch.h"
 
-static unsigned int standard_calls, resolve_calls, release_calls, alt_calls;
+static unsigned int standard_calls, alternate_calls, production_write_calls;
 static uint8_t standard_vcp;
-static uint16_t standard_value, alt_value;
-static RSSDDCProvider resolved_provider = RSS_DDC_PROVIDER_DCPDP13;
+static uint16_t standard_value, alternate_value;
+
+static RSSDDCError production_construct(void *context, void **service_out) {
+    (void)context;
+    *service_out = (void *)1;
+    return RSS_DDC_OK;
+}
+static RSSDDCError production_delay(void *context) { (void)context; return RSS_DDC_OK; }
+static RSSDDCError production_write(void *context, void *service, uint32_t chip, uint32_t data,
+                                    const uint8_t *payload, size_t length) {
+    (void)context; (void)service; (void)chip; (void)data; (void)payload; (void)length;
+    ++production_write_calls;
+    return RSS_DDC_OK;
+}
+static void production_release(void *context, void *service) { (void)context; (void)service; }
 
 RSSDDCError rss_ddc_set_vcp_with_diagnostics(uint32_t index, uint8_t vcp, uint16_t value,
                                               const RSSDDCDiagnostics *diagnostics) {
-    (void)index; (void)diagnostics; ++standard_calls; standard_vcp = vcp; standard_value = value; return RSS_DDC_OK;
+    (void)index; (void)diagnostics;
+    ++standard_calls;
+    standard_vcp = vcp;
+    standard_value = value;
+    return RSS_DDC_OK;
 }
-RSSDDCError rss_macos_resolve_binding(uint32_t index, RSSMacOSBinding *binding) {
-    (void)index; ++resolve_calls; binding->display.provider = resolved_provider; return RSS_DDC_OK;
+
+RSSDDCError rss_macos_set_lg_alt_input_snapshot(uint32_t index, uint16_t value,
+                                                const RSSDDCDiagnostics *diagnostics) {
+    (void)index; (void)diagnostics;
+    ++alternate_calls;
+    alternate_value = value;
+    RSSDDCLGAltInputCallbacks callbacks = {
+        .construct = production_construct, .prewrite_delay = production_delay,
+        .write_i2c = production_write, .release = production_release,
+    };
+    return rss_ddc_run_lg_alt_input(RSS_DDC_PROVIDER_DCPDP13, value, &callbacks);
 }
-void rss_macos_release_binding(RSSMacOSBinding *binding) { (void)binding; ++release_calls; }
-RSSDDCError rss_macos_provider_set_lg_alt_input(RSSMacOSBinding *binding, uint16_t value,
-                                                 const RSSDDCDiagnostics *diagnostics) {
-    (void)diagnostics; ++alt_calls; alt_value = value;
-    return binding->display.provider == RSS_DDC_PROVIDER_DCPDP13 ? RSS_DDC_OK : RSS_DDC_ERROR_UNSUPPORTED_CAPABILITY;
-}
-void rss_macos_diagnostic(const RSSDDCDiagnostics *diagnostics, const char *message) { (void)diagnostics; (void)message; }
-const char *rss_macos_correlation_failure_string(RSSMacOSCorrelationFailure failure) { (void)failure; return "failed"; }
-const char *rss_macos_correlation_detail_string(const RSSMacOSBinding *binding) { (void)binding; return NULL; }
 
 int main(void) {
     assert(rss_ddc_set_input(4, RSS_DDC_INPUT_SWITCH_STANDARD, 0x11) == RSS_DDC_OK);
     assert(standard_calls == 1 && standard_vcp == 0x60 && standard_value == 0x11);
-    assert(resolve_calls == 0 && alt_calls == 0 && release_calls == 0);
-    assert(rss_ddc_set_input(4, (RSSDDCInputSwitchMethod)99, 0x11) == RSS_DDC_ERROR_ARGUMENT);
+    assert(alternate_calls == 0);
+    assert(rss_ddc_set_input(4, (RSSDDCInputSwitchMethod)99, 0x90) == RSS_DDC_ERROR_ARGUMENT);
+    assert(rss_ddc_set_input(4, RSS_DDC_INPUT_SWITCH_LG_ALT, 0x11) == RSS_DDC_ERROR_ARGUMENT);
     assert(rss_ddc_set_input(4, RSS_DDC_INPUT_SWITCH_LG_ALT, 0x100) == RSS_DDC_ERROR_ARGUMENT);
-    assert(resolve_calls == 0 && alt_calls == 0 && release_calls == 0);
+    assert(alternate_calls == 0); /* rejected values never enter the platform path */
     assert(rss_ddc_set_input(4, RSS_DDC_INPUT_SWITCH_LG_ALT, 0x90) == RSS_DDC_OK);
-    assert(resolve_calls == 1 && alt_calls == 1 && alt_value == 0x90 && release_calls == 1);
-    resolved_provider = RSS_DDC_PROVIDER_DCPDP_SERVICE;
-    assert(rss_ddc_set_input(4, RSS_DDC_INPUT_SWITCH_LG_ALT, 0x90) == RSS_DDC_ERROR_UNSUPPORTED_CAPABILITY);
-    assert(resolve_calls == 2 && alt_calls == 2 && release_calls == 2);
+    assert(alternate_calls == 1 && alternate_value == 0x90 && standard_calls == 1 && production_write_calls == 1);
     puts("test_input_switch_api: passed");
     return 0;
 }

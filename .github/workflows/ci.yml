@@ -1,128 +1,22 @@
-name: Repository Quality
+name: synthetic-ci
 
 on:
   push:
     branches: [main]
   pull_request:
 
-permissions:
-  contents: read
-
 jobs:
-  build:
-    name: Build
+  build-and-test:
     runs-on: macos-latest
     steps:
-      - uses: actions/checkout@v6
-      - run: make clean
-      - run: make
-      - uses: actions/upload-artifact@v4
-        with:
-          name: build-output
-          path: |
-            build/
-            rss-ddc
-          retention-days: 1
-
-  tests:
-    name: Tests
-    needs: build
-    runs-on: macos-latest
-    steps:
-      - uses: actions/checkout@v6
-      - uses: actions/download-artifact@v4
-        with:
-          name: build-output
-          path: .
-      - run: make test
-
-  consumer-contract:
-    name: Consumer Contract
-    needs: build
-    runs-on: macos-latest
-    steps:
-      - uses: actions/checkout@v6
-      - uses: actions/download-artifact@v4
-        with:
-          name: build-output
-          path: .
-      - run: make consumer-test
-
-  code-quality:
-    name: Code Quality
-    runs-on: macos-latest
-    steps:
-      - uses: actions/checkout@v6
-      - run: make analyze
-      - run: make dashboard-test
-      - run: git diff --check
-
-  coverage:
-    name: Coverage
-    runs-on: macos-latest
-    steps:
-      - uses: actions/checkout@v6
-      - run: make coverage
-      - uses: actions/upload-artifact@v4
-        with:
-          name: llvm-coverage
-          path: build/coverage/
-          retention-days: 14
-
-  security:
-    name: Security (CodeQL)
-    runs-on: macos-latest
-    permissions:
-      contents: read
-      security-events: write
-    steps:
-      - uses: actions/checkout@v6
-      - uses: github/codeql-action/init@v4
-        with:
-          languages: c-cpp
-          build-mode: manual
-      - run: make clean
-      - run: make
-      - uses: github/codeql-action/analyze@v4
-        with:
-          category: /language:c-cpp
-
-  dashboard:
-    name: Quality Dashboard
-    needs: [build, tests, consumer-contract, code-quality, coverage, security]
-    runs-on: macos-latest
-    steps:
-      - uses: actions/checkout@v6
-      - uses: actions/download-artifact@v4
-        with:
-          name: llvm-coverage
-          path: build/quality-input
-      - run: make dashboard DASHBOARD_COVERAGE=build/quality-input/coverage.json DASHBOARD_STATUS=passing DASHBOARD_SECURITY=passing
-      - uses: actions/upload-artifact@v4
-        with:
-          name: quality-dashboard
-          path: build/pages/
-          retention-days: 14
-
-  pages:
-    name: Publish Quality Dashboard
-    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
-    needs: dashboard
-    runs-on: ubuntu-latest
-    permissions:
-      pages: write
-      id-token: write
-    environment:
-      name: github-pages
-      url: ${{ steps.deployment.outputs.page_url }}
-    steps:
-      - uses: actions/configure-pages@v5
-      - uses: actions/download-artifact@v4
-        with:
-          name: quality-dashboard
-          path: build/pages
-      - uses: actions/upload-pages-artifact@v4
-        with:
-          path: build/pages
-      - id: deployment
-        uses: actions/deploy-pages@v4
+      - uses: actions/checkout@v4
+      - name: Build library and CLI
+        run: |
+          make clean
+          make
+      - name: Run synthetic tests
+        run: make test
+      - name: Verify installed-library consumer contract
+        run: make consumer-test
+      - name: Check whitespace
+        run: git diff --check

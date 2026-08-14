@@ -1,6 +1,7 @@
 #ifndef RSS_DDC_INPUT_SWITCH_H
 #define RSS_DDC_INPUT_SWITCH_H
 
+#include <stdbool.h>
 #include <stddef.h>
 #include <stdint.h>
 
@@ -11,7 +12,10 @@ enum {
     RSS_DDC_LG_ALT_INPUT_VCP = 0xf4u,
     RSS_DDC_LG_ALT_INPUT_CHIP = 0x37u,
     RSS_DDC_LG_ALT_INPUT_DATA = 0x50u,
-    RSS_DDC_LG_ALT_INPUT_WRITE_COUNT = 2u,
+    /** Hardware-validated production policy: one F4 transaction. */
+    RSS_DDC_LG_ALT_INPUT_WRITE_COUNT = 1u,
+    /** Internal test helper's only non-production count. */
+    RSS_DDC_LG_ALT_INPUT_TEST_TWO_WRITE_COUNT = 2u,
     RSS_DDC_LG_ALT_INPUT_PREWRITE_DELAY_US = 10000u,
 };
 
@@ -33,8 +37,27 @@ typedef struct {
     void (*release)(void *context, void *service);
 } RSSDDCLGAltInputCallbacks;
 
+/** Returns true only for the three values hardware-validated on the documented LG. */
+bool rss_ddc_lg_alt_input_value_is_supported(uint16_t value);
+/** Internal test execution accepts only the production count or a two-write control. */
+bool rss_ddc_lg_alt_input_write_count_is_supported(unsigned int write_count);
+/**
+ * Validates the exact target evidence before an alternate write: DCPDP13,
+ * its normal safety gate, product name LG HDR QHD, and service role DCPEXT0.
+ */
+RSSDDCError rss_ddc_validate_lg_alt_input_target(RSSDDCProvider provider, bool dp_safety_gate,
+                                                 const char *product_name, const char *transport);
+/** Builds the fixed, six-byte validated alternate-input request. */
 RSSDDCError rss_ddc_prepare_lg_alt_input(uint16_t value, RSSDDCLGAltInputPlan *plan_out);
+/** Runs the hardware-validated production default of exactly one delayed write. */
 RSSDDCError rss_ddc_run_lg_alt_input(RSSDDCProvider provider, uint16_t value,
                                      const RSSDDCLGAltInputCallbacks *callbacks);
+/**
+ * Internal test-only runner retained for offline one-write/two-write coverage.
+ * It has no read, verification, retry, restore, or fallback callback.
+ */
+RSSDDCError rss_ddc_run_lg_alt_input_with_write_count(RSSDDCProvider provider, uint16_t value,
+                                                       unsigned int write_count,
+                                                       const RSSDDCLGAltInputCallbacks *callbacks);
 
 #endif
