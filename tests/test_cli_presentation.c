@@ -13,6 +13,7 @@
 #include "table.h"
 #include "terminal.h"
 #include "tri_state.h"
+#include "visible_width.h"
 
 static bool g_stdout_tty = false;
 static bool g_interactive_terminal = false;
@@ -84,6 +85,39 @@ static bool contains_non_ascii(const char *text) {
         }
     }
     return false;
+}
+
+static void assert_stripped_equals(const char *colored_output, const char *plain_output) {
+    char *stripped = calloc(strlen(colored_output) + 1, 1);
+    assert(stripped != NULL);
+    rss_ddc_cli_strip_ansi(stripped, strlen(colored_output) + 1, colored_output);
+    assert(strcmp(stripped, plain_output) == 0);
+    free(stripped);
+}
+
+static void assert_border_columns_match(const char *text) {
+    size_t expected = 0;
+    bool have_expected = false;
+    for (const char *line = text; line != NULL && *line != '\0'; line = strchr(line, '\n')) {
+        if (line[0] == '|' || line[0] == '+') {
+            size_t columns = 0;
+            for (const char *cursor = line; *cursor != '\0' && *cursor != '\n'; ++cursor) {
+                if (*cursor == '|' || *cursor == '+') {
+                    ++columns;
+                }
+            }
+            if (!have_expected) {
+                expected = columns;
+                have_expected = true;
+            } else {
+                assert(columns == expected);
+            }
+        }
+        if (*line == '\0') {
+            break;
+        }
+        ++line;
+    }
 }
 
 static void write_config(const char *path, const char *contents) {
@@ -238,7 +272,7 @@ static void test_plain_and_table_renderers(void) {
 }
 
 static RSSDDCProbeDiagnostics sample_probe_quick(void) {
-    static RSSDDCProbeObservation observations[2];
+    static RSSDDCProbeObservation observations[4];
     observations[0] = (RSSDDCProbeObservation){.semantic_id = "brightness",
                                                .requested_vcp = 0x10,
                                                .category = RSS_DDC_PROBE_RESULT_STABLE,
@@ -255,13 +289,30 @@ static RSSDDCProbeDiagnostics sample_probe_quick(void) {
                                                .transport = RSS_DDC_PROBE_TRANSPORT_SUCCEEDED,
                                                .protocol_valid = false,
                                                .repeat_attempted = false};
-  return (RSSDDCProbeDiagnostics){.display = sample_display(),
+    observations[2] = (RSSDDCProbeObservation){.semantic_id = "display.color_preset",
+                                               .requested_vcp = 0x14,
+                                               .category = RSS_DDC_PROBE_RESULT_SEMANTIC_MISMATCH,
+                                               .transport = RSS_DDC_PROBE_TRANSPORT_SUCCEEDED,
+                                               .protocol_valid = false,
+                                               .repeat_attempted = false};
+    observations[3] = (RSSDDCProbeObservation){.semantic_id = "custom-unadvertised",
+                                               .requested_vcp = 0xe2,
+                                               .category = RSS_DDC_PROBE_RESULT_STABLE,
+                                               .transport = RSS_DDC_PROBE_TRANSPORT_SUCCEEDED,
+                                               .protocol_valid = true,
+                                               .stable = true,
+                                               .advertised = RSS_DDC_PROBE_KNOWLEDGE_NO,
+                                               .current_value = 255,
+                                               .maximum_value = 100,
+                                               .current_exceeds_maximum = true,
+                                               .repeat_attempted = true};
+    return (RSSDDCProbeDiagnostics){.display = sample_display(),
                                     .mccs_available = true,
-                                    .controls_attempted = 2,
-                                    .controls_protocol_valid = 1,
-                                    .controls_stable = 1,
+                                    .controls_attempted = 4,
+                                    .controls_protocol_valid = 2,
+                                    .controls_stable = 2,
                                     .controls_protocol_reported = 1,
-                                    .observation_count = 2,
+                                    .observation_count = 4,
                                     .observations = observations};
 }
 
@@ -377,6 +428,86 @@ static void test_table_deterministic(void) {
     free(buffer);
 }
 
+static void test_visible_width_helper(void) {
+    assert(rss_ddc_cli_visible_width("stable") == 6);
+    assert(rss_ddc_cli_visible_width("\033[32mstable\033[0m") == 6);
+    assert(rss_ddc_cli_visible_width("\033[2mprotocol-reported\033[0m") == strlen("protocol-reported"));
+    char stripped[32];
+    rss_ddc_cli_strip_ansi(stripped, sizeof(stripped), "\033[31moffline\033[0m");
+    assert(strcmp(stripped, "offline") == 0);
+}
+
+static void test_list_status_color(void) {
+    RSSDDCDisplay displays[2] = {sample_display(), sample_display()};
+    displays[1].list_index = 2;
+    displays[1].online = false;
+    snprintf(displays[1].product_name, sizeof(displays[1].product_name), "LG HDR QHD");
+    snprintf(displays[1].transport, sizeof(displays[1].transport), "DCPEXT0");
+    displays[1].provider = RSS_DDC_PROVIDER_DCPDP13;
+
+    RSSDDCCliEffectiveOutput plain = {.color = false, .table = true, .unicode = false};
+    ListRenderContext plain_ctx = {.displays = displays, .count = 2, .output = &plain};
+    char *plain_output = capture_render(render_list_capture, &plain_ctx);
+    assert(!contains_ansi(plain_output));
+
+    RSSDDCCliEffectiveOutput color = {.color = true, .table = true, .unicode = false};
+    ListRenderContext color_ctx = {.displays = displays, .count = 2, .output = &color};
+    char *color_output = capture_render(render_list_capture, &color_ctx);
+    assert(contains_ansi(color_output));
+    assert(strstr(color_output, "\033[32m") != NULL);
+    assert(strstr(color_output, "\033[31m") != NULL);
+    assert_stripped_equals(color_output, plain_output);
+    assert_border_columns_match(plain_output);
+    assert_border_columns_match(color_output);
+    free(plain_output);
+    free(color_output);
+}
+
+static void test_colored_table_alignment(void) {
+    RSSDDCDisplay display = sample_display();
+    RSSDDCProbeDiagnostics quick = sample_probe_quick();
+    RSSDDCProbeExtendedDiagnostics extended = sample_probe_extended();
+
+    RSSDDCCliEffectiveOutput plain = {.color = false, .table = true, .unicode = false};
+    RSSDDCCliEffectiveOutput color = {.color = true, .table = true, .unicode = false};
+    RSSDDCCliEffectiveOutput unicode = {.color = true, .table = true, .unicode = true};
+
+    ListRenderContext list_plain = {.displays = &display, .count = 1, .output = &plain};
+    ListRenderContext list_color = {.displays = &display, .count = 1, .output = &color};
+    char *list_plain_output = capture_render(render_list_capture, &list_plain);
+    char *list_color_output = capture_render(render_list_capture, &list_color);
+    assert_stripped_equals(list_color_output, list_plain_output);
+    assert_border_columns_match(list_plain_output);
+
+    ProbeQuickRenderContext quick_plain = {.diagnostics = &quick, .output = &plain};
+    ProbeQuickRenderContext quick_color = {.diagnostics = &quick, .output = &color};
+    char *quick_plain_output = capture_render(render_probe_quick_capture, &quick_plain);
+    char *quick_color_output = capture_render(render_probe_quick_capture, &quick_color);
+    assert_stripped_equals(quick_color_output, quick_plain_output);
+    assert_border_columns_match(quick_plain_output);
+
+    ProbeExtendedRenderContext extended_plain = {.diagnostics = &extended, .output = &plain};
+    ProbeExtendedRenderContext extended_color = {.diagnostics = &extended, .output = &color};
+    ProbeExtendedRenderContext extended_unicode_plain = {.diagnostics = &extended, .output = &(RSSDDCCliEffectiveOutput){.color = false, .table = true, .unicode = true}};
+    ProbeExtendedRenderContext extended_unicode_color = {.diagnostics = &extended, .output = &unicode};
+    char *extended_plain_output = capture_render(render_probe_extended_capture, &extended_plain);
+    char *extended_color_output = capture_render(render_probe_extended_capture, &extended_color);
+    char *extended_unicode_plain_output = capture_render(render_probe_extended_capture, &extended_unicode_plain);
+    char *extended_unicode_color_output = capture_render(render_probe_extended_capture, &extended_unicode_color);
+    assert_stripped_equals(extended_color_output, extended_plain_output);
+    assert_border_columns_match(extended_plain_output);
+    assert_stripped_equals(extended_unicode_color_output, extended_unicode_plain_output);
+
+    free(list_plain_output);
+    free(list_color_output);
+    free(quick_plain_output);
+    free(quick_color_output);
+    free(extended_plain_output);
+    free(extended_color_output);
+    free(extended_unicode_plain_output);
+    free(extended_unicode_color_output);
+}
+
 int main(void) {
     test_tri_state_parse();
     test_config_missing_and_valid();
@@ -388,6 +519,9 @@ int main(void) {
     test_probe_renderers();
     test_extended_probe_renderer();
     test_table_deterministic();
+    test_visible_width_helper();
+    test_list_status_color();
+    test_colored_table_alignment();
     fputs("test_cli_presentation: passed\n", stdout);
     return 0;
 }

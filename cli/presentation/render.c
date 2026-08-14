@@ -89,11 +89,20 @@ void rss_ddc_cli_render_display_list(FILE *stream, const RSSDDCDisplay *displays
     }
     char index_text[16];
     char cg_text[16];
+    char status_text[32];
     for (size_t index = 0; index < count; ++index) {
         snprintf(index_text, sizeof(index_text), "%u", displays[index].list_index);
         snprintf(cg_text, sizeof(cg_text), "%u", displays[index].cg_display_id);
+        const char *status_plain = displays[index].online ? "online" : "offline";
+        if (output->color) {
+            rss_ddc_cli_color_format(status_text, sizeof(status_text), output,
+                                     displays[index].online ? RSS_DDC_CLI_COLOR_GREEN : RSS_DDC_CLI_COLOR_RED,
+                                     status_plain);
+        } else {
+            snprintf(status_text, sizeof(status_text), "%s", status_plain);
+        }
         const char *cells[] = {index_text, displays[index].product_name, rss_ddc_provider_string(displays[index].provider),
-                               displays[index].transport, cg_text, displays[index].online ? "online" : "offline"};
+                               displays[index].transport, cg_text, status_text};
         rss_ddc_cli_table_add_row(&table, cells, sizeof(cells) / sizeof(cells[0]));
     }
     rss_ddc_cli_table_render(stream, &table, output);

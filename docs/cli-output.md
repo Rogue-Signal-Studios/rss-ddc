@@ -69,9 +69,23 @@ When effective settings are `color=no`, `table=no`, and `unicode=no`, commands
 such as `list`, `info`, `get`, `mccs`, `probe-quick`, and `probe-extended`
 preserve the existing machine-friendly plain output.
 
+## Library boundary
+
+`librss-ddc` and the public C API remain terminal-agnostic. The library
+returns structured data and plain diagnostic/name strings only. ANSI color,
+table borders, Unicode presentation, TTY detection, `NO_COLOR`, and config
+presentation preferences exist exclusively in `cli/presentation/`.
+
 ## Table commands
 
-Table rendering is available for:
+Table rendering measures column widths from visible text width. ANSI CSI
+sequences contribute zero width, so colored cells preserve border alignment.
+
+## Visible width
+
+`cli/presentation/visible_width.c` computes terminal column width for table
+layout. ANSI color/style sequences are ignored; UTF-8 code points count as one
+column each for current Unicode table borders.
 
 - `list`
 - `probe-quick`
@@ -90,6 +104,8 @@ Color communicates meaning rather than decoration:
 - unadvertised strict-valid: magenta
 - malformed, semantic-mismatch, transport-error: red
 - protocol-reported and not-attempted repeat: dim/neutral
+- list `STATUS=online`: green
+- list `STATUS=offline`: red
 
 Output remains understandable without color.
 

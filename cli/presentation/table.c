@@ -3,9 +3,7 @@
 #include <stdio.h>
 #include <string.h>
 
-static size_t cell_display_width(const char *text) {
-    return text == NULL ? 0 : strlen(text);
-}
+#include "visible_width.h"
 
 static void copy_cell(RSSDDCCliTableCell *cell, const char *text) {
     if (text == NULL) {
@@ -44,9 +42,9 @@ void rss_ddc_cli_table_measure(RSSDDCCliTable *table) {
         return;
     }
     for (size_t column = 0; column < table->column_count; ++column) {
-        size_t width = cell_display_width(table->headers[column].text);
+        size_t width = rss_ddc_cli_visible_width(table->headers[column].text);
         for (size_t row = 0; row < table->row_count; ++row) {
-            size_t cell_width = cell_display_width(table->rows[row][column].text);
+            size_t cell_width = rss_ddc_cli_visible_width(table->rows[row][column].text);
             if (cell_width > width) {
                 width = cell_width;
             }
@@ -68,11 +66,17 @@ static void render_border(FILE *stream, const RSSDDCCliTable *table, const RSSDD
         }
     }
     fputs(right, stream);
-    if (!output->unicode) {
-        fputc('\n', stream);
-    } else {
-        fputc('\n', stream);
+    fputc('\n', stream);
+}
+
+static void render_padded_cell(FILE *stream, const RSSDDCCliTable *table, size_t column, const char *text) {
+    const size_t visible = rss_ddc_cli_visible_width(text);
+    fputc(' ', stream);
+    fputs(text, stream);
+    for (size_t padding = visible; padding < table->widths[column]; ++padding) {
+        fputc(' ', stream);
     }
+    fputc(' ', stream);
 }
 
 static void render_row(FILE *stream, const RSSDDCCliTable *table, const RSSDDCCliEffectiveOutput *output,
@@ -80,7 +84,7 @@ static void render_row(FILE *stream, const RSSDDCCliTable *table, const RSSDDCCl
     const char *vertical = output->unicode ? "\xe2\x94\x82" : "|";
     fputs(vertical, stream);
     for (size_t column = 0; column < table->column_count; ++column) {
-        fprintf(stream, " %-*s ", (int)table->widths[column], cells[column].text);
+        render_padded_cell(stream, table, column, cells[column].text);
         fputs(vertical, stream);
     }
     fputc('\n', stream);
