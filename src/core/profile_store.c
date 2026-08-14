@@ -270,22 +270,36 @@ void rss_ddc_profile_store_destroy(RSSDDCProfileStore *store) { free(store); }
 
 static RSSDDCError append_parsed(RSSDDCProfileStore *store, const RSSDDCProfileStore *parsed) {
     if (store == NULL || parsed == NULL || store->profile_count + parsed->profile_count > RSS_DDC_PROFILE_MAX_PROFILES) return RSS_DDC_ERROR_PROFILE_CONFLICT;
-    RSSDDCProfileStore replacement = *store;
-    for (size_t index = 0; index < parsed->profile_count; ++index) replacement.profiles[replacement.profile_count++] = parsed->profiles[index];
-    replacement.info = parsed->info; replacement.has_info = true; *store = replacement;
+    RSSDDCProfileStore *replacement = rss_ddc_profile_store_create();
+    if (replacement == NULL) return RSS_DDC_ERROR_SYSTEM;
+    memcpy(replacement, store, sizeof(*replacement));
+    for (size_t index = 0; index < parsed->profile_count; ++index) replacement->profiles[replacement->profile_count++] = parsed->profiles[index];
+    replacement->info = parsed->info; replacement->has_info = true;
+    memcpy(store, replacement, sizeof(*store));
+    rss_ddc_profile_store_destroy(replacement);
     return RSS_DDC_OK;
 }
 
 static RSSDDCError load_data(RSSDDCProfileStore *store, const char *data, size_t length, RSSDDCProfileSource source) {
     if (store == NULL) return RSS_DDC_ERROR_ARGUMENT;
-    RSSDDCProfileStore parsed = {};
-    RSSDDCError error = parse_pack(data, length, source, &parsed);
-    return error == RSS_DDC_OK ? append_parsed(store, &parsed) : error;
+    RSSDDCProfileStore *parsed = rss_ddc_profile_store_create();
+    if (parsed == NULL) return RSS_DDC_ERROR_SYSTEM;
+    RSSDDCError error = parse_pack(data, length, source, parsed);
+    if (error == RSS_DDC_OK) error = append_parsed(store, parsed);
+    rss_ddc_profile_store_destroy(parsed);
+    return error;
 }
 RSSDDCError rss_ddc_profile_store_load_pack_data(RSSDDCProfileStore *store, const char *data, size_t length) { return load_data(store, data, length, RSS_DDC_PROFILE_SOURCE_VALIDATED_PACK); }
 RSSDDCError rss_ddc_profile_store_load_local_data(RSSDDCProfileStore *store, const char *data, size_t length) { return load_data(store, data, length, RSS_DDC_PROFILE_SOURCE_LOCAL); }
 RSSDDCError rss_ddc_profile_store_load_research_data(RSSDDCProfileStore *store, const char *data, size_t length) { return load_data(store, data, length, RSS_DDC_PROFILE_SOURCE_RESEARCH); }
-RSSDDCError rss_ddc_profile_validate_pack_data(const char *data, size_t length, RSSDDCProfileSource source, RSSDDCProfilePackInfo *info) { RSSDDCProfileStore parsed = {}; RSSDDCError error = parse_pack(data, length, source, &parsed); if (error == RSS_DDC_OK && info != NULL) *info = parsed.info; return error; }
+RSSDDCError rss_ddc_profile_validate_pack_data(const char *data, size_t length, RSSDDCProfileSource source, RSSDDCProfilePackInfo *info) {
+    RSSDDCProfileStore *parsed = rss_ddc_profile_store_create();
+    if (parsed == NULL) return RSS_DDC_ERROR_SYSTEM;
+    RSSDDCError error = parse_pack(data, length, source, parsed);
+    if (error == RSS_DDC_OK && info != NULL) *info = parsed->info;
+    rss_ddc_profile_store_destroy(parsed);
+    return error;
+}
 
 static RSSDDCError load_file(RSSDDCProfileStore *store, const char *path, RSSDDCProfileSource source) {
     if (store == NULL || path == NULL) return RSS_DDC_ERROR_ARGUMENT;
@@ -386,8 +400,28 @@ void rss_ddc_profile_identity_from_display(const RSSDDCDisplay *display, RSSDDCP
 static const char builtin_lg_pack[] =
 "{\"schemaVersion\":1,\"databaseVersion\":\"2026.08.13.1\",\"minimumRSSDDCVersion\":\"0.3.0\",\"packId\":\"rogue-builtin\",\"profiles\":[{\"id\":\"lg-hdr-qhd-dcpdp13-dcpext0\",\"identity\":{\"productName\":\"LG HDR QHD\",\"provider\":\"DCPDP13Service\",\"transport\":\"DCPEXT0\",\"external\":true},\"confidence\":\"hardware-validated\",\"controls\":[{\"id\":\"picture-mode\",\"method\":\"vcp\",\"address\":21,\"readable\":true,\"writable\":true,\"confidence\":\"hardware-validated\",\"enums\":[{\"id\":\"custom\",\"name\":\"Custom\",\"value\":11},{\"id\":\"vivid\",\"name\":\"Vivid\",\"value\":49},{\"id\":\"hdr-effect\",\"name\":\"HDR Effect\",\"value\":39},{\"id\":\"cinema\",\"name\":\"Cinema\",\"value\":48},{\"id\":\"fps\",\"name\":\"FPS\",\"value\":30},{\"id\":\"rts\",\"name\":\"RTS\",\"value\":31},{\"id\":\"color-weakness\",\"name\":\"Color Weakness\",\"value\":6},{\"id\":\"reader\",\"name\":\"Reader\",\"value\":1}]}]}]}";
 
-RSSDDCError rss_ddc_profile_store_load_builtin(RSSDDCProfileStore *store) { if (store == NULL) return RSS_DDC_ERROR_ARGUMENT; RSSDDCProfileStore parsed = {}; RSSDDCError error = parse_pack(builtin_lg_pack, sizeof(builtin_lg_pack) - 1, RSS_DDC_PROFILE_SOURCE_VALIDATED_PACK, &parsed); if (error != RSS_DDC_OK) return error; for (size_t index = 0; index < parsed.profile_count; ++index) parsed.profiles[index].source = RSS_DDC_PROFILE_SOURCE_BUILTIN; return append_parsed(store, &parsed); }
-RSSDDCError rss_ddc_profile_store_resolve_builtin(const RSSDDCProfileIdentity *identity, RSSDDCEffectiveProfile *effective) { RSSDDCProfileStore store = {}; RSSDDCError error = rss_ddc_profile_store_load_builtin(&store); return error == RSS_DDC_OK ? rss_ddc_profile_store_resolve(&store, identity, effective) : error; }
+RSSDDCError rss_ddc_profile_store_load_builtin(RSSDDCProfileStore *store) {
+    if (store == NULL) return RSS_DDC_ERROR_ARGUMENT;
+    RSSDDCProfileStore *parsed = rss_ddc_profile_store_create();
+    if (parsed == NULL) return RSS_DDC_ERROR_SYSTEM;
+    RSSDDCError error = parse_pack(builtin_lg_pack, sizeof(builtin_lg_pack) - 1, RSS_DDC_PROFILE_SOURCE_VALIDATED_PACK, parsed);
+    if (error == RSS_DDC_OK) {
+        for (size_t index = 0; index < parsed->profile_count; ++index) parsed->profiles[index].source = RSS_DDC_PROFILE_SOURCE_BUILTIN;
+        error = append_parsed(store, parsed);
+    }
+    rss_ddc_profile_store_destroy(parsed);
+    return error;
+}
+
+RSSDDCError rss_ddc_profile_store_resolve_builtin(const RSSDDCProfileIdentity *identity, RSSDDCEffectiveProfile *effective) {
+    if (identity == NULL || effective == NULL) return RSS_DDC_ERROR_ARGUMENT;
+    RSSDDCProfileStore *store = rss_ddc_profile_store_create();
+    if (store == NULL) return RSS_DDC_ERROR_SYSTEM;
+    RSSDDCError error = rss_ddc_profile_store_load_builtin(store);
+    if (error == RSS_DDC_OK) error = rss_ddc_profile_store_resolve(store, identity, effective);
+    rss_ddc_profile_store_destroy(store);
+    return error;
+}
 
 static const char *picture_mode_id(RSSDDCPictureMode mode) { static const char *ids[] = {NULL, "custom", "vivid", "hdr-effect", "cinema", "fps", "rts", "color-weakness", "reader"}; return (size_t)mode < sizeof(ids) / sizeof(ids[0]) ? ids[mode] : NULL; }
 static const RSSDDCProfileControl *picture_control(const RSSDDCEffectiveProfile *effective) { if (effective == NULL) return NULL; for (size_t index = 0; index < effective->control_count; ++index) if (effective->controls[index].id == RSS_DDC_PROFILE_CONTROL_PICTURE_MODE) return &effective->controls[index]; return NULL; }

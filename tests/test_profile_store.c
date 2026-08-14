@@ -1,5 +1,7 @@
 #include <assert.h>
+#include <pthread.h>
 #include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
 
 #include "profile_store.h"
@@ -9,6 +11,36 @@ static RSSDDCProfileIdentity lg_identity(void) {
     snprintf(identity.product_name, sizeof(identity.product_name), "LG HDR QHD");
     snprintf(identity.transport, sizeof(identity.transport), "DCPEXT0");
     return identity;
+}
+
+typedef struct {
+    RSSDDCProfileIdentity identity;
+    RSSDDCEffectiveProfile effective;
+    RSSDDCError error;
+} BuiltinResolution;
+
+static void *resolve_builtin_on_small_stack(void *context) {
+    BuiltinResolution *resolution = context;
+    resolution->error = rss_ddc_profile_store_resolve_builtin(&resolution->identity, &resolution->effective);
+    return NULL;
+}
+
+static void test_builtin_resolution_on_small_stack(void) {
+    BuiltinResolution *resolution = calloc(1, sizeof(*resolution));
+    assert(resolution != NULL);
+    resolution->identity = lg_identity();
+
+    pthread_attr_t attributes;
+    pthread_t thread;
+    assert(pthread_attr_init(&attributes) == 0);
+    assert(pthread_attr_setstacksize(&attributes, 512 * 1024) == 0);
+    assert(pthread_create(&thread, &attributes, resolve_builtin_on_small_stack, resolution) == 0);
+    assert(pthread_attr_destroy(&attributes) == 0);
+    assert(pthread_join(thread, NULL) == 0);
+    assert(resolution->error == RSS_DDC_OK);
+    assert(resolution->effective.control_count == 1);
+    assert(resolution->effective.controls[0].id == RSS_DDC_PROFILE_CONTROL_PICTURE_MODE);
+    free(resolution);
 }
 
 static const char *local_response_pack =
@@ -26,6 +58,7 @@ static const char *same_authority_conflict_b =
     "{\"schemaVersion\":1,\"databaseVersion\":\"b\",\"minimumRSSDDCVersion\":\"0.3.0\",\"profiles\":[{\"id\":\"b\",\"identity\":{\"productName\":\"Conflict\",\"provider\":\"DCPDP13Service\",\"transport\":\"DCPEXT0\",\"external\":true},\"confidence\":\"hardware-validated\",\"controls\":[{\"id\":\"brightness\",\"method\":\"vcp\",\"address\":18,\"readable\":true,\"writable\":true,\"confidence\":\"hardware-validated\",\"enums\":[]}]}]}";
 
 int main(void) {
+    test_builtin_resolution_on_small_stack();
     RSSDDCProfileStore *store = rss_ddc_profile_store_create();
     assert(store != NULL);
     assert(rss_ddc_profile_store_load_builtin(store) == RSS_DDC_OK);

@@ -107,7 +107,7 @@ $(BUILD)/test_picture_mode: tests/test_picture_mode.c src/core/picture_mode.c sr
 	$(CC) $(CFLAGS) $^ -o $@
 
 $(BUILD)/test_profile_store: tests/test_profile_store.c src/core/profile_store.c src/core/provider.c | $(BUILD)
-	$(CC) $(CFLAGS) $^ -o $@
+	$(CC) $(CFLAGS) -pthread $^ -o $@
 
 $(BUILD)/test_monitor_knowledge: tests/test_monitor_knowledge.c src/core/monitor_knowledge.c | $(BUILD)
 	$(CC) $(CFLAGS) $^ -o $@
