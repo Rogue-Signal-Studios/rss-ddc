@@ -67,6 +67,8 @@ static bool route_equivalent(const RSSDDCKnowledgeRoute *first,
            strcmp(first->transport_family, second->transport_family) == 0 &&
            strcmp(first->command_semantics, second->command_semantics) == 0 &&
            strcmp(first->applicability, second->applicability) == 0 &&
+           first->reported_maximum_present == second->reported_maximum_present &&
+           first->reported_maximum == second->reported_maximum &&
            first->value.state == second->value.state &&
            first->value.unsigned_value == second->value.unsigned_value &&
            strcmp(first->value.string_value, second->value.string_value) == 0;

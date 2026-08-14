@@ -114,6 +114,10 @@ routes, values, and provenance before producing a deterministic effective view.
 It does not authorize or execute a monitor operation. See [Monitor
 knowledge](docs/monitor-knowledge.md).
 
+`probe-quick` is a bounded, explicitly read-only Alien Probe observation pass:
+six standard VCPs are each read twice, with optional existing MCCS retrieval.
+It neither scans arbitrary VCPs nor performs a write. See [Alien Probe Quick](docs/alien-probe.md).
+
 ## Provider model
 
 | Provider | Backend status | Capabilities |

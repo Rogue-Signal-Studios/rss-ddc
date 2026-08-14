@@ -341,6 +341,7 @@ typedef struct { char semantic_id[RSS_DDC_TEXT_MAX], route_id[RSS_DDC_PROFILE_ID
                  RSSDDCKnowledgeRouteKind kind; uint16_t address; bool readable, writable;
                  bool write_authorized; char transport_family[RSS_DDC_TEXT_MAX];
                  char command_semantics[RSS_DDC_TEXT_MAX]; char applicability[RSS_DDC_TEXT_MAX];
+                 bool reported_maximum_present; uint16_t reported_maximum;
                  RSSDDCKnowledgeValue value; RSSDDCKnowledgeProvenance provenance; } RSSDDCKnowledgeRoute;
 typedef struct RSSDDCMonitorKnowledge RSSDDCMonitorKnowledge;
 typedef struct RSSDDCMonitorKnowledgeResolution RSSDDCMonitorKnowledgeResolution;
@@ -423,6 +424,48 @@ const RSSDDCKnowledgeRoute *rss_ddc_monitor_knowledge_resolution_preferred_write
 bool rss_ddc_monitor_knowledge_resolution_write_authorized(const RSSDDCMonitorKnowledgeResolution *resolution);
 size_t rss_ddc_monitor_knowledge_resolution_candidate_count(const RSSDDCMonitorKnowledgeResolution *resolution);
 const RSSDDCKnowledgeRoute *rss_ddc_monitor_knowledge_resolution_candidate_at(const RSSDDCMonitorKnowledgeResolution *resolution,size_t index);
+
+/** Alien Probe Quick is a bounded, read-only observation consumer. */
+enum { RSS_DDC_PROBE_QUICK_CONTROL_COUNT = 6, RSS_DDC_PROBE_QUICK_REPEAT_COUNT = 2,
+       RSS_DDC_PROBE_QUICK_REPEAT_DELAY_MS = 0 };
+typedef enum { RSS_DDC_PROBE_CORRELATION_EXACT = 0, RSS_DDC_PROBE_CORRELATION_AMBIGUOUS } RSSDDCProbeCorrelation;
+typedef enum { RSS_DDC_PROBE_TRANSPORT_NOT_ATTEMPTED = 0, RSS_DDC_PROBE_TRANSPORT_SUCCEEDED,
+               RSS_DDC_PROBE_TRANSPORT_FAILED } RSSDDCProbeTransportState;
+typedef enum { RSS_DDC_PROBE_KNOWLEDGE_UNKNOWN = 0, RSS_DDC_PROBE_KNOWLEDGE_YES,
+               RSS_DDC_PROBE_KNOWLEDGE_NO } RSSDDCProbeKnowledgeState;
+typedef enum { RSS_DDC_PROBE_RESULT_UNATTEMPTED = 0, RSS_DDC_PROBE_RESULT_STABLE,
+               RSS_DDC_PROBE_RESULT_VARIABLE, RSS_DDC_PROBE_RESULT_PROTOCOL_REPORTED,
+               RSS_DDC_PROBE_RESULT_MALFORMED, RSS_DDC_PROBE_RESULT_SEMANTIC_MISMATCH,
+               RSS_DDC_PROBE_RESULT_TRANSPORT_ERROR } RSSDDCProbeResultCategory;
+typedef RSSDDCError (*RSSDDCProbeGetVCP)(void *context, uint8_t vcp_code, RSSDDCVCPResult *result);
+typedef RSSDDCError (*RSSDDCProbeGetMCCSCapabilities)(void *context, RSSDDCMCCSCapabilities *capabilities);
+typedef struct { void *context; RSSDDCProbeGetVCP get_vcp;
+                 RSSDDCProbeGetMCCSCapabilities get_mccs_capabilities; } RSSDDCProbeReadTransport;
+typedef struct { RSSDDCDisplay display; RSSDDCProbeCorrelation correlation;
+                 const RSSDDCMonitorKnowledge *profile_knowledge; } RSSDDCProbeTarget;
+typedef struct { const char *semantic_id; uint8_t requested_vcp; RSSDDCProbeResultCategory category;
+                 RSSDDCProbeTransportState transport; RSSDDCError first_error, repeat_error;
+                 bool protocol_valid, semantic_request_match, stable, current_exceeds_maximum;
+                 RSSDDCProbeKnowledgeState advertised, profile_known; uint16_t current_value, maximum_value; } RSSDDCProbeObservation;
+typedef struct { RSSDDCDisplay display; RSSDDCError mccs_error; bool mccs_available;
+                 size_t controls_attempted, controls_protocol_valid, controls_stable, controls_variable,
+                        controls_protocol_reported, controls_malformed, controls_transport_error;
+                 size_t observation_count; const RSSDDCProbeObservation *observations; } RSSDDCProbeDiagnostics;
+typedef struct RSSDDCProbe RSSDDCProbe;
+/** Creates a heap-backed observer. The target's optional profile knowledge is borrowed. */
+RSSDDCError rss_ddc_probe_create(const RSSDDCProbeTarget *target, const RSSDDCProbeReadTransport *transport,
+                                 RSSDDCProbe **probe);
+void rss_ddc_probe_destroy(RSSDDCProbe *probe);
+/** Makes exactly two immediate reads of each of six fixed VCPs; it has no write callback or mutation path. */
+RSSDDCError rss_ddc_probe_quick(RSSDDCProbe *probe);
+/** Returns probe-owned knowledge; it is valid until the probe changes or is destroyed. */
+RSSDDCError rss_ddc_probe_knowledge(const RSSDDCProbe *probe, const RSSDDCMonitorKnowledge **knowledge);
+RSSDDCError rss_ddc_probe_diagnostics(const RSSDDCProbe *probe, RSSDDCProbeDiagnostics *diagnostics);
+/** Returns the heap-backed parsed MCCS observation when available, otherwise NOT_FOUND. */
+RSSDDCError rss_ddc_probe_mccs_capabilities(const RSSDDCProbe *probe, const RSSDDCMCCSCapabilities **capabilities);
+/** Convenience form using only the existing public display, GetVCP, and MCCS APIs. */
+RSSDDCError rss_ddc_probe_quick_for_display(uint32_t list_index, RSSDDCProbe **probe);
+const char *rss_ddc_probe_result_category_name(RSSDDCProbeResultCategory category);
 
 /**
  * Parses a bounded MCCS capabilities string without contacting a display.

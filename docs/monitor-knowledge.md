@@ -34,6 +34,11 @@ Two facts are coalesced only when all route and provenance fields are equal.
 Thus matching observations from distinct sources, competing values, and
 alternate routes all remain inspectable after a merge.
 
+A Get VCP observation may retain `reported_maximum` separately from its raw
+observed value. It is a protocol-reported field, not an observed numeric range
+or a write range; in particular, `current > reported_maximum` is preserved as
+an unusual observation rather than normalized or rejected.
+
 Slice 5 integration is data-only:
 `rss_ddc_monitor_knowledge_add_profile_control` copies a resolved profile
 control as a `PROFILE` fact. It does not match a live display, apply a profile,

@@ -17,6 +17,7 @@ static void usage(const char *program) {
             "  %s [--verbose] edid <display-index> [--decode|--hex|--raw <file>]\n"
             "  %s [--verbose] dpcd <display-index> <address> <length>\n"
             "  %s [--verbose] probe-dpcd-path <display-index>\n"
+            "  %s probe-quick <display-index>\n"
             "  %s [--verbose] mccs <display-index>\n"
             "  %s [--verbose] input <display-index> <standard|lg-alt> <value>\n"
             "  %s [--verbose] picture-mode <display-index> <vivid|reader>\n"
@@ -24,7 +25,7 @@ static void usage(const char *program) {
             "  %s [--verbose] set <display-index> <vcp> <value>\n"
             "  %s [--verbose] set <display-index> <vcp> <value> --verify [--settle-ms <ms>] "
             "[--retries <count>] [--retry-delay-ms <ms>]\n",
-            program, program, program, program, program, program, program, program, program, program, program);
+            program, program, program, program, program, program, program, program, program, program, program, program);
 }
 
 static bool parse_unsigned(const char *text, unsigned long maximum, unsigned long *value) {
@@ -122,6 +123,37 @@ static void print_dpcd_decode(uint32_t address, const uint8_t *bytes, size_t len
            capabilities.enhanced_framing ? "yes" : "no", capabilities.downstream_port_present ? "yes" : "no");
 }
 
+static const char *probe_knowledge_state_name(RSSDDCProbeKnowledgeState state) {
+    if (state == RSS_DDC_PROBE_KNOWLEDGE_YES) return "yes";
+    if (state == RSS_DDC_PROBE_KNOWLEDGE_NO) return "no";
+    return "unknown";
+}
+
+static void print_probe_quick(const RSSDDCProbeDiagnostics *diagnostics) {
+    printf("Alien Probe Quick: READ-ONLY; writes=0; repeats=%u; repeat-delay-ms=%u\n",
+           RSS_DDC_PROBE_QUICK_REPEAT_COUNT, RSS_DDC_PROBE_QUICK_REPEAT_DELAY_MS);
+    printf("display=%u provider=%s transport=%s mccs=%s\n", diagnostics->display.list_index,
+           rss_ddc_provider_string(diagnostics->display.provider), diagnostics->display.transport,
+           diagnostics->mccs_available ? "available" : rss_ddc_error_string(diagnostics->mccs_error));
+    for (size_t index = 0; index < diagnostics->observation_count; ++index) {
+        const RSSDDCProbeObservation *observation = &diagnostics->observations[index];
+        printf("vcp=0x%02x semantic=%s category=%s transport=%s protocol-valid=%s request-match=%s advertised=%s profile-known=%s",
+               observation->requested_vcp, observation->semantic_id,
+               rss_ddc_probe_result_category_name(observation->category),
+               observation->transport == RSS_DDC_PROBE_TRANSPORT_SUCCEEDED ? "succeeded" : "failed",
+               observation->protocol_valid ? "yes" : "no", observation->semantic_request_match ? "yes" : "no",
+               probe_knowledge_state_name(observation->advertised),
+               probe_knowledge_state_name(observation->profile_known));
+        if (observation->protocol_valid) {
+            printf(" current=%u maximum=%u stable=%s unusual-current-gt-max=%s", observation->current_value,
+                   observation->maximum_value, observation->stable ? "yes" : "no",
+                   observation->current_exceeds_maximum ? "yes" : "no");
+        }
+        printf(" first=%s repeat=%s\n", rss_ddc_error_string(observation->first_error),
+               rss_ddc_error_string(observation->repeat_error));
+    }
+}
+
 /** Parses the small public CLI surface; hardware access is limited to explicit GET/SET/EDID/DPCD commands. */
 int main(int argc, char **argv) {
     bool verbose = false;
@@ -203,6 +235,18 @@ int main(int argc, char **argv) {
         if (error != RSS_DDC_OK) { fprintf(stderr, "rss-ddc: %s\n", rss_ddc_error_string(error)); return EXIT_FAILURE; }
         printf("DPCD path candidate correlation completed; no IODP construction or DPCD read was performed.\n");
         return EXIT_SUCCESS;
+    }
+    if (strcmp(argv[argument], "probe-quick") == 0) {
+        if (argc != argument + 2) { usage(argv[0]); return EXIT_FAILURE; }
+        RSSDDCProbe *probe = NULL;
+        RSSDDCError error = rss_ddc_probe_quick_for_display((uint32_t)display_index, &probe);
+        if (error != RSS_DDC_OK) { fprintf(stderr, "rss-ddc: %s\n", rss_ddc_error_string(error)); return EXIT_FAILURE; }
+        RSSDDCProbeDiagnostics diagnostics = {};
+        error = rss_ddc_probe_diagnostics(probe, &diagnostics);
+        if (error == RSS_DDC_OK) print_probe_quick(&diagnostics);
+        rss_ddc_probe_destroy(probe);
+        if (error != RSS_DDC_OK) fprintf(stderr, "rss-ddc: %s\n", rss_ddc_error_string(error));
+        return error == RSS_DDC_OK ? EXIT_SUCCESS : EXIT_FAILURE;
     }
     if (strcmp(argv[argument], "mccs") == 0) {
         if (argc != argument + 2) { usage(argv[0]); return EXIT_FAILURE; }
