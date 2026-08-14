@@ -109,6 +109,11 @@ transactional loads, atomic saves, and deterministic exact matching. They are
 metadata only in this slice and introduce no display transport behavior. See
 [Monitor profiles](docs/monitor-profiles.md).
 
+Monitor knowledge is a separate, bounded offline model that retains competing
+routes, values, and provenance before producing a deterministic effective view.
+It does not authorize or execute a monitor operation. See [Monitor
+knowledge](docs/monitor-knowledge.md).
+
 ## Provider model
 
 | Provider | Backend status | Capabilities |

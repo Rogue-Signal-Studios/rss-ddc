@@ -318,6 +318,33 @@ typedef struct {
 /** Opaque, heap-owned store. Parsing and resolution never contact hardware. */
 typedef struct RSSDDCProfileStore RSSDDCProfileStore;
 
+/**
+ * Pure monitor-knowledge facts. Distinct sources are retained even when their
+ * values agree; a resolved view never erases their provenance.
+ */
+typedef enum { RSS_DDC_KNOWLEDGE_VALUE_UNKNOWN = 0, RSS_DDC_KNOWLEDGE_VALUE_UNSIGNED,
+               RSS_DDC_KNOWLEDGE_VALUE_STRING, RSS_DDC_KNOWLEDGE_VALUE_UNSUPPORTED } RSSDDCKnowledgeValueState;
+typedef enum { RSS_DDC_KNOWLEDGE_ROUTE_UNKNOWN = 0, RSS_DDC_KNOWLEDGE_ROUTE_STANDARD_VCP,
+               RSS_DDC_KNOWLEDGE_ROUTE_LG_ALT_INPUT, RSS_DDC_KNOWLEDGE_ROUTE_PICTURE_MODE,
+               RSS_DDC_KNOWLEDGE_ROUTE_UNSUPPORTED } RSSDDCKnowledgeRouteKind;
+typedef enum { RSS_DDC_KNOWLEDGE_FACT_DECLARED = 0, RSS_DDC_KNOWLEDGE_FACT_PROFILE,
+               RSS_DDC_KNOWLEDGE_FACT_OBSERVED, RSS_DDC_KNOWLEDGE_FACT_INFERRED,
+               RSS_DDC_KNOWLEDGE_FACT_RESOLVED } RSSDDCKnowledgeFactKind;
+typedef enum { RSS_DDC_KNOWLEDGE_RESOLUTION_UNRESOLVED = 0,
+               RSS_DDC_KNOWLEDGE_RESOLUTION_RESOLVED,
+               RSS_DDC_KNOWLEDGE_RESOLUTION_CONFLICT } RSSDDCKnowledgeResolutionState;
+typedef struct { RSSDDCKnowledgeValueState state; uint16_t unsigned_value; char string_value[RSS_DDC_TEXT_MAX]; } RSSDDCKnowledgeValue;
+typedef struct { char source_id[RSS_DDC_PROFILE_ID_MAX]; RSSDDCProfileSource source;
+                 RSSDDCProfileConfidence confidence; RSSDDCKnowledgeFactKind fact_kind;
+                 char evidence_id[RSS_DDC_PROFILE_ID_MAX]; } RSSDDCKnowledgeProvenance;
+typedef struct { char semantic_id[RSS_DDC_TEXT_MAX], route_id[RSS_DDC_PROFILE_ID_MAX];
+                 RSSDDCKnowledgeRouteKind kind; uint16_t address; bool readable, writable;
+                 bool write_authorized; char transport_family[RSS_DDC_TEXT_MAX];
+                 char command_semantics[RSS_DDC_TEXT_MAX]; char applicability[RSS_DDC_TEXT_MAX];
+                 RSSDDCKnowledgeValue value; RSSDDCKnowledgeProvenance provenance; } RSSDDCKnowledgeRoute;
+typedef struct RSSDDCMonitorKnowledge RSSDDCMonitorKnowledge;
+typedef struct RSSDDCMonitorKnowledgeResolution RSSDDCMonitorKnowledgeResolution;
+
 /** Returns a static, human-readable name for an error or provider. */
 const char *rss_ddc_error_string(RSSDDCError error);
 const char *rss_ddc_provider_string(RSSDDCProvider provider);
@@ -363,6 +390,39 @@ void rss_ddc_profile_identity_from_display(const RSSDDCDisplay *display, RSSDDCP
 const char *rss_ddc_profile_control_name(RSSDDCProfileControlID id);
 const char *rss_ddc_profile_source_name(RSSDDCProfileSource source);
 const char *rss_ddc_profile_confidence_name(RSSDDCProfileConfidence confidence);
+/** Heap-owned pure knowledge objects; add/merge never executes a monitor operation. */
+RSSDDCMonitorKnowledge *rss_ddc_monitor_knowledge_create(void);
+void rss_ddc_monitor_knowledge_destroy(RSSDDCMonitorKnowledge *knowledge);
+RSSDDCError rss_ddc_monitor_knowledge_add_route(RSSDDCMonitorKnowledge *knowledge,
+                                                 const RSSDDCKnowledgeRoute *route);
+/**
+ * Copies a Slice 5 profile control as one profile-derived fact. The resulting
+ * record is metadata only: it neither selects a live display nor authorizes
+ * or performs a transport operation.
+ */
+RSSDDCError rss_ddc_monitor_knowledge_add_profile_control(RSSDDCMonitorKnowledge *knowledge,
+                                                           const char *semantic_id,
+                                                           const char *source_id,
+                                                           const RSSDDCProfileControl *control);
+size_t rss_ddc_monitor_knowledge_route_count(const RSSDDCMonitorKnowledge *knowledge);
+/** Returns a borrowed immutable route valid until `knowledge` is changed or destroyed. */
+const RSSDDCKnowledgeRoute *rss_ddc_monitor_knowledge_route_at(const RSSDDCMonitorKnowledge *knowledge, size_t index);
+/** Transactionally creates a deep-copied union retaining every non-identical source route. */
+RSSDDCError rss_ddc_monitor_knowledge_merge(const RSSDDCMonitorKnowledge *first,
+                                            const RSSDDCMonitorKnowledge *second,
+                                            RSSDDCMonitorKnowledge **merged);
+/** Resolves one semantic control; all candidate routes and provenance remain borrowed from the sources. */
+RSSDDCError rss_ddc_monitor_knowledge_resolve(const RSSDDCMonitorKnowledge *const *sources, size_t source_count,
+                                              const char *semantic_id, RSSDDCMonitorKnowledgeResolution **resolution);
+void rss_ddc_monitor_knowledge_resolution_destroy(RSSDDCMonitorKnowledgeResolution *resolution);
+RSSDDCKnowledgeResolutionState rss_ddc_monitor_knowledge_resolution_state(const RSSDDCMonitorKnowledgeResolution *resolution);
+bool rss_ddc_monitor_knowledge_resolution_has_conflict(const RSSDDCMonitorKnowledgeResolution *resolution);
+const RSSDDCKnowledgeRoute *rss_ddc_monitor_knowledge_resolution_preferred_read(const RSSDDCMonitorKnowledgeResolution *resolution);
+const RSSDDCKnowledgeRoute *rss_ddc_monitor_knowledge_resolution_preferred_write(const RSSDDCMonitorKnowledgeResolution *resolution);
+/** A selected writable route is not automatically authorized. */
+bool rss_ddc_monitor_knowledge_resolution_write_authorized(const RSSDDCMonitorKnowledgeResolution *resolution);
+size_t rss_ddc_monitor_knowledge_resolution_candidate_count(const RSSDDCMonitorKnowledgeResolution *resolution);
+const RSSDDCKnowledgeRoute *rss_ddc_monitor_knowledge_resolution_candidate_at(const RSSDDCMonitorKnowledgeResolution *resolution,size_t index);
 
 /**
  * Parses a bounded MCCS capabilities string without contacting a display.
