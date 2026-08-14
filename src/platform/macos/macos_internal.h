@@ -93,6 +93,10 @@ RSSDDCError rss_macos_get_mccs_capabilities_snapshot(uint32_t list_index,
 /** Resolves a heap-owned private binding and performs only the gated LG alternate-input write path. */
 RSSDDCError rss_macos_set_lg_alt_input_snapshot(uint32_t list_index, uint16_t value,
                                                 const RSSDDCDiagnostics *diagnostics);
+/** Resolves a heap-owned binding and performs only the exact profile-gated Picture Mode SET. */
+RSSDDCError rss_macos_set_lg_picture_mode_snapshot(uint32_t list_index, uint8_t vcp_code, uint16_t value,
+                                                    const char *mode_name,
+                                                    const RSSDDCDiagnostics *diagnostics);
 /** Captures optional identity evidence for Set-and-Verify without affecting plain GET/SET resolution. */
 bool rss_macos_capture_binding_identity(RSSMacOSBinding *binding);
 /** True only when a freshly correlated binding still proves the original display identity. */

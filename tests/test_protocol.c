@@ -25,6 +25,13 @@ int main(void) {
     assert(memcmp(set_request, expected_set_17, sizeof(set_request)) == 0);
     rss_ddc_build_conventional_set_vcp(0x60, 18, set_request);
     assert(memcmp(set_request, expected_set_18, sizeof(set_request)) == 0);
+    /* LG Picture Mode is a profile-gated use of the unchanged conventional DCPDP13 SET frame. */
+    const uint8_t expected_picture_vivid[] = {0x84, 0x03, 0x15, 0x00, 0x31, 0x9c};
+    const uint8_t expected_picture_reader[] = {0x84, 0x03, 0x15, 0x00, 0x01, 0xac};
+    rss_ddc_build_conventional_set_vcp(0x15, 0x31, set_request);
+    assert(memcmp(set_request, expected_picture_vivid, sizeof(set_request)) == 0);
+    rss_ddc_build_conventional_set_vcp(0x15, 0x01, set_request);
+    assert(memcmp(set_request, expected_picture_reader, sizeof(set_request)) == 0);
     const uint8_t expected_set_maximum[] = {0x84, 0x03, 0x10, 0xff, 0xff, 0xa8};
     rss_ddc_build_conventional_set_vcp(0x10, UINT16_MAX, set_request);
     assert(memcmp(set_request, expected_set_maximum, sizeof(set_request)) == 0);

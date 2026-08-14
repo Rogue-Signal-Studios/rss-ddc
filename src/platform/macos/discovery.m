@@ -11,6 +11,7 @@
 #include "correlation.h"
 #include "dpcd.h"
 #include "enumeration.h"
+#include "picture_mode.h"
 #include "reader.h"
 #include "macos_internal.h"
 #include "private/coredisplay_private.h"
@@ -147,6 +148,7 @@ static bool inspect_service(io_service_t service, RSSDDCDisplay *display) {
     display->provider = rss_ddc_provider_from_registry_class(provider_class);
     display->capabilities = rss_ddc_provider_capabilities(display->provider);
     snprintf(display->transport, sizeof(display->transport), "%s", role_text[0] ? role_text : "unknown");
+    display->capabilities |= rss_ddc_picture_mode_profile_capabilities(display);
     if (role != NULL) CFRelease(role);
     if (provider != NULL) CFRelease(provider);
     IOObjectRelease(parent);
@@ -690,6 +692,38 @@ RSSDDCError rss_macos_set_lg_alt_input_snapshot(uint32_t list_index, uint16_t va
     RSSDDCError error = rss_macos_resolve_binding(list_index, binding);
     if (error == RSS_DDC_OK) {
         error = rss_macos_provider_set_lg_alt_input(binding, value, diagnostics);
+    } else {
+        rss_macos_diagnostic(diagnostics, rss_macos_correlation_failure_string(binding->correlation_failure));
+        const char *detail = rss_macos_correlation_detail_string(binding);
+        if (detail != NULL) rss_macos_diagnostic(diagnostics, detail);
+    }
+    rss_macos_release_binding(binding);
+    free(binding);
+    return error;
+}
+
+/** Keeps the private binding out of the public semantic Picture Mode API stack frame. */
+RSSDDCError rss_macos_set_lg_picture_mode_snapshot(uint32_t list_index, uint8_t vcp_code, uint16_t value,
+                                                    const char *mode_name,
+                                                    const RSSDDCDiagnostics *diagnostics) {
+    RSSMacOSBinding *binding = calloc(1, sizeof(*binding));
+    if (binding == NULL) return RSS_DDC_ERROR_SYSTEM;
+    RSSDDCError error = rss_macos_resolve_binding(list_index, binding);
+    if (error == RSS_DDC_OK) {
+        error = rss_ddc_validate_lg_hdr_qhd_picture_mode_target(&binding->display, binding->dp_safety_gate);
+        if (error == RSS_DDC_OK) {
+            char message[320] = {};
+            snprintf(message, sizeof(message),
+                     "operation=PictureMode target=LG-HDR-QHD/DCPDP13Service/DCPEXT0 mode=%s raw-value=0x%02x "
+                     "vcp=0x%02x semantic-write-count=1 physical-write-policy=conventional-DCPDP13(2) "
+                     "no-get=yes no-verify=yes no-retry=yes no-restore=yes no-fallback=yes",
+                     mode_name != NULL ? mode_name : "<unknown>", value, vcp_code);
+            rss_macos_diagnostic(diagnostics, message);
+            error = rss_macos_provider_set_vcp(binding, vcp_code, value, diagnostics);
+        } else {
+            rss_macos_diagnostic(diagnostics,
+                                 "operation=PictureMode status=unsupported; exact LG HDR QHD/DCPDP13Service/DCPEXT0 profile and safety gate required");
+        }
     } else {
         rss_macos_diagnostic(diagnostics, rss_macos_correlation_failure_string(binding->correlation_failure));
         const char *detail = rss_macos_correlation_detail_string(binding);

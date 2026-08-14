@@ -36,7 +36,7 @@ typedef enum {
     RSS_DDC_BACKEND_PS190,
 } RSSDDCBackend;
 
-/** Independent capabilities. A provider must opt in to each one after validation. */
+/** Independent capabilities. Provider and exact-profile capabilities are documented separately. */
 typedef enum {
     RSS_DDC_CAP_NONE = 0,
     RSS_DDC_CAP_GET_VCP = 1u << 0,
@@ -47,6 +47,8 @@ typedef enum {
     RSS_DDC_CAP_MCCS_CAPABILITIES = 1u << 4,
     /** DCPDP13 can issue the separately validated LG alternate-input transport. */
     RSS_DDC_CAP_ALTERNATE_INPUT = 1u << 5,
+    /** An exact monitor profile has an evidence-backed semantic Picture Mode operation. */
+    RSS_DDC_CAP_PICTURE_MODE = 1u << 6,
 } RSSDDCCapability;
 
 /** Stable operation outcomes; reply failures remain specific so malformed data is never accepted. */
@@ -249,6 +251,16 @@ typedef enum {
     RSS_DDC_INPUT_SWITCH_LG_ALT,
 } RSSDDCInputSwitchMethod;
 
+/**
+ * Friendly Picture Mode values for the one documented monitor profile. These
+ * names are not generic MCCS semantics and deliberately expose no raw value.
+ */
+typedef enum {
+    RSS_DDC_PICTURE_MODE_UNKNOWN = 0,
+    RSS_DDC_PICTURE_MODE_VIVID,
+    RSS_DDC_PICTURE_MODE_READER,
+} RSSDDCPictureMode;
+
 /** Returns a static, human-readable name for an error or provider. */
 const char *rss_ddc_error_string(RSSDDCError error);
 const char *rss_ddc_provider_string(RSSDDCProvider provider);
@@ -371,6 +383,17 @@ RSSDDCError rss_ddc_set_input(uint32_t list_index, RSSDDCInputSwitchMethod metho
 /** Diagnostic form of rss_ddc_set_input; diagnostics do not alter its writes or timing. */
 RSSDDCError rss_ddc_set_input_with_diagnostics(uint32_t list_index, RSSDDCInputSwitchMethod method,
                                                 uint16_t value, const RSSDDCDiagnostics *diagnostics);
+/** Returns a static friendly name for one supported semantic Picture Mode. */
+const char *rss_ddc_picture_mode_name(RSSDDCPictureMode mode);
+/**
+ * Sets one documented LG HDR QHD Picture Mode. This write-only semantic
+ * operation is profile-gated and performs no GET, verification, retry,
+ * restore, or transport fallback.
+ */
+RSSDDCError rss_ddc_set_picture_mode(uint32_t list_index, RSSDDCPictureMode mode);
+/** Diagnostic form of rss_ddc_set_picture_mode. */
+RSSDDCError rss_ddc_set_picture_mode_with_diagnostics(uint32_t list_index, RSSDDCPictureMode mode,
+                                                       const RSSDDCDiagnostics *diagnostics);
 /**
  * Returns the explicit default verification policy: 100 ms settling, then up
  * to three additional GET attempts separated by 250 ms. These are a modest

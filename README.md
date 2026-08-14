@@ -29,6 +29,7 @@ make
 ./rss-ddc --verbose probe-dpcd-path 2
 ./rss-ddc --verbose get 2 0x10
 ./rss-ddc --verbose set 2 0x10 61
+./rss-ddc --verbose picture-mode 2 vivid
 ./rss-ddc --verbose set 2 0x10 62 --verify
 ./rss-ddc --verbose dpcd 2 0x00000 16
 ./rss-ddc --verbose get 1 0x10
@@ -95,6 +96,13 @@ all-zero first GET, waited 250 ms, then verified successfully on attempt two.
 This establishes an intermittent post-SET transient on that monitor, not a
 universal delay/retry requirement. Set-and-Verify does not alter the separately
 hardware-validated plain GET or plain SET provider transactions.
+
+`picture-mode` is a separate, profile-gated write-only semantic operation for
+the documented external `LG HDR QHD` / `DCPDP13Service` / `DCPEXT0` target.
+Only historically SET-validated `vivid` and `reader` are exposed. It uses the
+existing conventional DCPDP13 SetVCP framing for VCP `0x15`, not the LG F4
+input command, and performs no GET, verification, retry, restore, or fallback.
+See [Picture Mode](docs/picture-mode.md).
 
 ## Provider model
 

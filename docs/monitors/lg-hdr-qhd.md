@@ -34,6 +34,16 @@ display/provider binding.
 No broader VCP support, input-source SET semantics, or behavior on other LG
 products is implied.
 
+## Picture Mode
+
+Read-only OSD fingerprints identified VCP `0x15` as a stable correlator across
+eight modes. Direct historical one-shot SET testing visibly confirmed only
+Vivid (`0x31`) and Reader (`0x01`); rss-ddc exposes only those two symbolic
+values. Other fingerprint mappings remain documented evidence, not production
+write permissions. The exact profile-gated operation uses conventional
+DCPDP13 SetVCP, not the LG alternate F4 input command. See
+[Picture Mode](../picture-mode.md).
+
 ## Intermittent post-SET transient
 
 This monitor produced an important **observed** post-SET behavior:

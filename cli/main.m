@@ -19,11 +19,12 @@ static void usage(const char *program) {
             "  %s [--verbose] probe-dpcd-path <display-index>\n"
             "  %s [--verbose] mccs <display-index>\n"
             "  %s [--verbose] input <display-index> <standard|lg-alt> <value>\n"
+            "  %s [--verbose] picture-mode <display-index> <vivid|reader>\n"
             "  %s [--verbose] get <display-index> <vcp>\n"
             "  %s [--verbose] set <display-index> <vcp> <value>\n"
             "  %s [--verbose] set <display-index> <vcp> <value> --verify [--settle-ms <ms>] "
             "[--retries <count>] [--retry-delay-ms <ms>]\n",
-            program, program, program, program, program, program, program, program, program, program);
+            program, program, program, program, program, program, program, program, program, program, program);
 }
 
 static bool parse_unsigned(const char *text, unsigned long maximum, unsigned long *value) {
@@ -229,6 +230,18 @@ int main(int argc, char **argv) {
         RSSDDCDiagnostics diagnostics = {.callback = write_diagnostic, .context = NULL};
         RSSDDCError error = rss_ddc_set_input_with_diagnostics((uint32_t)display_index, method, (uint16_t)value,
                                                                 verbose ? &diagnostics : NULL);
+        if (error != RSS_DDC_OK) fprintf(stderr, "rss-ddc: %s\n", rss_ddc_error_string(error));
+        return error == RSS_DDC_OK ? EXIT_SUCCESS : EXIT_FAILURE;
+    }
+    if (strcmp(argv[argument], "picture-mode") == 0) {
+        if (argc != argument + 3) { usage(argv[0]); return EXIT_FAILURE; }
+        RSSDDCPictureMode mode;
+        if (strcmp(argv[argument + 2], "vivid") == 0) mode = RSS_DDC_PICTURE_MODE_VIVID;
+        else if (strcmp(argv[argument + 2], "reader") == 0) mode = RSS_DDC_PICTURE_MODE_READER;
+        else { usage(argv[0]); return EXIT_FAILURE; }
+        RSSDDCDiagnostics diagnostics = {.callback = write_diagnostic, .context = NULL};
+        RSSDDCError error = rss_ddc_set_picture_mode_with_diagnostics((uint32_t)display_index, mode,
+                                                                       verbose ? &diagnostics : NULL);
         if (error != RSS_DDC_OK) fprintf(stderr, "rss-ddc: %s\n", rss_ddc_error_string(error));
         return error == RSS_DDC_OK ? EXIT_SUCCESS : EXIT_FAILURE;
     }
