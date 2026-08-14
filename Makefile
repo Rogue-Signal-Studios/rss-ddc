@@ -17,12 +17,12 @@ CFLAGS = -std=c11 -Wall -Wextra -Werror -Wformat=2 -fmodules -Iinclude -Isrc/cor
 LDLIBS = -framework CoreDisplay
 
 PORTABLE_CORE_SOURCES = \
-	src/core/correlation.c src/core/enumeration.c src/core/mccs_capabilities.c src/core/mccs_retrieval.c src/core/provider.c src/core/rss_ddc.c src/core/verify.c \
-	src/ddc/protocol.c src/ddc/edid.c src/dpcd/dpcd.c src/dpcd/reader.c \
+	src/core/correlation.c src/core/enumeration.c src/core/input_switch.c src/core/mccs_capabilities.c src/core/mccs_retrieval.c src/core/provider.c src/core/rss_ddc.c src/core/verify.c \
+	src/ddc/input_switch.c src/ddc/protocol.c src/ddc/edid.c src/dpcd/dpcd.c src/dpcd/reader.c \
 	src/platform/macos/providers/dispatch.c src/platform/macos/providers/mcdp/get_vcp.c
 MACOS_BACKEND_SOURCES = \
 	src/platform/macos/discovery.m src/platform/macos/providers/ps190.m \
-	src/platform/macos/providers/dp/get_vcp.m src/platform/macos/providers/dp/mccs_capabilities.m src/platform/macos/providers/dp/set_vcp.m
+	src/platform/macos/providers/dp/get_vcp.m src/platform/macos/providers/dp/input_switch.m src/platform/macos/providers/dp/mccs_capabilities.m src/platform/macos/providers/dp/set_vcp.m
 LIBRARY_SOURCES = $(PORTABLE_CORE_SOURCES) $(MACOS_BACKEND_SOURCES)
 LIBRARY_OBJECTS = $(patsubst %.c,$(BUILD)/%.o,$(filter %.c,$(LIBRARY_SOURCES))) \
 	$(patsubst %.m,$(BUILD)/%.o,$(filter %.m,$(LIBRARY_SOURCES)))
@@ -34,7 +34,8 @@ TESTS = \
 	$(BUILD)/test_protocol $(BUILD)/test_provider $(BUILD)/test_correlation $(BUILD)/test_enumeration \
 	$(BUILD)/test_dispatch $(BUILD)/test_verify $(BUILD)/test_edid $(BUILD)/test_dpcd \
 	$(BUILD)/test_dcpdpservice $(BUILD)/test_dcpdpservice_get $(BUILD)/test_dcpdpservice_set \
-	$(BUILD)/test_display_resolution $(BUILD)/test_mccs_capabilities $(BUILD)/test_mccs_retrieval
+	$(BUILD)/test_display_resolution $(BUILD)/test_mccs_capabilities $(BUILD)/test_mccs_retrieval \
+	$(BUILD)/test_input_switch $(BUILD)/test_input_switch_api
 
 .DEFAULT_GOAL := all
 
@@ -107,6 +108,12 @@ $(BUILD)/test_mccs_capabilities: tests/test_mccs_capabilities.c src/core/mccs_ca
 $(BUILD)/test_mccs_retrieval: tests/test_mccs_retrieval.c src/core/mccs_capabilities.c src/core/mccs_retrieval.c src/ddc/protocol.c | $(BUILD)
 	$(CC) $(CFLAGS) $^ -o $@
 
+$(BUILD)/test_input_switch: tests/test_input_switch.c src/ddc/input_switch.c src/ddc/protocol.c | $(BUILD)
+	$(CC) $(CFLAGS) $^ -o $@
+
+$(BUILD)/test_input_switch_api: tests/test_input_switch_api.c src/core/input_switch.c src/ddc/input_switch.c src/ddc/protocol.c | $(BUILD)
+	$(CC) $(CFLAGS) $^ -o $@
+
 check-library-sources: $(LIBRARY) $(TEST_SUPPORT_SOURCES)
 	@! $(AR) t $(LIBRARY) | grep -E '(get_validation|set_validation|(^|/)tests/|(^|/)cli/)'
 
@@ -125,6 +132,8 @@ test: $(TESTS) check-library-sources
 	$(BUILD)/test_display_resolution
 	$(BUILD)/test_mccs_capabilities
 	$(BUILD)/test_mccs_retrieval
+	$(BUILD)/test_input_switch
+	$(BUILD)/test_input_switch_api
 
 install-library: $(LIBRARY)
 	install -d $(DESTDIR)$(PREFIX)/include $(DESTDIR)$(PREFIX)/lib

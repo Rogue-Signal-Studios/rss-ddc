@@ -682,6 +682,24 @@ RSSDDCError rss_macos_get_mccs_capabilities_snapshot(uint32_t list_index,
     return error;
 }
 
+/** Keeps the private binding out of the public input-selection API stack frame. */
+RSSDDCError rss_macos_set_lg_alt_input_snapshot(uint32_t list_index, uint16_t value,
+                                                const RSSDDCDiagnostics *diagnostics) {
+    RSSMacOSBinding *binding = calloc(1, sizeof(*binding));
+    if (binding == NULL) return RSS_DDC_ERROR_SYSTEM;
+    RSSDDCError error = rss_macos_resolve_binding(list_index, binding);
+    if (error == RSS_DDC_OK) {
+        error = rss_macos_provider_set_lg_alt_input(binding, value, diagnostics);
+    } else {
+        rss_macos_diagnostic(diagnostics, rss_macos_correlation_failure_string(binding->correlation_failure));
+        const char *detail = rss_macos_correlation_detail_string(binding);
+        if (detail != NULL) rss_macos_diagnostic(diagnostics, detail);
+    }
+    rss_macos_release_binding(binding);
+    free(binding);
+    return error;
+}
+
 /** Balances service_for_display's retained proxy on every success and error path. */
 void rss_macos_release_binding(RSSMacOSBinding *binding) {
     if (binding != NULL && binding->service_proxy != MACH_PORT_NULL) IOObjectRelease(binding->service_proxy);

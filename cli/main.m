@@ -18,11 +18,12 @@ static void usage(const char *program) {
             "  %s [--verbose] dpcd <display-index> <address> <length>\n"
             "  %s [--verbose] probe-dpcd-path <display-index>\n"
             "  %s [--verbose] mccs <display-index>\n"
+            "  %s [--verbose] input <display-index> <standard|lg-alt> <value>\n"
             "  %s [--verbose] get <display-index> <vcp>\n"
             "  %s [--verbose] set <display-index> <vcp> <value>\n"
             "  %s [--verbose] set <display-index> <vcp> <value> --verify [--settle-ms <ms>] "
             "[--retries <count>] [--retry-delay-ms <ms>]\n",
-            program, program, program, program, program, program, program, program, program);
+            program, program, program, program, program, program, program, program, program, program);
 }
 
 static bool parse_unsigned(const char *text, unsigned long maximum, unsigned long *value) {
@@ -215,6 +216,20 @@ int main(int argc, char **argv) {
             fputc('\n', stdout);
         }
         free(capabilities);
+        return error == RSS_DDC_OK ? EXIT_SUCCESS : EXIT_FAILURE;
+    }
+    if (strcmp(argv[argument], "input") == 0) {
+        if (argc != argument + 4) { usage(argv[0]); return EXIT_FAILURE; }
+        RSSDDCInputSwitchMethod method;
+        if (strcmp(argv[argument + 2], "standard") == 0) method = RSS_DDC_INPUT_SWITCH_STANDARD;
+        else if (strcmp(argv[argument + 2], "lg-alt") == 0) method = RSS_DDC_INPUT_SWITCH_LG_ALT;
+        else { usage(argv[0]); return EXIT_FAILURE; }
+        unsigned long value = 0;
+        if (!parse_unsigned(argv[argument + 3], UINT16_MAX, &value)) { usage(argv[0]); return EXIT_FAILURE; }
+        RSSDDCDiagnostics diagnostics = {.callback = write_diagnostic, .context = NULL};
+        RSSDDCError error = rss_ddc_set_input_with_diagnostics((uint32_t)display_index, method, (uint16_t)value,
+                                                                verbose ? &diagnostics : NULL);
+        if (error != RSS_DDC_OK) fprintf(stderr, "rss-ddc: %s\n", rss_ddc_error_string(error));
         return error == RSS_DDC_OK ? EXIT_SUCCESS : EXIT_FAILURE;
     }
     if (strcmp(argv[argument], "dpcd") == 0) {

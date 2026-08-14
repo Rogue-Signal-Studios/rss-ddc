@@ -28,6 +28,7 @@ display/provider binding.
 | Get VCP `0x60` input source | Hardware validated | Maximum `18`, current `0`. Value `0` is not interpreted here as a known safe or settable input code. |
 | Set VCP `0x10` brightness | Hardware validated | Same-state `100` and real change/restore `100 → 99 → 100`. |
 | Set-and-Verify `0x10` | Hardware validated | Default policy verified same-state and real changes; the retry path was also validated. |
+| Alternate input transport | Hardware validated | Explicit LG_ALT: HDMI 1 `0x90`, HDMI 2 `0x91`, DisplayPort 1 `0xd0`; see [input switching](../input-switching.md). |
 | Read DPCD `0x00000` / 16 | Hardware validated | One native read through the same-role scoped `DCPDPDeviceProxy` returned valid bytes. |
 
 No broader VCP support, input-source SET semantics, or behavior on other LG
