@@ -21,6 +21,21 @@ typedef struct {
   size_t mccs_reads;
 } LiveShapeTransport;
 
+typedef struct {
+  bool responds[256];
+  bool variable[256];
+  uint16_t current[256];
+  uint16_t maximum[256];
+  size_t get_calls;
+  size_t calls_by_code[256];
+  size_t mccs_reads;
+  size_t delay_calls;
+  uint32_t last_delay_ms;
+  size_t writes;
+  bool transport_down;
+  const char *mccs;
+} ExtendedTransport;
+
 static RSSDDCError mock_get_vcp(void *opaque, uint8_t code,
                                 RSSDDCVCPResult *result) {
   MockProbeTransport *mock = opaque;
@@ -71,6 +86,37 @@ static RSSDDCError live_shape_get_mccs(void *opaque,
   ++transport->mccs_reads;
   return rss_ddc_parse_mccs_capabilities(transport->mccs,
                                          strlen(transport->mccs), capabilities);
+}
+
+static RSSDDCError extended_get_vcp(void *opaque, uint8_t code,
+                                    RSSDDCVCPResult *result) {
+  ExtendedTransport *transport = opaque;
+  ++transport->get_calls;
+  ++transport->calls_by_code[code];
+  if (transport->transport_down)
+    return RSS_DDC_ERROR_READ;
+  if (!transport->responds[code])
+    return RSS_DDC_ERROR_UNSUPPORTED_CAPABILITY;
+  *result = (RSSDDCVCPResult){
+      .vcp_code = code,
+      .maximum_value = transport->maximum[code],
+      .current_value = (uint16_t)(transport->current[code] +
+          (transport->variable[code] && transport->calls_by_code[code] > 1))};
+  return RSS_DDC_OK;
+}
+
+static RSSDDCError extended_get_mccs(void *opaque,
+                                     RSSDDCMCCSCapabilities *capabilities) {
+  ExtendedTransport *transport = opaque;
+  ++transport->mccs_reads;
+  return rss_ddc_parse_mccs_capabilities(transport->mccs,
+                                         strlen(transport->mccs), capabilities);
+}
+
+static void extended_delay(void *opaque, uint32_t milliseconds) {
+  ExtendedTransport *transport = opaque;
+  ++transport->delay_calls;
+  transport->last_delay_ms = milliseconds;
 }
 
 /* Probe's system convenience entry point references these public hardware
@@ -141,6 +187,19 @@ static RSSDDCProbe *run_live_shape_probe(LiveShapeTransport *transport,
   RSSDDCProbeTarget selected = target(mccs);
   assert(rss_ddc_probe_create(&selected, &read_transport, &probe) == RSS_DDC_OK);
   assert(rss_ddc_probe_quick(probe) == RSS_DDC_OK);
+  return probe;
+}
+
+static RSSDDCProbe *run_extended_probe(ExtendedTransport *transport, bool mccs) {
+  RSSDDCProbeReadTransport read_transport = {
+      .context = transport,
+      .get_vcp = extended_get_vcp,
+      .get_mccs_capabilities = mccs ? extended_get_mccs : NULL,
+      .delay = extended_delay};
+  RSSDDCProbe *probe = NULL;
+  RSSDDCProbeTarget selected = target(mccs);
+  assert(rss_ddc_probe_create(&selected, &read_transport, &probe) == RSS_DDC_OK);
+  assert(rss_ddc_probe_extended(probe) == RSS_DDC_OK);
   return probe;
 }
 
@@ -228,7 +287,122 @@ static void test_live_quick_probe_shapes(void) {
   rss_ddc_probe_destroy(lg_probe);
 }
 
+static void add_extended_response(ExtendedTransport *transport, uint8_t code,
+                                  uint16_t current, uint16_t maximum) {
+  transport->responds[code] = true;
+  transport->current[code] = current;
+  transport->maximum[code] = maximum;
+}
+
+static void test_extended_probe(void) {
+  ExtendedTransport ambiguous_transport = {};
+  RSSDDCProbeReadTransport ambiguous_read_transport = {
+      .context = &ambiguous_transport, .get_vcp = extended_get_vcp};
+  RSSDDCProbeTarget ambiguous_target = target(false);
+  ambiguous_target.correlation = RSS_DDC_PROBE_CORRELATION_AMBIGUOUS;
+  RSSDDCProbe *ambiguous_probe = NULL;
+  assert(rss_ddc_probe_create(&ambiguous_target, &ambiguous_read_transport,
+                              &ambiguous_probe) == RSS_DDC_ERROR_DISCOVERY);
+  assert(ambiguous_transport.get_calls == 0 && ambiguous_transport.writes == 0);
+
+  ExtendedTransport sparse = {};
+  static const uint8_t standards[] = {0x10, 0x12, 0x14, 0x16, 0x18, 0x1a};
+  for (size_t i = 0; i < sizeof(standards); ++i)
+    add_extended_response(&sparse, standards[i], 50, 100);
+  add_extended_response(&sparse, 0x87, 1, 1);
+  RSSDDCProbe *sparse_probe = run_extended_probe(&sparse, false);
+  RSSDDCProbeDiagnostics sparse_diagnostics = {};
+  assert(rss_ddc_probe_diagnostics(sparse_probe, &sparse_diagnostics) ==
+         RSS_DDC_OK);
+  assert(sparse_diagnostics.extended &&
+         sparse_diagnostics.requested_addresses == 256 &&
+         sparse_diagnostics.controls_attempted == 256 &&
+         sparse_diagnostics.control_count == 256 && !sparse_diagnostics.aborted);
+  assert(sparse_diagnostics.controls_readable == 7 &&
+         sparse_diagnostics.controls_stable == 7 &&
+         sparse_diagnostics.controls_unsupported == 249 && sparse.writes == 0 &&
+         sparse.last_delay_ms == 25);
+  bool seen[256] = {};
+  for (size_t i = 0; i < sparse_diagnostics.control_count; ++i) {
+    const RSSDDCProbeControlDiagnostic *control = &sparse_diagnostics.controls[i];
+    assert(!seen[control->vcp_code]);
+    seen[control->vcp_code] = true;
+  }
+  for (size_t code = 0; code < 256; ++code)
+    assert(seen[code]);
+  const RSSDDCMonitorKnowledge *sparse_knowledge = NULL;
+  assert(rss_ddc_probe_knowledge(sparse_probe, &sparse_knowledge) == RSS_DDC_OK);
+  RSSDDCMonitorKnowledgeCapability known =
+      capability(sparse_knowledge, "display.brightness");
+  RSSDDCMonitorKnowledgeCapability unknown =
+      capability(sparse_knowledge, "vendor.unknown.vcp.87");
+  assert(!known.methods[0].writable &&
+         known.methods[0].risk == RSS_DDC_RISK_READ_STANDARD);
+  assert(!unknown.methods[0].writable &&
+         unknown.methods[0].risk == RSS_DDC_RISK_READ_EXTENDED);
+  assert_observed_value_and_reported_maximum(&unknown, 1, 1);
+  rss_ddc_probe_destroy(sparse_probe);
+
+  ExtendedTransport lg = {.mccs = "vcp(f7 15 f5 f6 f8 f9 fe ff)"};
+  add_extended_response(&lg, 0x10, 100, 100);
+  add_extended_response(&lg, 0xf5, 1, 10);
+  add_extended_response(&lg, 0xf6, 2, 10);
+  add_extended_response(&lg, 0xf7, 3, 10);
+  add_extended_response(&lg, 0xf8, 4, 10);
+  add_extended_response(&lg, 0xf9, 5, 10);
+  lg.variable[0xf8] = true;
+  add_extended_response(&lg, 0xaa, 6, 10);
+  RSSDDCProbe *lg_probe = run_extended_probe(&lg, true);
+  RSSDDCProbeDiagnostics lg_diagnostics = {};
+  assert(rss_ddc_probe_diagnostics(lg_probe, &lg_diagnostics) == RSS_DDC_OK);
+  assert(lg_diagnostics.control_count == 256 && lg_diagnostics.controls_readable == 7 &&
+         lg_diagnostics.controls_variable == 1 && lg.mccs_reads == 1 && lg.writes == 0);
+  assert(lg_diagnostics.controls[0].vcp_code == 0xf7 &&
+         lg_diagnostics.controls[0].mccs_advertised &&
+         lg_diagnostics.controls[1].vcp_code == 0x15);
+  const RSSDDCMonitorKnowledge *lg_knowledge = NULL;
+  assert(rss_ddc_probe_knowledge(lg_probe, &lg_knowledge) == RSS_DDC_OK);
+  RSSDDCMonitorKnowledgeCapability f7 =
+      capability(lg_knowledge, "vendor.unknown.vcp.f7");
+  RSSDDCMonitorKnowledgeCapability f8 =
+      capability(lg_knowledge, "vendor.unknown.vcp.f8");
+  RSSDDCMonitorKnowledgeCapability aa =
+      capability(lg_knowledge, "vendor.unknown.vcp.aa");
+  assert(f7.evidence[0].type == RSS_DDC_EVIDENCE_MCCS_ADVERTISED &&
+         f7.methods[0].risk == RSS_DDC_RISK_READ_EXTENDED && !f7.methods[0].writable);
+  assert(f8.value_count == 2 && f8.values[0].raw.unsigned_value == 4 &&
+         f8.values[1].raw.unsigned_value == 5);
+  assert(aa.evidence_count == 1 &&
+         aa.evidence[0].type == RSS_DDC_EVIDENCE_STABLE_GET);
+  assert(rss_ddc_monitor_knowledge_source_count(lg_knowledge) == 1);
+  rss_ddc_probe_destroy(lg_probe);
+
+  ExtendedTransport degraded = {.transport_down = true};
+  RSSDDCProbe *degraded_probe = run_extended_probe(&degraded, false);
+  RSSDDCProbeDiagnostics degraded_diagnostics = {};
+  assert(rss_ddc_probe_diagnostics(degraded_probe, &degraded_diagnostics) ==
+         RSS_DDC_OK);
+  assert(degraded_diagnostics.aborted &&
+         degraded_diagnostics.abort_reason ==
+             RSS_DDC_PROBE_ABORT_TRANSPORT_FAILURE_STORM &&
+         degraded_diagnostics.controls_attempted == 8 &&
+         degraded_diagnostics.controls_transport_errors == 8 && degraded.writes == 0);
+  rss_ddc_probe_destroy(degraded_probe);
+
+  ExtendedTransport unsupported = {};
+  RSSDDCProbeReadTransport transport = {.context = &unsupported,
+                                         .get_vcp = extended_get_vcp};
+  RSSDDCProbeTarget mcdp = target(false);
+  mcdp.display.provider = RSS_DDC_PROVIDER_MCDP29XX;
+  RSSDDCProbe *mcdp_probe = NULL;
+  assert(rss_ddc_probe_create(&mcdp, &transport, &mcdp_probe) == RSS_DDC_OK);
+  assert(rss_ddc_probe_extended(mcdp_probe) == RSS_DDC_ERROR_UNSUPPORTED_PROVIDER);
+  assert(unsupported.get_calls == 0 && unsupported.writes == 0);
+  rss_ddc_probe_destroy(mcdp_probe);
+}
+
 int main(void) {
+  test_extended_probe();
   test_live_quick_probe_shapes();
   RSSDDCProbeReadTransport transport = {.get_vcp = mock_get_vcp};
   RSSDDCProbe *probe = NULL;

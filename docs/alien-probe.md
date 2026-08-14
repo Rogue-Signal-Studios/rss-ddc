@@ -58,8 +58,9 @@ writes, power changes, or experimental validation writes.
 
 Each successful standard read is repeated once. Equal replies receive
 `stable_get` evidence; changing or failed repeats remain read observations and
-are surfaced as variable in probe diagnostics. Current/max values are retained
-as observed ranges, never as a safe write range. MCCS advertisement supplies
+are surfaced as variable in probe diagnostics. Current values are retained as
+typed observations and protocol-reported maxima are separate metadata; neither
+claims an empirically observed range or a safe write range. MCCS advertisement supplies
 `mccs_advertised` evidence and advertised enum raw values, but never write
 authority.
 
@@ -73,3 +74,33 @@ For a user-run inspection, first obtain the explicit display index with
 `./rss-ddc list`, then run `./rss-ddc probe-quick <display-index>` or add
 `--json` for canonical MonitorKnowledge output. Never use a list index from an
 earlier process invocation.
+
+## Extended Auto Probe v1
+
+Extended Auto Probe is available through `rss_ddc_probe_extended_*` and
+`rss-ddc probe-extended <display-index>`. It accepts the same single exactly
+correlated target as Quick Probe, and only supports providers with an already
+proven safe GET transport: AppleDCPPS190, DCPDP13Service, and DCPDPService.
+AppleDCPMCDP29xx fails closed rather than receiving a speculative scan.
+
+One run creates one fresh observation document. It scans the normal VCP byte
+space once in deterministic stages: MCCS-advertised addresses, remaining
+registry-defined standard controls, then all remaining addresses. Each initial
+success receives one delayed repeat; the production path paces requests by
+25 ms and the diagnostics record the policy. Unsupported replies are normal.
+Eight consecutive transport-level failures stop the scan, retain partial
+knowledge, and mark diagnostics incomplete rather than hammering an unhealthy
+display.
+
+Known registry controls retain their established semantic IDs and
+`read_standard` risk. An otherwise readable address is recorded only as
+`vendor.unknown.vcp.xx`, with `read_extended` risk and `writable:false`—no
+meaning is inferred from its address, value, vendor, or MCCS presence. The
+result’s diagnostics and MonitorKnowledge form a reusable in-memory inventory;
+there is no product-specific filesystem cache. Consumers may persist a run or
+explicitly merge runs, but an old run is never silently represented as new.
+
+The CLI’s human mode declares `READ-ONLY; NO SETTINGS WILL BE CHANGED` and
+updates `attempted/256` progress on stderr while it scans. With `--json`,
+stdout contains canonical MonitorKnowledge only; progress and diagnostic output
+remain on stderr. No Extended Probe API transport includes a write callback.

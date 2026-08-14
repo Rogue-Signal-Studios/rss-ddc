@@ -20,6 +20,7 @@ static void usage(const char *program) {
       "  %s [--verbose] dpcd <display-index> <address> <length>\n"
       "  %s [--verbose] capabilities <display-index>\n"
       "  %s probe-quick <display-index> [--json]\n"
+      "  %s probe-extended <display-index> [--json]\n"
       "  %s [--verbose] probe-dpcd-path <display-index>\n"
       "  %s [--verbose] get <display-index> <vcp>\n"
       "  %s [--verbose] set <display-index> <vcp> <value>\n"
@@ -27,7 +28,7 @@ static void usage(const char *program) {
       "[--settle-ms <ms>] "
       "[--retries <count>] [--retry-delay-ms <ms>]\n",
       program, program, program, program, program, program, program, program,
-      program, program);
+      program, program, program);
 }
 
 static bool parse_unsigned(const char *text, unsigned long maximum,
@@ -176,23 +177,39 @@ print_mccs_capabilities(const RSSDDCMCCSCapabilities *capabilities) {
   }
 }
 
+static const char *probe_classification_name(
+    RSSDDCProbeControlClassification classification) {
+  static const char *names[] = {"not-attempted", "stable", "variable",
+                                "unsupported", "malformed", "transport-error"};
+  return (size_t)classification < sizeof(names) / sizeof(*names) ?
+      names[classification] : "unknown";
+}
+
 static void print_probe_diagnostics(const RSSDDCProbeDiagnostics *diagnostics) {
-  printf("probe-mode: read-only; writes=0\n");
+  printf("probe-mode: READ-ONLY; NO SETTINGS WILL BE CHANGED; writes=0\n");
   printf("display=%u provider=%s transport=%s mccs=%s\n",
          diagnostics->display.list_index,
          rss_ddc_provider_string(diagnostics->display.provider),
          diagnostics->display.transport,
          rss_ddc_error_string(diagnostics->mccs_error));
-  printf("controls attempted=%zu readable=%zu stable=%zu variable=%zu "
-         "failed=%zu\n",
+  printf("scan requested=%zu attempted=%zu readable=%zu stable=%zu variable=%zu "
+         "unsupported=%zu malformed=%zu transport-errors=%zu failed=%zu "
+         "delay-ms=%u stability-reads=%zu duration-ms=%llu aborted=%s\n",
+         diagnostics->requested_addresses,
          diagnostics->controls_attempted, diagnostics->controls_readable,
          diagnostics->controls_stable, diagnostics->controls_variable,
-         diagnostics->controls_failed);
+         diagnostics->controls_unsupported, diagnostics->controls_malformed,
+         diagnostics->controls_transport_errors, diagnostics->controls_failed,
+         diagnostics->inter_request_delay_ms, diagnostics->stability_read_count,
+         (unsigned long long)diagnostics->duration_ms,
+         diagnostics->aborted ? "yes" : "no");
   for (size_t index = 0; index < diagnostics->control_count; ++index) {
     const RSSDDCProbeControlDiagnostic *control = &diagnostics->controls[index];
-    printf("%s vcp=0x%02x first=%s repeat=%s stable=%s current=%u max=%u\n",
+    printf("%s vcp=0x%02x advertised=%s class=%s first=%s repeat=%s stable=%s current=%u max=%u\n",
            control->semantic_id ? control->semantic_id : "unknown",
-           control->vcp_code, rss_ddc_error_string(control->first_error),
+           control->vcp_code, control->mccs_advertised ? "yes" : "no",
+           probe_classification_name(control->classification),
+           rss_ddc_error_string(control->first_error),
            rss_ddc_error_string(control->repeat_error),
            control->stable ? "yes" : "no", control->current_value,
            control->maximum_value);
@@ -363,7 +380,9 @@ int main(int argc, char **argv) {
     print_dpcd_decode((uint32_t)address, bytes, (size_t)length);
     return EXIT_SUCCESS;
   }
-  if (strcmp(argv[argument], "probe-quick") == 0) {
+  if (strcmp(argv[argument], "probe-quick") == 0 ||
+      strcmp(argv[argument], "probe-extended") == 0) {
+    bool extended = strcmp(argv[argument], "probe-extended") == 0;
     bool json =
         argc == argument + 3 && strcmp(argv[argument + 2], "--json") == 0;
     if (argc != argument + 2 && !json) {
@@ -371,7 +390,11 @@ int main(int argc, char **argv) {
       return EXIT_FAILURE;
     }
     RSSDDCProbe *probe = NULL;
-    RSSDDCError error =
+    if (extended)
+      fprintf(stderr,
+              "rss-ddc: Extended Probe is READ-ONLY; scanning up to 256 VCP addresses with paced GET requests...\n");
+    RSSDDCError error = extended ?
+        rss_ddc_probe_extended_for_display((uint32_t)display_index, &probe) :
         rss_ddc_probe_quick_for_display((uint32_t)display_index, &probe);
     if (error != RSS_DDC_OK) {
       fprintf(stderr, "rss-ddc: %s\n", rss_ddc_error_string(error));

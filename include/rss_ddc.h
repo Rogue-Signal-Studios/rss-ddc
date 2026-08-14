@@ -940,14 +940,33 @@ typedef enum {
   RSS_DDC_PROBE_CORRELATION_EXACT = 0,
   RSS_DDC_PROBE_CORRELATION_AMBIGUOUS,
 } RSSDDCProbeCorrelation;
+typedef enum {
+  RSS_DDC_PROBE_CONTROL_NOT_ATTEMPTED = 0,
+  RSS_DDC_PROBE_CONTROL_STABLE,
+  RSS_DDC_PROBE_CONTROL_VARIABLE,
+  RSS_DDC_PROBE_CONTROL_UNSUPPORTED,
+  RSS_DDC_PROBE_CONTROL_MALFORMED,
+  RSS_DDC_PROBE_CONTROL_TRANSPORT_ERROR,
+} RSSDDCProbeControlClassification;
+typedef enum {
+  RSS_DDC_PROBE_ABORT_NONE = 0,
+  RSS_DDC_PROBE_ABORT_TRANSPORT_FAILURE_STORM,
+} RSSDDCProbeAbortReason;
 typedef RSSDDCError (*RSSDDCProbeGetVCP)(void *context, uint8_t vcp_code,
                                          RSSDDCVCPResult *result);
 typedef RSSDDCError (*RSSDDCProbeGetMCCSCapabilities)(
     void *context, RSSDDCMCCSCapabilities *capabilities);
+/** Optional pacing callback for a read-only probe. It has no monitor write
+ * capability; production callers use it between Extended Probe GET requests. */
+typedef void (*RSSDDCProbeDelay)(void *context, uint32_t milliseconds);
+typedef void (*RSSDDCProbeProgress)(void *context, size_t attempted,
+                                    size_t requested);
 typedef struct {
   void *context;
   RSSDDCProbeGetVCP get_vcp;
   RSSDDCProbeGetMCCSCapabilities get_mccs_capabilities;
+  RSSDDCProbeDelay delay;
+  RSSDDCProbeProgress progress;
 } RSSDDCProbeReadTransport;
 typedef struct {
   RSSDDCDisplay display;
@@ -960,17 +979,32 @@ typedef struct {
   RSSDDCError repeat_error;
   bool readable;
   bool stable;
+  bool mccs_advertised;
+  bool known_semantic;
   uint16_t current_value;
   uint16_t maximum_value;
+  uint16_t repeat_current_value;
+  uint16_t repeat_maximum_value;
+  RSSDDCProbeControlClassification classification;
 } RSSDDCProbeControlDiagnostic;
 typedef struct {
   RSSDDCDisplay display;
   RSSDDCError mccs_error;
+  bool extended;
+  uint32_t inter_request_delay_ms;
+  size_t stability_read_count;
+  uint64_t duration_ms;
+  size_t requested_addresses;
   size_t controls_attempted;
   size_t controls_readable;
   size_t controls_stable;
   size_t controls_variable;
   size_t controls_failed;
+  size_t controls_unsupported;
+  size_t controls_malformed;
+  size_t controls_transport_errors;
+  bool aborted;
+  RSSDDCProbeAbortReason abort_reason;
   size_t control_count;
   const RSSDDCProbeControlDiagnostic *controls;
 } RSSDDCProbeDiagnostics;
@@ -981,6 +1015,9 @@ RSSDDCError rss_ddc_probe_create(const RSSDDCProbeTarget *target,
                                  RSSDDCProbe **probe);
 void rss_ddc_probe_destroy(RSSDDCProbe *probe);
 RSSDDCError rss_ddc_probe_quick(RSSDDCProbe *probe);
+/** Performs one bounded, staged, GET-only scan of the selected target. The
+ * result is one fresh observation document; callers may merge it explicitly. */
+RSSDDCError rss_ddc_probe_extended(RSSDDCProbe *probe);
 RSSDDCError rss_ddc_probe_knowledge(const RSSDDCProbe *probe,
                                     const RSSDDCMonitorKnowledge **knowledge);
 RSSDDCError rss_ddc_probe_diagnostics(const RSSDDCProbe *probe,
@@ -989,6 +1026,8 @@ RSSDDCError rss_ddc_probe_diagnostics(const RSSDDCProbe *probe,
  * public correlated display, Get VCP, and MCCS-capability reads. */
 RSSDDCError rss_ddc_probe_quick_for_display(uint32_t list_index,
                                             RSSDDCProbe **probe);
+RSSDDCError rss_ddc_probe_extended_for_display(uint32_t list_index,
+                                               RSSDDCProbe **probe);
 
 RSSDDCMonitorKnowledge *rss_ddc_monitor_knowledge_create(void);
 void rss_ddc_monitor_knowledge_destroy(RSSDDCMonitorKnowledge *knowledge);
