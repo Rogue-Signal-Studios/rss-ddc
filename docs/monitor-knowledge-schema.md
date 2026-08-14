@@ -19,9 +19,10 @@ planned consumers of this model, not part of it.
 Quick Auto Probe v1 is one such consumer. Its selected-display, read-only
 observations serialize into this same document format: standard VCP reads use
 their centralized semantic ids, `stable_get` evidence records stable replies,
-and MCCS advertisement uses `mccs_advertised`. Read current/max fields become
-observed ranges only; neither observation nor advertisement grants write
-authorization.
+and MCCS advertisement uses `mccs_advertised`. A read's current value is a raw
+observed value and its protocol-reported maximum is retained separately as
+`reportedMaximum`; neither claims that the full numeric interval was observed.
+Neither observation nor advertisement grants write authorization.
 
 Multiple compatible source documents can be combined with
 `rss_ddc_monitor_knowledge_merge`. The result is retained knowledge, not an
@@ -29,7 +30,8 @@ effective operational decision; consumers resolve it separately.
 
 The core stores every supported field with explicit ownership and serializes a
 canonical JSON document containing identity evidence, capability ranges,
-methods, values and raw aliases, input routes, relationships, and evidence at
+methods, values and raw aliases, input routes, relationships, document-level
+sources, and evidence at
 each of those levels. Merge works on a temporary deep clone and returns it
 only after validation, so an allocation or validation failure never publishes
 a partial result. Competing capability records are retained rather than
@@ -81,7 +83,7 @@ capability {
   availability: { state, conditions },    // e.g. unavailable while HDR is on
   methods: [ method ],
   values: [ value ],
-  range: range | null,
+  advertisedRange, observedRange, validatedRange, reportedMaximum,
   evidence: [ evidence_ref ],
   confidence: confidence,
   validation: validation_state
@@ -102,6 +104,21 @@ range {
   observed: { minimum, maximum }, advertised, validated
 }
 ```
+
+### Sources and protocol observations
+
+`sources` is an optional document-level collection of immutable raw provenance.
+For example, one `mccs_capabilities` source retains the complete capability
+string and every `mccs_advertised` evidence record points to it with
+`sourceId`. This avoids duplicating the raw response while retaining a lossless
+reference. Existing documents without `sources`, including external profile
+evidence with standalone references, remain valid.
+
+`observedRange` means a range empirically observed across values; it is not
+derived from a single VCP reply. A single quick read creates an `observed` raw
+value and, when supplied by the protocol, a separately typed
+`reportedMaximum`. Enum-like controls retain their current raw value and any
+advertised enum values without synthesizing a numeric observed range.
 
 ### Availability conditions
 

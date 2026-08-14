@@ -83,6 +83,39 @@ static void copy_display_name(CGDirectDisplayID display_id, RSSDDCDisplay *displ
     IOObjectRelease(adapter);
 }
 
+/* CoreGraphics exposes the EDID-derived vendor, product, and serial numbers
+ * during enumeration. Keep them as identifiers rather than guessing a
+ * marketing manufacturer name or triggering a separate EDID transaction. */
+static bool decode_edid_manufacturer(uint32_t vendor, char output[4]) {
+    uint16_t packed = (uint16_t)vendor;
+    unsigned int first = (packed >> 10) & 0x1f;
+    unsigned int second = (packed >> 5) & 0x1f;
+    unsigned int third = packed & 0x1f;
+    if (first == 0 || second == 0 || third == 0) return false;
+    output[0] = (char)('A' + first - 1);
+    output[1] = (char)('A' + second - 1);
+    output[2] = (char)('A' + third - 1);
+    output[3] = '\0';
+    return true;
+}
+
+static void copy_display_edid_identity(CGDirectDisplayID display_id, RSSDDCDisplay *display) {
+    char manufacturer[4] = {};
+    if (decode_edid_manufacturer(CGDisplayVendorNumber(display_id), manufacturer)) {
+        snprintf(display->edid_manufacturer, sizeof(display->edid_manufacturer), "%s", manufacturer);
+        if (!display->manufacturer[0])
+            snprintf(display->manufacturer, sizeof(display->manufacturer), "%s", manufacturer);
+    }
+    uint32_t product = CGDisplayModelNumber(display_id);
+    if (product != 0 && product <= UINT16_MAX) {
+        display->edid_product_code = (uint16_t)product;
+        display->edid_product_code_present = true;
+    }
+    uint32_t serial = CGDisplaySerialNumber(display_id);
+    if (serial != 0)
+        snprintf(display->serial, sizeof(display->serial), "%u", serial);
+}
+
 /**
  * The ColorSync UUID derived from the CoreGraphics display is retained only for
  * Set-and-Verify. Without it, a later list-index lookup cannot safely prove it
@@ -547,6 +580,7 @@ RSSDDCError rss_macos_discover_displays(RSSDDCDisplay *displays, size_t capacity
         display.online = true;
         display.external = !CGDisplayIsBuiltin(ids[index]);
         copy_display_name(ids[index], &display);
+        copy_display_edid_identity(ids[index], &display);
         io_service_t service = service_for_display(ids[index], NULL);
         if (service != MACH_PORT_NULL) {
             (void)inspect_service(service, &display);
@@ -598,6 +632,7 @@ RSSDDCError rss_macos_resolve_binding(uint32_t list_index, RSSMacOSBinding *bind
     binding->display.online = true;
     binding->display.external = !CGDisplayIsBuiltin(display_id);
     copy_display_name(display_id, &binding->display);
+    copy_display_edid_identity(display_id, &binding->display);
     binding->service_proxy = service_for_display(display_id, &binding->correlation_failure);
     if (binding->service_proxy == MACH_PORT_NULL) {
         return binding->correlation_failure == RSS_MACOS_CORRELATION_AMBIGUOUS_SERVICE_PROXY ?

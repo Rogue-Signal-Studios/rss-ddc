@@ -142,6 +142,9 @@ typedef struct {
   bool external;
   char product_name[RSS_DDC_TEXT_MAX];
   char manufacturer[RSS_DDC_TEXT_MAX];
+  char edid_manufacturer[4];
+  uint16_t edid_product_code;
+  bool edid_product_code_present;
   char serial[RSS_DDC_TEXT_MAX];
   char branch_device_id[RSS_DDC_TEXT_MAX];
   char transport[RSS_DDC_TEXT_MAX];
@@ -843,6 +846,8 @@ typedef struct {
   RSSDDCRange advertised_range;
   RSSDDCRange observed_range;
   RSSDDCRange validated_range;
+  bool reported_maximum_present;
+  RSSDDCRawValue reported_maximum;
   size_t condition_group_count;
   const RSSDDCMonitorKnowledgeConditionGroup *condition_groups;
   size_t method_count;
@@ -852,6 +857,13 @@ typedef struct {
   size_t evidence_count;
   const RSSDDCEvidence *evidence;
 } RSSDDCMonitorKnowledgeCapability;
+/** Immutable provenance retained once per document. Evidence records may refer
+ * to a source id instead of repeating its raw content. */
+typedef struct {
+  const char *id;
+  const char *type;
+  const char *reference;
+} RSSDDCMonitorKnowledgeSource;
 typedef struct {
   const char *id;
   const char *connector;
@@ -993,6 +1005,11 @@ const char *rss_ddc_monitor_knowledge_schema_version(
 RSSDDCError
 rss_ddc_monitor_knowledge_identity(const RSSDDCMonitorKnowledge *knowledge,
                                    RSSDDCMonitorIdentity *identity);
+size_t rss_ddc_monitor_knowledge_source_count(
+    const RSSDDCMonitorKnowledge *knowledge);
+RSSDDCError rss_ddc_monitor_knowledge_source(
+    const RSSDDCMonitorKnowledge *knowledge, size_t index,
+    RSSDDCMonitorKnowledgeSource *source);
 size_t rss_ddc_monitor_knowledge_capability_count(
     const RSSDDCMonitorKnowledge *knowledge);
 RSSDDCError rss_ddc_monitor_knowledge_capability(

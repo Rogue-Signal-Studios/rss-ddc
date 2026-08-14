@@ -90,11 +90,17 @@ static bool writer_string(JSONWriter *writer, const char *text) {
 }
 
 static bool append_evidence(JSONWriter *writer, const char *type,
-                            const char *reference) {
+                            const char *source_id, const char *reference) {
   if (!writer_put(writer, "{\"type\":"))
     return false;
   if (!writer_string(writer, type))
     return false;
+  if (source_id) {
+    if (!writer_put(writer, ",\"sourceId\":"))
+      return false;
+    if (!writer_string(writer, source_id))
+      return false;
+  }
   if (reference) {
     if (!writer_put(writer, ",\"reference\":"))
       return false;
@@ -125,7 +131,8 @@ static bool append_capability(JSONWriter *writer,
           ",\"availability\":\"supported\",\"confidence\":\"observed\""))
     return false;
   if (control->readable &&
-      !writer_format(writer, ",\"observedRange\":{\"min\":0,\"max\":%u}",
+      !writer_format(writer,
+                     ",\"reportedMaximum\":{\"type\":\"unsigned\",\"value\":%u}",
                      control->maximum_value))
     return false;
   if (!writer_put(writer, ",\"methods\":[{\"id\":"))
@@ -141,7 +148,8 @@ static bool append_capability(JSONWriter *writer,
     return false;
   bool evidence_comma = false;
   if (advertised) {
-    if (!append_evidence(writer, "mccs_advertised", mccs->raw))
+    if (!append_evidence(writer, "mccs_advertised", "mccs-capabilities-1",
+                         NULL))
       return false;
     evidence_comma = true;
   }
@@ -150,7 +158,7 @@ static bool append_capability(JSONWriter *writer,
       return false;
     if (!append_evidence(writer,
                          control->stable ? "stable_get" : "extended_discovery",
-                         NULL))
+                         NULL, NULL))
       return false;
   }
   if (!writer_put(writer, "]}],\"values\":["))
@@ -169,7 +177,7 @@ static bool append_capability(JSONWriter *writer,
       return false;
     if (!append_evidence(writer,
                          control->stable ? "stable_get" : "extended_discovery",
-                         NULL) ||
+                         NULL, NULL) ||
         !writer_put(writer, "]}"))
       return false;
     value_comma = true;
@@ -188,7 +196,8 @@ static bool append_capability(JSONWriter *writer,
                 "\"value\":%u},\"readable\":true,\"writable\":false,"
                 "\"availability\":\"supported\",\"evidence\":[",
                 values[i], values[i]) ||
-            !append_evidence(writer, "mccs_advertised", mccs->raw) ||
+            !append_evidence(writer, "mccs_advertised", "mccs-capabilities-1",
+                             NULL) ||
             !writer_put(writer, "]}"))
           return false;
         value_comma = true;
@@ -199,7 +208,8 @@ static bool append_capability(JSONWriter *writer,
     return false;
   evidence_comma = false;
   if (advertised) {
-    if (!append_evidence(writer, "mccs_advertised", mccs->raw))
+    if (!append_evidence(writer, "mccs_advertised", "mccs-capabilities-1",
+                         NULL))
       return false;
     evidence_comma = true;
   }
@@ -208,32 +218,59 @@ static bool append_capability(JSONWriter *writer,
       return false;
     if (!append_evidence(writer,
                          control->stable ? "stable_get" : "extended_discovery",
-                         NULL))
+                         NULL, NULL))
       return false;
   }
   return writer_put(writer, "]}");
+}
+
+static bool append_identity_text(JSONWriter *writer, bool *comma,
+                                 const char *key, const char *value) {
+  if (!value || !value[0])
+    return true;
+  if (*comma && !writer_put(writer, ","))
+    return false;
+  return writer_string(writer, key) && writer_put(writer, ":") &&
+         writer_string(writer, value) && (*comma = true);
 }
 
 static RSSDDCError build_knowledge(RSSDDCProbe *probe,
                                    const RSSDDCMCCSCapabilities *mccs,
                                    bool mccs_available) {
   JSONWriter writer = {};
-  bool ok =
-      writer_put(&writer, "{\"schemaVersion\":\"monitor-knowledge/"
-                          "v0.1\",\"identity\":{\"manufacturer\":") &&
-      writer_string(&writer, probe->target.display.manufacturer) &&
-      writer_put(&writer, ",\"model\":") &&
-      writer_string(&writer, probe->target.display.product_name) &&
-      writer_put(&writer, ",\"serial\":") &&
-      writer_string(&writer, probe->target.display.serial) &&
-      writer_put(&writer, ",\"provider\":") &&
-      writer_string(&writer,
-                    rss_ddc_provider_string(probe->target.display.provider)) &&
-      writer_put(&writer, ",\"transport\":") &&
-      writer_string(&writer, probe->target.display.transport) &&
-      writer_put(&writer, ",\"branch\":") &&
-      writer_string(&writer, probe->target.display.branch_device_id) &&
-      writer_put(&writer, ",\"confidence\":\"observed\"},\"capabilities\":[");
+  bool identity_comma = false;
+  bool ok = writer_put(&writer, "{\"schemaVersion\":\"monitor-knowledge/"
+                                "v0.1\",\"identity\":{") &&
+            append_identity_text(&writer, &identity_comma, "manufacturer",
+                                 probe->target.display.manufacturer) &&
+            append_identity_text(&writer, &identity_comma, "model",
+                                 probe->target.display.product_name) &&
+            append_identity_text(&writer, &identity_comma, "edidManufacturer",
+                                 probe->target.display.edid_manufacturer);
+  if (ok && probe->target.display.edid_product_code_present) {
+    if (identity_comma)
+      ok = writer_put(&writer, ",");
+    ok = ok && writer_format(&writer, "\"edidProductCode\":%u",
+                              probe->target.display.edid_product_code);
+    identity_comma = true;
+  }
+  ok = ok && append_identity_text(&writer, &identity_comma, "serial",
+                                  probe->target.display.serial) &&
+       append_identity_text(&writer, &identity_comma, "provider",
+                            rss_ddc_provider_string(
+                                probe->target.display.provider)) &&
+       append_identity_text(&writer, &identity_comma, "transport",
+                            probe->target.display.transport) &&
+       append_identity_text(&writer, &identity_comma, "branch",
+                            probe->target.display.branch_device_id) &&
+       (!identity_comma || writer_put(&writer, ",")) &&
+       writer_put(&writer, "\"confidence\":\"observed\"},\"sources\":[");
+  if (ok && mccs_available)
+    ok = writer_put(&writer,
+                    "{\"id\":\"mccs-capabilities-1\",\"type\":"
+                    "\"mccs_capabilities\",\"reference\":") &&
+         writer_string(&writer, mccs->raw) && writer_put(&writer, "}");
+  ok = ok && writer_put(&writer, "],\"capabilities\":[");
   bool comma = false;
   for (size_t i = 0; ok && i < probe->diagnostics.control_count; ++i) {
     bool retained =

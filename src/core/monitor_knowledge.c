@@ -13,7 +13,8 @@ enum {
   MK_MAX_ITEMS = 512,
   MK_MAX_METHODS = 32,
   MK_MAX_VALUES = 256,
-  MK_MAX_EVIDENCE = 128
+  MK_MAX_EVIDENCE = 128,
+  MK_MAX_SOURCES = 128
 };
 typedef struct {
   const char *p, *end;
@@ -60,6 +61,8 @@ struct RSSDDCMonitorKnowledge {
   char *schema;
   RSSDDCMonitorIdentity identity;
   RSSDDCEvidence *identity_evidence;
+  RSSDDCMonitorKnowledgeSource *sources;
+  size_t source_count;
   Capability *capabilities;
   size_t capability_count;
   Route *routes;
@@ -266,6 +269,15 @@ static bool semantic(const char *s) {
   }
   return dot || strncmp(s, "vendor.", 7) == 0;
 }
+static bool source_identifier(const char *s) {
+  if (!s || !*s || strlen(s) >= RSS_DDC_MONITOR_KNOWLEDGE_ID_MAX)
+    return false;
+  for (; *s; ++s)
+    if (!(islower((unsigned char)*s) || isdigit((unsigned char)*s) ||
+          *s == '_' || *s == '-'))
+      return false;
+  return true;
+}
 
 static void free_evidence(RSSDDCEvidence *a, size_t n) {
   if (!a)
@@ -277,6 +289,14 @@ static void free_evidence(RSSDDCEvidence *a, size_t n) {
     free((char *)a[i].scope);
   }
   free(a);
+}
+static void free_sources(RSSDDCMonitorKnowledgeSource *sources, size_t count) {
+  for (size_t i = 0; i < count; ++i) {
+    free((char *)sources[i].id);
+    free((char *)sources[i].type);
+    free((char *)sources[i].reference);
+  }
+  free(sources);
 }
 static void discard_evidence(RSSDDCEvidence *e) {
   if (!e)
@@ -321,6 +341,7 @@ static void free_knowledge(RSSDDCMonitorKnowledge *k) {
   free((char *)k->identity.branch);
   free((char *)k->identity.family_hint);
   free_evidence(k->identity_evidence, k->identity.evidence_count);
+  free_sources(k->sources, k->source_count);
   for (size_t i = 0; i < k->capability_count; ++i) {
     Capability *c = &k->capabilities[i];
     free((char *)c->view.id);
@@ -329,6 +350,7 @@ static void free_knowledge(RSSDDCMonitorKnowledge *k) {
     free((char *)c->view.advertised_range.units);
     free((char *)c->view.observed_range.units);
     free((char *)c->view.validated_range.units);
+    free_raw(&c->view.reported_maximum);
     for (size_t g = 0; g < c->view.condition_group_count; ++g)
       free_condition_group(&c->condition_groups[g]);
     free(c->condition_groups);
@@ -432,6 +454,29 @@ static bool copy_evidence(RSSDDCEvidence **to, size_t *n,
   *n = count;
   return true;
 }
+static bool copy_sources(RSSDDCMonitorKnowledgeSource **to, size_t *count,
+                         const RSSDDCMonitorKnowledgeSource *from,
+                         size_t from_count) {
+  *to = NULL;
+  *count = 0;
+  if (!from_count)
+    return true;
+  RSSDDCMonitorKnowledgeSource *sources = calloc(from_count, sizeof(*sources));
+  if (!sources)
+    return false;
+  for (size_t i = 0; i < from_count; ++i) {
+    sources[i].id = copy_text(from[i].id);
+    sources[i].type = copy_text(from[i].type);
+    sources[i].reference = copy_text(from[i].reference);
+    if (!sources[i].id || !sources[i].type || !sources[i].reference) {
+      free_sources(sources, from_count);
+      return false;
+    }
+  }
+  *to = sources;
+  *count = from_count;
+  return true;
+}
 static bool copy_method(Method *to, const Method *from) {
   *to = (Method){};
   to->view = from->view;
@@ -499,6 +544,7 @@ static bool copy_capability(Capability *to, const Capability *from) {
       copy_text(from->view.advertised_range.units);
   to->view.observed_range.units = copy_text(from->view.observed_range.units);
   to->view.validated_range.units = copy_text(from->view.validated_range.units);
+  to->view.reported_maximum = (RSSDDCRawValue){};
   to->view.condition_groups = NULL;
   to->view.methods = NULL;
   to->view.values = NULL;
@@ -506,7 +552,11 @@ static bool copy_capability(Capability *to, const Capability *from) {
   to->view.condition_group_count = 0;
   to->view.method_count = 0;
   to->view.value_count = 0;
-  if (!to->view.id || !copy_evidence(&to->evidence, &to->view.evidence_count,
+  if (!to->view.id ||
+      (from->view.reported_maximum_present &&
+       !copy_raw(&to->view.reported_maximum,
+                 &from->view.reported_maximum)) ||
+      !copy_evidence(&to->evidence, &to->view.evidence_count,
                                      from->evidence, from->view.evidence_count))
     return false;
   to->view.evidence = to->evidence;
@@ -621,6 +671,11 @@ copy_knowledge(const RSSDDCMonitorKnowledge *from) {
     return NULL;
   }
   to->identity.evidence = to->identity_evidence;
+  if (!copy_sources(&to->sources, &to->source_count, from->sources,
+                    from->source_count)) {
+    free_knowledge(to);
+    return NULL;
+  }
   for (size_t i = 0; i < from->capability_count; ++i) {
     Capability *c =
         realloc(to->capabilities, (to->capability_count + 1) * sizeof(*c));
@@ -782,6 +837,86 @@ static RSSDDCError parse_evidence(J *j, RSSDDCEvidence **out, size_t *count) {
 bad:
   free_evidence(a, n);
   return RSS_DDC_ERROR_MONITOR_KNOWLEDGE_MALFORMED;
+}
+static RSSDDCError parse_sources(J *j, RSSDDCMonitorKnowledge *knowledge) {
+  if (knowledge->sources || !take(j, '['))
+    return RSS_DDC_ERROR_MONITOR_KNOWLEDGE_MALFORMED;
+  ws(j);
+  if (j->p < j->end && *j->p == ']') {
+    ++j->p;
+    return RSS_DDC_OK;
+  }
+  for (;;) {
+    if (knowledge->source_count == MK_MAX_SOURCES || !take(j, '{'))
+      goto bad;
+    RSSDDCMonitorKnowledgeSource source = {};
+    bool id = false, type = false, reference = false;
+    for (;;) {
+      char *key = NULL;
+      if (!str(j, &key) || !take(j, ':')) {
+        free(key);
+        goto bad_source;
+      }
+      if (strcmp(key, "id") == 0) {
+        if (id || !str(j, (char **)&source.id) ||
+            !source_identifier(source.id)) {
+          free(key);
+          goto bad_source;
+        }
+        id = true;
+      } else if (strcmp(key, "type") == 0) {
+        if (type || !str(j, (char **)&source.type) ||
+            !source_identifier(source.type)) {
+          free(key);
+          goto bad_source;
+        }
+        type = true;
+      } else if (strcmp(key, "reference") == 0) {
+        if (reference || !str(j, (char **)&source.reference)) {
+          free(key);
+          goto bad_source;
+        }
+        reference = true;
+      } else if (!skip(j)) {
+        free(key);
+        goto bad_source;
+      }
+      free(key);
+      ws(j);
+      if (j->p < j->end && *j->p == '}') {
+        ++j->p;
+        break;
+      }
+      if (!take(j, ','))
+        goto bad_source;
+    }
+    if (!id || !type || !reference)
+      goto bad_source;
+    for (size_t i = 0; i < knowledge->source_count; ++i)
+      if (strcmp(knowledge->sources[i].id, source.id) == 0)
+        goto bad_source;
+    RSSDDCMonitorKnowledgeSource *sources =
+        realloc(knowledge->sources,
+                (knowledge->source_count + 1) * sizeof(*sources));
+    if (!sources)
+      goto bad_source;
+    knowledge->sources = sources;
+    knowledge->sources[knowledge->source_count++] = source;
+    ws(j);
+    if (j->p < j->end && *j->p == ']') {
+      ++j->p;
+      return RSS_DDC_OK;
+    }
+    if (!take(j, ','))
+      goto bad;
+    continue;
+bad_source:
+    free((char *)source.id);
+    free((char *)source.type);
+    free((char *)source.reference);
+bad:
+    return RSS_DDC_ERROR_MONITOR_KNOWLEDGE_MALFORMED;
+  }
 }
 static RSSDDCError parse_raw(J *j, RSSDDCRawValue *out) {
   if (!take(j, '{'))
@@ -1502,6 +1637,13 @@ static RSSDDCError parse_capability(J *j, Capability *c) {
         free(k);
         goto bad;
       }
+    } else if (strcmp(k, "reportedMaximum") == 0) {
+      if (c->view.reported_maximum_present ||
+          parse_raw(j, &c->view.reported_maximum) != RSS_DDC_OK) {
+        free(k);
+        goto bad;
+      }
+      c->view.reported_maximum_present = true;
     } else if (strcmp(k, "methods") == 0) {
       if (c->methods || !take(j, '[')) {
         free(k);
@@ -1918,7 +2060,7 @@ RSSDDCError rss_ddc_monitor_knowledge_parse_json(const char *data,
   if (!k)
     return RSS_DDC_ERROR_SYSTEM;
   J j = {data, data + length};
-  bool schema = false, identity = false, caps = false;
+  bool schema = false, identity = false, sources = false, caps = false;
   if (!take(&j, '{'))
     goto bad;
   for (;;) {
@@ -1951,6 +2093,12 @@ RSSDDCError rss_ddc_monitor_knowledge_parse_json(const char *data,
         goto bad;
       }
       identity = true;
+    } else if (strcmp(x, "sources") == 0) {
+      if (sources || parse_sources(&j, k) != RSS_DDC_OK) {
+        free(x);
+        goto bad;
+      }
+      sources = true;
     } else if (strcmp(x, "capabilities") == 0) {
       if (caps || (e = array_caps(&j, k)) != RSS_DDC_OK) {
         free(x);
@@ -2035,6 +2183,15 @@ rss_ddc_monitor_knowledge_validate(const RSSDDCMonitorKnowledge *k) {
     if (!semantic(k->relationships[i].view.source_id) ||
         !semantic(k->relationships[i].view.target_id))
       return RSS_DDC_ERROR_MONITOR_KNOWLEDGE_MALFORMED;
+  for (size_t i = 0; i < k->source_count; ++i) {
+    const RSSDDCMonitorKnowledgeSource *source = &k->sources[i];
+    if (!source_identifier(source->id) || !source_identifier(source->type) ||
+        !source->reference)
+      return RSS_DDC_ERROR_MONITOR_KNOWLEDGE_MALFORMED;
+    for (size_t x = i + 1; x < k->source_count; ++x)
+      if (strcmp(source->id, k->sources[x].id) == 0)
+        return RSS_DDC_ERROR_MONITOR_KNOWLEDGE_CONFLICT;
+  }
   return RSS_DDC_OK;
 }
 const char *
@@ -2046,6 +2203,20 @@ RSSDDCError rss_ddc_monitor_knowledge_identity(const RSSDDCMonitorKnowledge *k,
   if (!k || !out)
     return RSS_DDC_ERROR_ARGUMENT;
   *out = k->identity;
+  return RSS_DDC_OK;
+}
+size_t rss_ddc_monitor_knowledge_source_count(
+    const RSSDDCMonitorKnowledge *k) {
+  return k ? k->source_count : 0;
+}
+RSSDDCError rss_ddc_monitor_knowledge_source(
+    const RSSDDCMonitorKnowledge *k, size_t index,
+    RSSDDCMonitorKnowledgeSource *out) {
+  if (!k || !out)
+    return RSS_DDC_ERROR_ARGUMENT;
+  if (index >= k->source_count)
+    return RSS_DDC_ERROR_NOT_FOUND;
+  *out = k->sources[index];
   return RSS_DDC_OK;
 }
 size_t
@@ -2230,6 +2401,11 @@ static int compare_capability_ptr(const void *left, const void *right) {
   const Capability *const *b = right;
   return compare_text((*a)->view.id, (*b)->view.id);
 }
+static int compare_source_ptr(const void *left, const void *right) {
+  const RSSDDCMonitorKnowledgeSource *const *a = left;
+  const RSSDDCMonitorKnowledgeSource *const *b = right;
+  return compare_text((*a)->id, (*b)->id);
+}
 static int compare_method_ptr(const void *left, const void *right) {
   const Method *const *a = left;
   const Method *const *b = right;
@@ -2306,7 +2482,23 @@ rss_ddc_monitor_knowledge_serialize_json(const RSSDDCMonitorKnowledge *k,
     put(&w, "\"evidence\":");
     evidence_out(&w, k->identity.evidence, k->identity.evidence_count);
   }
-  put(&w, "},\"capabilities\":[");
+  put(&w, "},\"sources\":[");
+  const RSSDDCMonitorKnowledgeSource *sources[MK_MAX_SOURCES];
+  for (size_t i = 0; i < k->source_count; ++i)
+    sources[i] = &k->sources[i];
+  qsort(sources, k->source_count, sizeof(*sources), compare_source_ptr);
+  for (size_t i = 0; i < k->source_count; ++i) {
+    if (i)
+      put(&w, ",");
+    put(&w, "{\"id\":\"");
+    put(&w, sources[i]->id);
+    put(&w, "\",\"type\":\"");
+    put(&w, sources[i]->type);
+    put(&w, "\",\"reference\":\"");
+    put(&w, sources[i]->reference);
+    put(&w, "\"}");
+  }
+  put(&w, "],\"capabilities\":[");
   const Capability *caps[MK_MAX_ITEMS];
   for (size_t i = 0; i < k->capability_count; ++i)
     caps[i] = &k->capabilities[i];
@@ -2354,6 +2546,10 @@ rss_ddc_monitor_knowledge_serialize_json(const RSSDDCMonitorKnowledge *k,
     if (c->view.validated_range.present) {
       put(&w, ",\"validatedRange\":");
       range_out(&w, &c->view.validated_range);
+    }
+    if (c->view.reported_maximum_present) {
+      put(&w, ",\"reportedMaximum\":");
+      raw_out(&w, &c->view.reported_maximum);
     }
     if (c->view.condition_group_count) {
       put(&w, ",\"conditionGroups\":[");
@@ -2634,6 +2830,45 @@ rss_ddc_monitor_knowledge_merge(const RSSDDCMonitorKnowledge *base,
     }
     *merged = out;
     return RSS_DDC_OK;
+  }
+  for (size_t i = 0; i < overlay->source_count; ++i) {
+    const RSSDDCMonitorKnowledgeSource *source = &overlay->sources[i];
+    bool present = false;
+    for (size_t x = 0; x < out->source_count; ++x) {
+      RSSDDCMonitorKnowledgeSource *existing = &out->sources[x];
+      if (strcmp(existing->id, source->id) != 0)
+        continue;
+      if (strcmp(existing->type, source->type) != 0 ||
+          strcmp(existing->reference, source->reference) != 0) {
+        free_knowledge(out);
+        return RSS_DDC_ERROR_MONITOR_KNOWLEDGE_CONFLICT;
+      }
+      present = true;
+      break;
+    }
+    if (present)
+      continue;
+    if (out->source_count == MK_MAX_SOURCES) {
+      free_knowledge(out);
+      return RSS_DDC_ERROR_MONITOR_KNOWLEDGE_TOO_LARGE;
+    }
+    RSSDDCMonitorKnowledgeSource *sources =
+        realloc(out->sources, (out->source_count + 1) * sizeof(*sources));
+    if (!sources) {
+      free_knowledge(out);
+      return RSS_DDC_ERROR_SYSTEM;
+    }
+    out->sources = sources;
+    RSSDDCMonitorKnowledgeSource *copy = &sources[out->source_count];
+    *copy = (RSSDDCMonitorKnowledgeSource){};
+    copy->id = copy_text(source->id);
+    copy->type = copy_text(source->type);
+    copy->reference = copy_text(source->reference);
+    if (!copy->id || !copy->type || !copy->reference) {
+      free_knowledge(out);
+      return RSS_DDC_ERROR_SYSTEM;
+    }
+    ++out->source_count;
   }
   for (size_t i = 0; i < overlay->capability_count; ++i) {
     Capability *c =
