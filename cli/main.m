@@ -8,17 +8,23 @@
 #include <unistd.h>
 
 #include "rss_ddc.h"
+#include "presentation/args.h"
+#include "presentation/config.h"
+#include "presentation/output_settings.h"
+#include "presentation/plain.h"
+#include "presentation/render.h"
+#include "presentation/terminal.h"
 
 static void usage(const char *program) {
     fprintf(stderr,
             "Usage:\n"
-            "  %s list\n"
-            "  %s [--verbose] info <display-index>\n"
+            "  %s [--color=yes|no|auto] [--table=yes|no|auto] [--unicode=yes|no|auto] list\n"
+            "  %s [--verbose] [--color=yes|no|auto] [--table=yes|no|auto] [--unicode=yes|no|auto] info <display-index>\n"
             "  %s [--verbose] edid <display-index> [--decode|--hex|--raw <file>]\n"
             "  %s [--verbose] dpcd <display-index> <address> <length>\n"
             "  %s [--verbose] probe-dpcd-path <display-index>\n"
-            "  %s probe-quick <display-index>\n"
-            "  %s probe-extended <display-index>\n"
+            "  %s [--color=yes|no|auto] [--table=yes|no|auto] [--unicode=yes|no|auto] probe-quick <display-index>\n"
+            "  %s [--color=yes|no|auto] [--table=yes|no|auto] [--unicode=yes|no|auto] probe-extended <display-index>\n"
             "  %s [--verbose] mccs <display-index>\n"
             "  %s [--verbose] input <display-index> <standard|lg-alt> <value>\n"
             "  %s [--verbose] picture-mode <display-index> <vivid|reader>\n"
@@ -26,7 +32,8 @@ static void usage(const char *program) {
             "  %s [--verbose] set <display-index> <vcp> <value>\n"
             "  %s [--verbose] set <display-index> <vcp> <value> --verify [--settle-ms <ms>] "
             "[--retries <count>] [--retry-delay-ms <ms>]\n",
-            program, program, program, program, program, program, program, program, program, program, program, program, program);
+            program, program, program, program, program, program, program, program, program, program, program, program,
+            program);
 }
 
 static bool parse_unsigned(const char *text, unsigned long maximum, unsigned long *value) {
@@ -36,12 +43,6 @@ static bool parse_unsigned(const char *text, unsigned long maximum, unsigned lon
     if (errno != 0 || end == text || *end != '\0' || parsed > maximum) return false;
     *value = parsed;
     return true;
-}
-
-static void print_display(const RSSDDCDisplay *display) {
-    printf("%u  %s  provider=%s  capabilities=0x%02x  cg=%u\n", display->list_index,
-           display->product_name, rss_ddc_provider_string(display->provider), display->capabilities,
-           display->cg_display_id);
 }
 
 /*
@@ -78,6 +79,26 @@ static RSSDDCError list_displays_dynamic(RSSDDCDisplay **displays_out, size_t *c
 static void write_diagnostic(void *context, const char *message) {
     (void)context;
     fprintf(stderr, "rss-ddc: %s\n", message);
+}
+
+static void config_warn(void *context, const char *message) {
+    if (context == NULL) {
+        return;
+    }
+    fprintf(stderr, "rss-ddc: %s\n", message);
+}
+
+static RSSDDCCliEffectiveOutput resolve_presentation(const RSSDDCCliParsedArgs *parsed, bool command_supports_table) {
+    RSSDDCCliConfig config = {};
+    char config_path[512];
+    if (rss_ddc_cli_config_default_path(config_path, sizeof(config_path)) == RSS_DDC_OK) {
+        RSSDDCCliConfigOptions options = {.warn = parsed->verbose ? config_warn : NULL, .warn_context = (void *)1};
+        (void)rss_ddc_cli_config_load(config_path, &config, &options);
+    }
+    RSSDDCCliTerminalEnv terminal = rss_ddc_cli_terminal_env_default();
+    RSSDDCCliEffectiveOutput effective = {};
+    rss_ddc_cli_resolve_output(&parsed->overrides, &config, &terminal, command_supports_table, &effective);
+    return effective;
 }
 
 static void print_edid_decode(const RSSDDCEDIDInfo *info) {
@@ -124,87 +145,14 @@ static void print_dpcd_decode(uint32_t address, const uint8_t *bytes, size_t len
            capabilities.enhanced_framing ? "yes" : "no", capabilities.downstream_port_present ? "yes" : "no");
 }
 
-static const char *probe_knowledge_state_name(RSSDDCProbeKnowledgeState state) {
-    if (state == RSS_DDC_PROBE_KNOWLEDGE_YES) return "yes";
-    if (state == RSS_DDC_PROBE_KNOWLEDGE_NO) return "no";
-    return "unknown";
-}
-
-static void print_probe_quick(const RSSDDCProbeDiagnostics *diagnostics) {
-    printf("Alien Probe Quick: READ-ONLY; writes=0; repeats=%u; repeat-delay-ms=%u\n",
-           RSS_DDC_PROBE_QUICK_REPEAT_COUNT, RSS_DDC_PROBE_QUICK_REPEAT_DELAY_MS);
-    printf("display=%u provider=%s transport=%s mccs=%s\n", diagnostics->display.list_index,
-           rss_ddc_provider_string(diagnostics->display.provider), diagnostics->display.transport,
-           diagnostics->mccs_available ? "available" : rss_ddc_error_string(diagnostics->mccs_error));
-    for (size_t index = 0; index < diagnostics->observation_count; ++index) {
-        const RSSDDCProbeObservation *observation = &diagnostics->observations[index];
-        printf("vcp=0x%02x semantic=%s category=%s transport=%s protocol-valid=%s request-match=%s advertised=%s profile-known=%s",
-               observation->requested_vcp, observation->semantic_id,
-               rss_ddc_probe_result_category_name(observation->category),
-               observation->transport == RSS_DDC_PROBE_TRANSPORT_SUCCEEDED ? "succeeded" : "failed",
-               observation->protocol_valid ? "yes" : "no", observation->semantic_request_match ? "yes" : "no",
-               probe_knowledge_state_name(observation->advertised),
-               probe_knowledge_state_name(observation->profile_known));
-        if (observation->protocol_valid) {
-            printf(" current=%u maximum=%u stable=%s unusual-current-gt-max=%s", observation->current_value,
-                   observation->maximum_value, observation->stable ? "yes" : "no",
-                   observation->current_exceeds_maximum ? "yes" : "no");
-        }
-        printf(" first=%s repeat=%s\n", rss_ddc_error_string(observation->first_error),
-               rss_ddc_probe_repeat_error_name(observation));
-    }
-}
-
-static void print_probe_extended(const RSSDDCProbeExtendedDiagnostics *diagnostics) {
-    printf("Alien Probe Extended: READ-ONLY; writes=0; repeats=%u; inter-address-delay-ms=%u; repeat-delay-ms=%u\n",
-           RSS_DDC_PROBE_EXTENDED_REPEAT_COUNT, RSS_DDC_PROBE_EXTENDED_INTER_ADDRESS_DELAY_MS,
-           RSS_DDC_PROBE_EXTENDED_REPEAT_DELAY_MS);
-    printf("display=%u provider=%s transport=%s mccs=%s\n", diagnostics->display.list_index,
-           rss_ddc_provider_string(diagnostics->display.provider), diagnostics->display.transport,
-           diagnostics->mccs_available ? "available" : rss_ddc_error_string(diagnostics->mccs_error));
-    printf("requested=%zu attempted=%zu strict-valid=%zu stable-valid=%zu variable-valid=%zu "
-           "protocol-reported=%zu semantic-mismatch=%zu malformed=%zu transport-errors=%zu "
-           "advertised-valid=%zu unadvertised-valid=%zu duration-ms=%llu aborted=%s\n",
-           diagnostics->requested, diagnostics->attempted, diagnostics->strict_valid, diagnostics->stable_valid,
-           diagnostics->variable_valid, diagnostics->protocol_reported, diagnostics->semantic_mismatch,
-           diagnostics->malformed, diagnostics->transport_errors, diagnostics->advertised_valid,
-           diagnostics->unadvertised_valid, (unsigned long long)diagnostics->duration_ms,
-           diagnostics->aborted ? "yes" : "no");
-    for (size_t index = 0; index < diagnostics->observation_count; ++index) {
-        const RSSDDCProbeExtendedObservation *extended = &diagnostics->observations[index];
-        const RSSDDCProbeObservation *observation = &extended->observation;
-        if (observation->category == RSS_DDC_PROBE_RESULT_UNATTEMPTED) {
-            continue;
-        }
-        printf("vcp=0x%02x semantic=%s category=%s interpretation=%s transport=%s protocol-valid=%s "
-               "request-match=%s advertised=%s profile-known=%s enum-list=%s current-in-declared-enum=%s",
-               observation->requested_vcp, observation->semantic_id,
-               rss_ddc_probe_result_category_name(observation->category),
-               rss_ddc_probe_interpretation_name(extended->interpretation),
-               observation->transport == RSS_DDC_PROBE_TRANSPORT_SUCCEEDED ? "succeeded" : "failed",
-               observation->protocol_valid ? "yes" : "no", observation->semantic_request_match ? "yes" : "no",
-               probe_knowledge_state_name(observation->advertised),
-               probe_knowledge_state_name(observation->profile_known),
-               extended->enum_list_present ? "present" : "absent",
-               extended->enum_list_present ? (extended->current_in_declared_enum ? "yes" : "no") : "unknown");
-        if (observation->protocol_valid) {
-            printf(" current=%u maximum=%u stable=%s unusual-current-gt-max=%s", observation->current_value,
-                   observation->maximum_value, observation->stable ? "yes" : "no",
-                   observation->current_exceeds_maximum ? "yes" : "no");
-        }
-        printf(" first=%s repeat=%s\n", rss_ddc_error_string(observation->first_error),
-               rss_ddc_probe_repeat_error_name(observation));
-    }
-}
-
 /** Parses the small public CLI surface; hardware access is limited to explicit GET/SET/EDID/DPCD commands. */
 int main(int argc, char **argv) {
-    bool verbose = false;
-    int argument = 1;
-    if (argc > argument && strcmp(argv[argument], "--verbose") == 0) {
-        verbose = true;
-        ++argument;
+    RSSDDCCliParsedArgs parsed = {};
+    if (!rss_ddc_cli_parse_global_args(argc, argv, &parsed)) {
+        usage(argv[0]);
+        return EXIT_FAILURE;
     }
+    const int argument = parsed.command_index;
     if (argc <= argument) {
         usage(argv[0]);
         return EXIT_FAILURE;
@@ -218,7 +166,8 @@ int main(int argc, char **argv) {
             fprintf(stderr, "rss-ddc: %s\n", rss_ddc_error_string(error));
             return EXIT_FAILURE;
         }
-        for (size_t index = 0; index < count; ++index) print_display(&displays[index]);
+        RSSDDCCliEffectiveOutput output = resolve_presentation(&parsed, true);
+        rss_ddc_cli_render_display_list(stdout, displays, count, &output);
         free(displays);
         return EXIT_SUCCESS;
     }
@@ -231,12 +180,17 @@ int main(int argc, char **argv) {
         RSSDDCDisplay display = {};
         RSSDDCDiagnostics diagnostics = {.callback = write_diagnostic, .context = NULL};
         RSSDDCError error = rss_ddc_get_display_with_diagnostics((uint32_t)display_index, &display,
-                                                                  verbose ? &diagnostics : NULL);
+                                                                  parsed.verbose ? &diagnostics : NULL);
         if (error != RSS_DDC_OK) {
             fprintf(stderr, "rss-ddc: %s\n", rss_ddc_error_string(error));
             return EXIT_FAILURE;
         }
-        print_display(&display);
+        RSSDDCCliEffectiveOutput output = resolve_presentation(&parsed, false);
+        if (!output.table) {
+            rss_ddc_cli_plain_print_display(stdout, &display);
+        } else {
+            rss_ddc_cli_render_display_list(stdout, &display, 1, &output);
+        }
         printf("online=%s external=%s branch=%s transport=%s\n", display.online ? "yes" : "no",
                display.external ? "yes" : "no", display.branch_device_id, display.transport);
         return EXIT_SUCCESS;
@@ -253,7 +207,7 @@ int main(int argc, char **argv) {
         RSSDDCEDID edid = {};
         RSSDDCDiagnostics diagnostics = {.callback = write_diagnostic, .context = NULL};
         RSSDDCError error = rss_ddc_read_edid_with_diagnostics((uint32_t)display_index, &edid,
-                                                                verbose ? &diagnostics : NULL);
+                                                                parsed.verbose ? &diagnostics : NULL);
         if (error != RSS_DDC_OK) { fprintf(stderr, "rss-ddc: %s\n", rss_ddc_error_string(error)); return EXIT_FAILURE; }
         RSSDDCEDIDInfo info = {};
         error = rss_ddc_parse_edid(&edid, &info);
@@ -274,7 +228,7 @@ int main(int argc, char **argv) {
         if (argc != argument + 2) { usage(argv[0]); return EXIT_FAILURE; }
         RSSDDCDiagnostics diagnostics = {.callback = write_diagnostic, .context = NULL};
         RSSDDCError error = rss_ddc_probe_dpcd_path_with_diagnostics((uint32_t)display_index,
-                                                                       verbose ? &diagnostics : NULL);
+                                                                       parsed.verbose ? &diagnostics : NULL);
         if (error != RSS_DDC_OK) { fprintf(stderr, "rss-ddc: %s\n", rss_ddc_error_string(error)); return EXIT_FAILURE; }
         printf("DPCD path candidate correlation completed; no IODP construction or DPCD read was performed.\n");
         return EXIT_SUCCESS;
@@ -286,7 +240,10 @@ int main(int argc, char **argv) {
         if (error != RSS_DDC_OK) { fprintf(stderr, "rss-ddc: %s\n", rss_ddc_error_string(error)); return EXIT_FAILURE; }
         RSSDDCProbeDiagnostics diagnostics = {};
         error = rss_ddc_probe_diagnostics(probe, &diagnostics);
-        if (error == RSS_DDC_OK) print_probe_quick(&diagnostics);
+        if (error == RSS_DDC_OK) {
+            RSSDDCCliEffectiveOutput output = resolve_presentation(&parsed, true);
+            rss_ddc_cli_render_probe_quick(stdout, &diagnostics, &output);
+        }
         rss_ddc_probe_destroy(probe);
         if (error != RSS_DDC_OK) fprintf(stderr, "rss-ddc: %s\n", rss_ddc_error_string(error));
         return error == RSS_DDC_OK ? EXIT_SUCCESS : EXIT_FAILURE;
@@ -298,7 +255,10 @@ int main(int argc, char **argv) {
         if (error != RSS_DDC_OK) { fprintf(stderr, "rss-ddc: %s\n", rss_ddc_error_string(error)); return EXIT_FAILURE; }
         RSSDDCProbeExtendedDiagnostics diagnostics = {};
         error = rss_ddc_probe_extended_diagnostics(probe, &diagnostics);
-        if (error == RSS_DDC_OK) print_probe_extended(&diagnostics);
+        if (error == RSS_DDC_OK) {
+            RSSDDCCliEffectiveOutput output = resolve_presentation(&parsed, true);
+            rss_ddc_cli_render_probe_extended(stdout, &diagnostics, &output);
+        }
         rss_ddc_probe_destroy(probe);
         if (error != RSS_DDC_OK) fprintf(stderr, "rss-ddc: %s\n", rss_ddc_error_string(error));
         return error == RSS_DDC_OK ? EXIT_SUCCESS : EXIT_FAILURE;
@@ -309,7 +269,7 @@ int main(int argc, char **argv) {
         if (capabilities == NULL) { fprintf(stderr, "rss-ddc: allocation failed\n"); return EXIT_FAILURE; }
         RSSDDCDiagnostics diagnostics = {.callback = write_diagnostic, .context = NULL};
         RSSDDCError error = rss_ddc_get_mccs_capabilities_with_diagnostics((uint32_t)display_index, capabilities,
-                                                                            verbose ? &diagnostics : NULL);
+                                                                            parsed.verbose ? &diagnostics : NULL);
         if (error != RSS_DDC_OK) fprintf(stderr, "rss-ddc: %s\n", rss_ddc_error_string(error));
         else {
             fwrite(capabilities->raw, 1, capabilities->raw_length, stdout);
@@ -328,7 +288,7 @@ int main(int argc, char **argv) {
         if (!parse_unsigned(argv[argument + 3], UINT16_MAX, &value)) { usage(argv[0]); return EXIT_FAILURE; }
         RSSDDCDiagnostics diagnostics = {.callback = write_diagnostic, .context = NULL};
         RSSDDCError error = rss_ddc_set_input_with_diagnostics((uint32_t)display_index, method, (uint16_t)value,
-                                                                verbose ? &diagnostics : NULL);
+                                                                parsed.verbose ? &diagnostics : NULL);
         if (error != RSS_DDC_OK) fprintf(stderr, "rss-ddc: %s\n", rss_ddc_error_string(error));
         return error == RSS_DDC_OK ? EXIT_SUCCESS : EXIT_FAILURE;
     }
@@ -340,7 +300,7 @@ int main(int argc, char **argv) {
         else { usage(argv[0]); return EXIT_FAILURE; }
         RSSDDCDiagnostics diagnostics = {.callback = write_diagnostic, .context = NULL};
         RSSDDCError error = rss_ddc_set_picture_mode_with_diagnostics((uint32_t)display_index, mode,
-                                                                       verbose ? &diagnostics : NULL);
+                                                                       parsed.verbose ? &diagnostics : NULL);
         if (error != RSS_DDC_OK) fprintf(stderr, "rss-ddc: %s\n", rss_ddc_error_string(error));
         return error == RSS_DDC_OK ? EXIT_SUCCESS : EXIT_FAILURE;
     }
@@ -355,7 +315,7 @@ int main(int argc, char **argv) {
         uint8_t bytes[RSS_DDC_DPCD_MAX_READ_BYTES] = {};
         RSSDDCDiagnostics diagnostics = {.callback = write_diagnostic, .context = NULL};
         RSSDDCError error = rss_ddc_read_dpcd_with_diagnostics((uint32_t)display_index, (uint32_t)address,
-                                                                bytes, (size_t)length, verbose ? &diagnostics : NULL);
+                                                                bytes, (size_t)length, parsed.verbose ? &diagnostics : NULL);
         if (error != RSS_DDC_OK) { fprintf(stderr, "rss-ddc: %s\n", rss_ddc_error_string(error)); return EXIT_FAILURE; }
         print_dpcd_hex((uint32_t)address, bytes, (size_t)length);
         print_dpcd_decode((uint32_t)address, bytes, (size_t)length);
@@ -370,7 +330,7 @@ int main(int argc, char **argv) {
         RSSDDCVCPResult result = {};
         RSSDDCDiagnostics diagnostics = {.callback = write_diagnostic, .context = NULL};
         RSSDDCError error = rss_ddc_get_vcp_with_diagnostics((uint32_t)display_index, (uint8_t)vcp, &result,
-                                                              verbose ? &diagnostics : NULL);
+                                                              parsed.verbose ? &diagnostics : NULL);
         if (error != RSS_DDC_OK) {
             fprintf(stderr, "rss-ddc: %s\n", rss_ddc_error_string(error));
             return EXIT_FAILURE;
@@ -402,12 +362,12 @@ int main(int argc, char **argv) {
                 usage(argv[0]);
                 return EXIT_FAILURE;
             }
-            unsigned long parsed = 0;
-            if (!parse_unsigned(argv[option], UINT32_MAX, &parsed)) {
+            unsigned long parsed_value = 0;
+            if (!parse_unsigned(argv[option], UINT32_MAX, &parsed_value)) {
                 usage(argv[0]);
                 return EXIT_FAILURE;
             }
-            *destination = (uint32_t)parsed;
+            *destination = (uint32_t)parsed_value;
             has_policy_option = true;
         }
         if (has_policy_option && !verify) {
@@ -419,11 +379,11 @@ int main(int argc, char **argv) {
             RSSDDCVCPResult result = {};
             error = rss_ddc_set_vcp_and_verify_with_diagnostics((uint32_t)display_index, (uint8_t)vcp,
                                                                  (uint16_t)value, &policy, &result,
-                                                                 verbose ? &diagnostics : NULL);
+                                                                 parsed.verbose ? &diagnostics : NULL);
             if (error == RSS_DDC_OK) printf("verified %u\n", result.current_value);
         } else {
             error = rss_ddc_set_vcp_with_diagnostics((uint32_t)display_index, (uint8_t)vcp,
-                                                      (uint16_t)value, verbose ? &diagnostics : NULL);
+                                                      (uint16_t)value, parsed.verbose ? &diagnostics : NULL);
         }
         if (error != RSS_DDC_OK) fprintf(stderr, "rss-ddc: %s\n", rss_ddc_error_string(error));
         return error == RSS_DDC_OK ? EXIT_SUCCESS : EXIT_FAILURE;

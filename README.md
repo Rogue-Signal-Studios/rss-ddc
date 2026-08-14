@@ -15,9 +15,15 @@ No portability beyond those documented setups is implied.
 
 ## CLI
 
+Presentation settings (`color`, `table`, `unicode`) are configurable via
+`~/.config/rss-ddc/rss-ddc.conf` or CLI flags such as `--color=no`. See
+[CLI output presentation](docs/cli-output.md).
+
 ```sh
 make
 ./rss-ddc list
+./rss-ddc --color=no --table=no list
+./rss-ddc --table=yes list
 ./rss-ddc info 1
 ./rss-ddc --verbose info 1
 ./rss-ddc get 1 0x10

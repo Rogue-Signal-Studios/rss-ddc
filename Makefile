@@ -10,7 +10,13 @@ CONSUMER_TEST_PREFIX = $(abspath $(BUILD)/consumer-prefix)
 CONSUMER_TEST_BINARY = $(BUILD)/consumer
 CONSUMER_TEST_CPP_BINARY = $(BUILD)/consumer-cpp
 
+CLI_PRESENTATION_SOURCES = \
+	cli/presentation/tri_state.c cli/presentation/config.c cli/presentation/terminal.c \
+	cli/presentation/output_settings.c cli/presentation/color.c cli/presentation/table.c \
+	cli/presentation/plain.c cli/presentation/render.c cli/presentation/args.c
+
 CFLAGS = -std=c11 -Wall -Wextra -Werror -Wformat=2 -fmodules -Iinclude -Isrc/core -Isrc/ddc -Isrc/dpcd -Isrc/platform/macos
+CLI_CFLAGS = $(CFLAGS) -Icli/presentation
 # On the current supported macOS SDK, CoreDisplay re-exports the CoreGraphics,
 # ColorSync, IOKit, CoreFoundation, and Objective-C dependencies used by the
 # private backend. Keep the external consumer contract to this proven minimum.
@@ -36,7 +42,7 @@ TESTS = \
 	$(BUILD)/test_dcpdpservice $(BUILD)/test_dcpdpservice_get $(BUILD)/test_dcpdpservice_set \
 	$(BUILD)/test_display_resolution $(BUILD)/test_mccs_capabilities $(BUILD)/test_mccs_retrieval \
 	$(BUILD)/test_input_switch $(BUILD)/test_input_switch_api $(BUILD)/test_picture_mode $(BUILD)/test_profile_store \
-	$(BUILD)/test_monitor_knowledge $(BUILD)/test_probe $(BUILD)/test_probe_extended
+	$(BUILD)/test_monitor_knowledge $(BUILD)/test_probe $(BUILD)/test_probe_extended $(BUILD)/test_cli_presentation
 
 .DEFAULT_GOAL := all
 
@@ -56,8 +62,8 @@ $(BUILD)/%.o: %.m | $(BUILD)
 $(LIBRARY): $(LIBRARY_OBJECTS)
 	$(AR) rcs $@ $^
 
-$(NAME): $(LIBRARY) $(CLI_SOURCES)
-	$(CC) $(CFLAGS) $(CLI_SOURCES) $(LIBRARY) -o $@ $(LDLIBS)
+$(NAME): $(LIBRARY) $(CLI_SOURCES) $(CLI_PRESENTATION_SOURCES)
+	$(CC) $(CLI_CFLAGS) $(CLI_SOURCES) $(CLI_PRESENTATION_SOURCES) $(LIBRARY) -o $@ $(LDLIBS)
 
 # Private bindings embed public display snapshots. Rebuild every library
 # object and the CLI together whenever either layout-defining header changes.
@@ -130,6 +136,9 @@ $(BUILD)/test_probe: tests/test_probe.c src/core/probe.c src/core/monitor_knowle
 $(BUILD)/test_probe_extended: tests/test_probe_extended.c src/core/probe.c src/core/monitor_knowledge.c src/core/profile_store.c src/core/provider.c src/core/mccs_capabilities.c | $(BUILD)
 	$(CC) $(CFLAGS) -DRSS_DDC_TESTING -pthread $^ -o $@
 
+$(BUILD)/test_cli_presentation: tests/test_cli_presentation.c tests/cli_presentation_support.c $(CLI_PRESENTATION_SOURCES) src/core/provider.c | $(BUILD)
+	$(CC) $(CLI_CFLAGS) $^ -o $@
+
 check-library-sources: $(LIBRARY) $(TEST_SUPPORT_SOURCES)
 	@! $(AR) t $(LIBRARY) | grep -E '(get_validation|set_validation|(^|/)tests/|(^|/)cli/)'
 
@@ -155,6 +164,7 @@ test: $(TESTS) check-library-sources
 	$(BUILD)/test_monitor_knowledge
 	$(BUILD)/test_probe
 	$(BUILD)/test_probe_extended
+	$(BUILD)/test_cli_presentation
 
 install-library: $(LIBRARY)
 	install -d $(DESTDIR)$(PREFIX)/include $(DESTDIR)$(PREFIX)/lib
