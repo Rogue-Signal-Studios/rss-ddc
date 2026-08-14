@@ -89,6 +89,11 @@ typedef enum {
     RSS_DDC_ERROR_CAPABILITIES_OFFSET_OVERFLOW,
     /** MCCS retrieval ended without an explicit zero-length terminator. */
     RSS_DDC_ERROR_CAPABILITIES_INCOMPLETE,
+    RSS_DDC_ERROR_PROFILE_MALFORMED,
+    RSS_DDC_ERROR_PROFILE_SCHEMA,
+    RSS_DDC_ERROR_PROFILE_VERSION,
+    RSS_DDC_ERROR_PROFILE_CONFLICT,
+    RSS_DDC_ERROR_PROFILE_UNSAFE,
 } RSSDDCError;
 
 enum {
@@ -108,6 +113,12 @@ enum {
     RSS_DDC_MCCS_CAPABILITIES_MAX_ENUM_VALUES = 1400,
     /** Nested unknown MCCS tokens are accepted only to this structural depth. */
     RSS_DDC_MCCS_CAPABILITIES_MAX_NESTING = 32,
+    RSS_DDC_PROFILE_FILE_MAX_BYTES = 65536,
+    RSS_DDC_PROFILE_MAX_PROFILES = 32,
+    RSS_DDC_PROFILE_MAX_CONTROLS = 16,
+    RSS_DDC_PROFILE_MAX_ENUM_VALUES = 32,
+    RSS_DDC_PROFILE_ID_MAX = 64,
+    RSS_DDC_PROFILE_VERSION_MAX = 64,
 };
 
 /**
@@ -261,6 +272,52 @@ typedef enum {
     RSS_DDC_PICTURE_MODE_READER,
 } RSSDDCPictureMode;
 
+/** Profile provenance and evidence remain pure metadata in this slice. */
+typedef enum { RSS_DDC_PROFILE_SOURCE_BUILTIN = 0, RSS_DDC_PROFILE_SOURCE_VALIDATED_PACK,
+               RSS_DDC_PROFILE_SOURCE_LOCAL, RSS_DDC_PROFILE_SOURCE_RESEARCH } RSSDDCProfileSource;
+typedef enum { RSS_DDC_PROFILE_CONFIDENCE_UNKNOWN = 0, RSS_DDC_PROFILE_CONFIDENCE_CANDIDATE,
+               RSS_DDC_PROFILE_CONFIDENCE_OBSERVED, RSS_DDC_PROFILE_CONFIDENCE_CORRELATED,
+               RSS_DDC_PROFILE_CONFIDENCE_SET_OBSERVED,
+               RSS_DDC_PROFILE_CONFIDENCE_HARDWARE_VALIDATED } RSSDDCProfileConfidence;
+typedef enum { RSS_DDC_PROFILE_CONTROL_UNKNOWN = 0, RSS_DDC_PROFILE_CONTROL_PICTURE_MODE,
+               RSS_DDC_PROFILE_CONTROL_INPUT, RSS_DDC_PROFILE_CONTROL_BRIGHTNESS,
+               RSS_DDC_PROFILE_CONTROL_CONTRAST, RSS_DDC_PROFILE_CONTROL_COLOR_PRESET,
+               RSS_DDC_PROFILE_CONTROL_RESPONSE_TIME, RSS_DDC_PROFILE_CONTROL_ADAPTIVE_SYNC,
+               RSS_DDC_PROFILE_CONTROL_ENERGY_SAVING, RSS_DDC_PROFILE_CONTROL_BLACK_STABILIZER,
+               RSS_DDC_PROFILE_CONTROL_GAMMA, RSS_DDC_PROFILE_CONTROL_SHARPNESS,
+               RSS_DDC_PROFILE_CONTROL_AUDIO_MUTE } RSSDDCProfileControlID;
+typedef enum { RSS_DDC_PROFILE_METHOD_UNKNOWN = 0, RSS_DDC_PROFILE_METHOD_VCP,
+               RSS_DDC_PROFILE_METHOD_LG_ALT_INPUT } RSSDDCProfileMethod;
+
+/** Persistable matching facts; live list indexes and IOKit identities are intentionally absent. */
+typedef struct {
+    char manufacturer[RSS_DDC_TEXT_MAX], product_name[RSS_DDC_TEXT_MAX], serial[RSS_DDC_TEXT_MAX];
+    char branch_device_id[RSS_DDC_TEXT_MAX], transport[RSS_DDC_TEXT_MAX];
+    RSSDDCProvider provider;
+    bool external;
+} RSSDDCProfileIdentity;
+typedef struct { char id[RSS_DDC_PROFILE_ID_MAX], name[RSS_DDC_TEXT_MAX]; uint16_t raw_value; } RSSDDCProfileEnumValue;
+/** Stored control data only; `write_authorized` cannot execute a transport operation. */
+typedef struct {
+    RSSDDCProfileControlID id; RSSDDCProfileMethod method; uint16_t address;
+    bool readable, writable, write_authorized;
+    RSSDDCProfileSource source; RSSDDCProfileConfidence confidence;
+    size_t enum_value_count;
+    RSSDDCProfileEnumValue enum_values[RSS_DDC_PROFILE_MAX_ENUM_VALUES];
+} RSSDDCProfileControl;
+/** Caller-owned result; resolver changes it only on success. */
+typedef struct {
+    RSSDDCProfileIdentity identity; size_t control_count;
+    RSSDDCProfileControl controls[RSS_DDC_PROFILE_MAX_CONTROLS];
+} RSSDDCEffectiveProfile;
+typedef struct {
+    uint32_t schema_version;
+    char database_version[RSS_DDC_PROFILE_VERSION_MAX], minimum_rss_ddc_version[RSS_DDC_PROFILE_VERSION_MAX];
+    char pack_id[RSS_DDC_PROFILE_ID_MAX];
+} RSSDDCProfilePackInfo;
+/** Opaque, heap-owned store. Parsing and resolution never contact hardware. */
+typedef struct RSSDDCProfileStore RSSDDCProfileStore;
+
 /** Returns a static, human-readable name for an error or provider. */
 const char *rss_ddc_error_string(RSSDDCError error);
 const char *rss_ddc_provider_string(RSSDDCProvider provider);
@@ -272,6 +329,40 @@ const char *rss_ddc_backend_name(RSSDDCBackend backend);
 RSSDDCProvider rss_ddc_provider_from_registry_class(const char *provider_class);
 /** Returns only the independently validated capabilities for a provider. */
 uint32_t rss_ddc_provider_capabilities(RSSDDCProvider provider);
+
+/** Create/destroy transfer sole ownership of a heap-backed offline profile store. */
+RSSDDCProfileStore *rss_ddc_profile_store_create(void);
+void rss_ddc_profile_store_destroy(RSSDDCProfileStore *store);
+/** All loads are transactional: failure leaves `store` unchanged. */
+RSSDDCError rss_ddc_profile_store_load_builtin(RSSDDCProfileStore *store);
+RSSDDCError rss_ddc_profile_store_load_pack_data(RSSDDCProfileStore *store, const char *data, size_t length);
+RSSDDCError rss_ddc_profile_store_load_local_data(RSSDDCProfileStore *store, const char *data, size_t length);
+RSSDDCError rss_ddc_profile_store_load_research_data(RSSDDCProfileStore *store, const char *data, size_t length);
+RSSDDCError rss_ddc_profile_store_load_pack_file(RSSDDCProfileStore *store, const char *path);
+RSSDDCError rss_ddc_profile_store_load_local_file(RSSDDCProfileStore *store, const char *path);
+RSSDDCError rss_ddc_profile_store_load_research_file(RSSDDCProfileStore *store, const char *path);
+/** Validates bytes without changing a store; `info` is written only after success. */
+RSSDDCError rss_ddc_profile_validate_pack_data(const char *data, size_t length, RSSDDCProfileSource source,
+                                               RSSDDCProfilePackInfo *info);
+RSSDDCError rss_ddc_profile_store_pack_info(const RSSDDCProfileStore *store, RSSDDCProfilePackInfo *info);
+/** Export is caller-buffer owned; NULL/0 queries required bytes including NUL. */
+RSSDDCError rss_ddc_profile_store_export_json(const RSSDDCProfileStore *store, char *buffer, size_t capacity,
+                                              size_t *required);
+/** Save writes a complete temporary file and atomically renames it over `path` on success. */
+RSSDDCError rss_ddc_profile_store_save_file(const RSSDDCProfileStore *store, const char *path);
+/** Pure deterministic resolution; caller output remains unchanged on failure. */
+RSSDDCError rss_ddc_profile_store_resolve(const RSSDDCProfileStore *store, const RSSDDCProfileIdentity *identity,
+                                          RSSDDCEffectiveProfile *effective);
+size_t rss_ddc_effective_profile_control_count(const RSSDDCEffectiveProfile *effective);
+RSSDDCError rss_ddc_effective_profile_control(const RSSDDCEffectiveProfile *effective, size_t index,
+                                              RSSDDCProfileControl *control);
+RSSDDCError rss_ddc_profile_control_enum_value(const RSSDDCProfileControl *control, size_t index,
+                                               RSSDDCProfileEnumValue *value);
+/** Copies only an existing public snapshot into a persistable identity; it never discovers displays. */
+void rss_ddc_profile_identity_from_display(const RSSDDCDisplay *display, RSSDDCProfileIdentity *identity);
+const char *rss_ddc_profile_control_name(RSSDDCProfileControlID id);
+const char *rss_ddc_profile_source_name(RSSDDCProfileSource source);
+const char *rss_ddc_profile_confidence_name(RSSDDCProfileConfidence confidence);
 
 /**
  * Parses a bounded MCCS capabilities string without contacting a display.

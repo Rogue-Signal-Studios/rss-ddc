@@ -104,6 +104,11 @@ existing conventional DCPDP13 SetVCP framing for VCP `0x15`, not the LG F4
 input command, and performs no GET, verification, retry, restore, or fallback.
 See [Picture Mode](docs/picture-mode.md).
 
+Monitor profiles are now an offline JSON store/resolver with bounded parsing,
+transactional loads, atomic saves, and deterministic exact matching. They are
+metadata only in this slice and introduce no display transport behavior. See
+[Monitor profiles](docs/monitor-profiles.md).
+
 ## Provider model
 
 | Provider | Backend status | Capabilities |

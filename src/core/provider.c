@@ -36,6 +36,11 @@ const char *rss_ddc_error_string(RSSDDCError error) {
         case RSS_DDC_ERROR_CAPABILITIES_REQUEST_LIMIT: return "MCCS capabilities request limit exceeded";
         case RSS_DDC_ERROR_CAPABILITIES_OFFSET_OVERFLOW: return "MCCS capabilities offset overflow";
         case RSS_DDC_ERROR_CAPABILITIES_INCOMPLETE: return "MCCS capabilities retrieval did not reach completion";
+        case RSS_DDC_ERROR_PROFILE_MALFORMED: return "monitor profile data is malformed";
+        case RSS_DDC_ERROR_PROFILE_SCHEMA: return "monitor profile schema is unsupported";
+        case RSS_DDC_ERROR_PROFILE_VERSION: return "monitor profile requires a newer rss-ddc version";
+        case RSS_DDC_ERROR_PROFILE_CONFLICT: return "monitor profile data is ambiguous or conflicting";
+        case RSS_DDC_ERROR_PROFILE_UNSAFE: return "monitor profile requests an unsafe unauthorized operation";
     }
     return "unknown error";
 }
