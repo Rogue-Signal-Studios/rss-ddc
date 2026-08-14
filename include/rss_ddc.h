@@ -457,7 +457,7 @@ typedef struct { RSSDDCDisplay display; RSSDDCProbeCorrelation correlation;
                  const RSSDDCMonitorKnowledge *profile_knowledge; } RSSDDCProbeTarget;
 typedef struct { const char *semantic_id; uint8_t requested_vcp; RSSDDCProbeResultCategory category;
                  RSSDDCProbeTransportState transport; RSSDDCError first_error, repeat_error;
-                 bool protocol_valid, semantic_request_match, stable, current_exceeds_maximum;
+                 bool protocol_valid, semantic_request_match, stable, current_exceeds_maximum, repeat_attempted;
                  RSSDDCProbeKnowledgeState advertised, profile_known; uint16_t current_value, maximum_value; } RSSDDCProbeObservation;
 typedef struct { RSSDDCProbeObservation observation; char semantic_id_buffer[32];
                  RSSDDCProbeInterpretationConfidence interpretation;
@@ -492,6 +492,8 @@ RSSDDCError rss_ddc_probe_quick_for_display(uint32_t list_index, RSSDDCProbe **p
 RSSDDCError rss_ddc_probe_extended_for_display(uint32_t list_index, RSSDDCProbe **probe);
 const char *rss_ddc_probe_result_category_name(RSSDDCProbeResultCategory category);
 const char *rss_ddc_probe_interpretation_name(RSSDDCProbeInterpretationConfidence interpretation);
+/** Returns "not-attempted" when the stability repeat GET was not executed. */
+const char *rss_ddc_probe_repeat_error_name(const RSSDDCProbeObservation *observation);
 
 /**
  * Parses a bounded MCCS capabilities string without contacting a display.

@@ -151,7 +151,7 @@ static void print_probe_quick(const RSSDDCProbeDiagnostics *diagnostics) {
                    observation->current_exceeds_maximum ? "yes" : "no");
         }
         printf(" first=%s repeat=%s\n", rss_ddc_error_string(observation->first_error),
-               rss_ddc_error_string(observation->repeat_error));
+               rss_ddc_probe_repeat_error_name(observation));
     }
 }
 
@@ -193,7 +193,7 @@ static void print_probe_extended(const RSSDDCProbeExtendedDiagnostics *diagnosti
                    observation->current_exceeds_maximum ? "yes" : "no");
         }
         printf(" first=%s repeat=%s\n", rss_ddc_error_string(observation->first_error),
-               rss_ddc_error_string(observation->repeat_error));
+               rss_ddc_probe_repeat_error_name(observation));
     }
 }
 

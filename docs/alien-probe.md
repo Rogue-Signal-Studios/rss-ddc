@@ -144,7 +144,10 @@ A stable, protocol-valid, unadvertised reply with unusual `current > maximum`
 remains an observation only. It is not labeled “supported” and does not create
 write authority. When MCCS advertises enum values for a VCP, observed currents
 are correlated against that declared enum set where present; `current <= maximum`
-is not required for enumerated controls.
+is not required for enumerated controls. Scalar advertised VCPs without a
+parenthesized value list report `enum-list=absent` and
+`current-in-declared-enum=unknown`; only explicit lists use `present` with
+`yes`/`no` membership.
 
 ### Ownership and bounds
 

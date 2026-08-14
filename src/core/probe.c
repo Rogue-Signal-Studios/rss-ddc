@@ -149,7 +149,6 @@ static void probe_delay(const RSSDDCProbeReadTransport *transport, uint32_t dela
 static void reset_observation(RSSDDCProbeObservation *observation) {
     memset(observation, 0, sizeof(*observation));
     observation->first_error = RSS_DDC_ERROR_NOT_FOUND;
-    observation->repeat_error = RSS_DDC_ERROR_NOT_FOUND;
 }
 
 static void observe_vcp_pair(const RSSDDCProbeReadTransport *transport, uint8_t vcp, uint32_t repeat_delay_ms,
@@ -176,6 +175,7 @@ static void observe_vcp_pair(const RSSDDCProbeReadTransport *transport, uint8_t 
     observation->current_exceeds_maximum = first.current_value > first.maximum_value;
     probe_delay(transport, repeat_delay_ms);
     RSSDDCVCPResult repeat = {0};
+    observation->repeat_attempted = true;
     observation->repeat_error = transport->get_vcp(transport->context, vcp, &repeat);
     observation->stable = observation->repeat_error == RSS_DDC_OK && repeat.vcp_code == vcp &&
                           repeat.current_value == first.current_value && repeat.maximum_value == first.maximum_value;
@@ -222,7 +222,7 @@ static void set_enum_correlation(const RSSDDCProbe *probe, RSSDDCProbeExtendedOb
     const uint8_t *values = NULL;
     size_t count = 0;
     if (rss_ddc_mccs_capabilities_enum_values(probe->mccs, extended->observation.requested_vcp, &values,
-                                              &count) != RSS_DDC_OK) {
+                                              &count) != RSS_DDC_OK || count == 0) {
         return;
     }
     extended->enum_list_present = true;
@@ -680,4 +680,11 @@ const char *rss_ddc_probe_interpretation_name(RSSDDCProbeInterpretationConfidenc
     case RSS_DDC_PROBE_INTERPRETATION_UNKNOWN: return "unknown";
     }
     return "unknown";
+}
+
+const char *rss_ddc_probe_repeat_error_name(const RSSDDCProbeObservation *observation) {
+    if (observation == NULL || !observation->repeat_attempted) {
+        return "not-attempted";
+    }
+    return rss_ddc_error_string(observation->repeat_error);
 }

@@ -138,6 +138,9 @@ static void test_final_observation_semantics(void) {
     assert(observations[1].category == RSS_DDC_PROBE_RESULT_VARIABLE && observations[1].advertised == RSS_DDC_PROBE_KNOWLEDGE_NO);
     assert(observations[2].category == RSS_DDC_PROBE_RESULT_PROTOCOL_REPORTED &&
            observations[2].transport == RSS_DDC_PROBE_TRANSPORT_SUCCEEDED && !observations[2].protocol_valid);
+    assert(!observations[2].repeat_attempted);
+    assert(strcmp(rss_ddc_probe_repeat_error_name(&observations[2]), "not-attempted") == 0);
+    assert(observations[0].repeat_attempted);
     assert(observations[3].category == RSS_DDC_PROBE_RESULT_TRANSPORT_ERROR &&
            observations[3].transport == RSS_DDC_PROBE_TRANSPORT_FAILED);
     assert(observations[4].category == RSS_DDC_PROBE_RESULT_MALFORMED);

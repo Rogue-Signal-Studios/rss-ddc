@@ -123,12 +123,13 @@ static void test_bounds_ordering_and_request_limits(void) {
     assert(mock.last_delay_ms == RSS_DDC_PROBE_EXTENDED_REPEAT_DELAY_MS);
     for (size_t index = 0; index < diagnostics.observation_count; ++index) {
         assert(diagnostics.observations[index].observation.requested_vcp == (uint8_t)index);
+        assert(!diagnostics.observations[index].observation.repeat_attempted);
     }
     rss_ddc_probe_destroy(probe);
 }
 
 static void test_classification_matrix_and_unadvertised_regression(void) {
-    MockExtendedTransport mock = {.mccs_error = RSS_DDC_OK, .mccs_raw = "vcp(10(01 02))"};
+    MockExtendedTransport mock = {.mccs_error = RSS_DDC_OK, .mccs_raw = "vcp(10 12 14(05 08 0b))"};
     fill_default_replies(&mock);
     set_stable(&mock, 0x10, 100, 1);
     set_stable(&mock, 0x42, 4, 99);
@@ -157,7 +158,7 @@ static void test_classification_matrix_and_unadvertised_regression(void) {
     assert(advertised->observation.category == RSS_DDC_PROBE_RESULT_STABLE);
     assert(advertised->observation.advertised == RSS_DDC_PROBE_KNOWLEDGE_YES);
     assert(advertised->interpretation == RSS_DDC_PROBE_INTERPRETATION_OBSERVED_ADVERTISED);
-    assert(advertised->enum_list_present && advertised->current_in_declared_enum);
+    assert(!advertised->enum_list_present);
 
     const RSSDDCProbeExtendedObservation *unadvertised = &diagnostics.observations[0x42];
     assert(unadvertised->observation.category == RSS_DDC_PROBE_RESULT_STABLE);
@@ -183,6 +184,46 @@ static void test_classification_matrix_and_unadvertised_regression(void) {
     assert(rss_ddc_monitor_knowledge_resolution_preferred_write(resolution) == NULL);
     assert(!rss_ddc_monitor_knowledge_resolution_write_authorized(resolution));
     rss_ddc_monitor_knowledge_resolution_destroy(resolution);
+    rss_ddc_probe_destroy(probe);
+}
+
+static void test_mccs_enum_correlation_lg_shape(void) {
+    MockExtendedTransport mock = {.mccs_error = RSS_DDC_OK,
+                                  .mccs_raw = "vcp(10 12 14(05 08 0b) 60(11 12 0f 00))"};
+    fill_default_replies(&mock);
+    set_stable(&mock, 0x10, 100, 50);
+    set_stable(&mock, 0x12, 100, 60);
+    set_stable(&mock, 0x14, 100, 5);
+    set_stable(&mock, 0x60, 18, 99);
+
+    RSSDDCProbe *probe = run_extended(&mock, true, RSS_DDC_PROVIDER_DCPDP13);
+    RSSDDCProbeExtendedDiagnostics diagnostics = {0};
+    assert(rss_ddc_probe_extended_diagnostics(probe, &diagnostics) == RSS_DDC_OK);
+
+    const RSSDDCProbeExtendedObservation *brightness = &diagnostics.observations[0x10];
+    const RSSDDCProbeExtendedObservation *contrast = &diagnostics.observations[0x12];
+    const RSSDDCProbeExtendedObservation *preset = &diagnostics.observations[0x14];
+    const RSSDDCProbeExtendedObservation *input = &diagnostics.observations[0x60];
+    assert(!brightness->enum_list_present);
+    assert(!contrast->enum_list_present);
+    assert(preset->enum_list_present && preset->current_in_declared_enum);
+    assert(input->enum_list_present && !input->current_in_declared_enum);
+    assert(strcmp(rss_ddc_probe_repeat_error_name(&brightness->observation), "not-attempted") != 0);
+    rss_ddc_probe_destroy(probe);
+}
+
+static void test_repeat_error_reporting(void) {
+    MockExtendedTransport mock = {.mccs_error = RSS_DDC_ERROR_UNSUPPORTED_CAPABILITY};
+    fill_default_replies(&mock);
+    set_stable(&mock, 0x10, 100, 50);
+
+    RSSDDCProbe *probe = run_extended(&mock, false, RSS_DDC_PROVIDER_DCPDP13);
+    RSSDDCProbeExtendedDiagnostics diagnostics = {0};
+    assert(rss_ddc_probe_extended_diagnostics(probe, &diagnostics) == RSS_DDC_OK);
+    assert(strcmp(rss_ddc_probe_repeat_error_name(&diagnostics.observations[0].observation), "not-attempted") == 0);
+    assert(diagnostics.observations[0x10].observation.repeat_attempted);
+    assert(strcmp(rss_ddc_probe_repeat_error_name(&diagnostics.observations[0x10].observation), "not-attempted") != 0);
+    assert(mock.reads == 257);
     rss_ddc_probe_destroy(probe);
 }
 
@@ -248,6 +289,8 @@ static void test_allocation_failure_and_stack_boundary(void) {
 int main(void) {
     test_bounds_ordering_and_request_limits();
     test_classification_matrix_and_unadvertised_regression();
+    test_mccs_enum_correlation_lg_shape();
+    test_repeat_error_reporting();
     test_no_mccs_advertised_unknown();
     test_transport_storm_abort();
     test_unsupported_provider();
