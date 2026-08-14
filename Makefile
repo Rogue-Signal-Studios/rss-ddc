@@ -17,7 +17,7 @@ CFLAGS = -std=c11 -Wall -Wextra -Werror -Wformat=2 -fmodules -Iinclude -Isrc/cor
 LDLIBS = -framework CoreDisplay
 
 PORTABLE_CORE_SOURCES = \
-	src/core/correlation.c src/core/enumeration.c src/core/provider.c src/core/rss_ddc.c src/core/verify.c \
+	src/core/correlation.c src/core/enumeration.c src/core/mccs_capabilities.c src/core/provider.c src/core/rss_ddc.c src/core/verify.c \
 	src/ddc/protocol.c src/ddc/edid.c src/dpcd/dpcd.c src/dpcd/reader.c \
 	src/platform/macos/providers/dispatch.c src/platform/macos/providers/mcdp/get_vcp.c
 MACOS_BACKEND_SOURCES = \
@@ -34,7 +34,7 @@ TESTS = \
 	$(BUILD)/test_protocol $(BUILD)/test_provider $(BUILD)/test_correlation $(BUILD)/test_enumeration \
 	$(BUILD)/test_dispatch $(BUILD)/test_verify $(BUILD)/test_edid $(BUILD)/test_dpcd \
 	$(BUILD)/test_dcpdpservice $(BUILD)/test_dcpdpservice_get $(BUILD)/test_dcpdpservice_set \
-	$(BUILD)/test_display_resolution
+	$(BUILD)/test_display_resolution $(BUILD)/test_mccs_capabilities
 
 .DEFAULT_GOAL := all
 
@@ -101,6 +101,9 @@ $(BUILD)/test_dcpdpservice_set: tests/test_dcpdpservice_set.c src/core/correlati
 $(BUILD)/test_display_resolution: tests/test_display_resolution.c src/core/rss_ddc.c src/core/provider.c | $(BUILD)
 	$(CC) $(CFLAGS) -pthread $^ -o $@
 
+$(BUILD)/test_mccs_capabilities: tests/test_mccs_capabilities.c src/core/mccs_capabilities.c | $(BUILD)
+	$(CC) $(CFLAGS) $^ -o $@
+
 check-library-sources: $(LIBRARY) $(TEST_SUPPORT_SOURCES)
 	@! $(AR) t $(LIBRARY) | grep -E '(get_validation|set_validation|(^|/)tests/|(^|/)cli/)'
 
@@ -117,6 +120,7 @@ test: $(TESTS) check-library-sources
 	$(BUILD)/test_dcpdpservice_get
 	$(BUILD)/test_dcpdpservice_set
 	$(BUILD)/test_display_resolution
+	$(BUILD)/test_mccs_capabilities
 
 install-library: $(LIBRARY)
 	install -d $(DESTDIR)$(PREFIX)/include $(DESTDIR)$(PREFIX)/lib
