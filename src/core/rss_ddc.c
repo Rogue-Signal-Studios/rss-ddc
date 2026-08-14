@@ -111,6 +111,18 @@ RSSDDCError rss_ddc_probe_dpcd_path_with_diagnostics(uint32_t list_index, const 
     return rss_macos_probe_dpcd_path(list_index, diagnostics);
 }
 
+/** Retrieves only the independently validated DCPDP13 MCCS capabilities path. */
+RSSDDCError rss_ddc_get_mccs_capabilities(uint32_t list_index, RSSDDCMCCSCapabilities *capabilities) {
+    return rss_ddc_get_mccs_capabilities_with_diagnostics(list_index, capabilities, NULL);
+}
+
+RSSDDCError rss_ddc_get_mccs_capabilities_with_diagnostics(uint32_t list_index,
+                                                           RSSDDCMCCSCapabilities *capabilities,
+                                                           const RSSDDCDiagnostics *diagnostics) {
+    if (capabilities == NULL) return RSS_DDC_ERROR_ARGUMENT;
+    return rss_macos_get_mccs_capabilities_snapshot(list_index, capabilities, diagnostics);
+}
+
 /** Keeps the concise API free of diagnostics while sharing the same validation path. */
 RSSDDCError rss_ddc_get_vcp(uint32_t list_index, uint8_t vcp_code, RSSDDCVCPResult *result) {
     return rss_ddc_get_vcp_with_diagnostics(list_index, vcp_code, result, NULL);

@@ -17,11 +17,12 @@ static void usage(const char *program) {
             "  %s [--verbose] edid <display-index> [--decode|--hex|--raw <file>]\n"
             "  %s [--verbose] dpcd <display-index> <address> <length>\n"
             "  %s [--verbose] probe-dpcd-path <display-index>\n"
+            "  %s [--verbose] mccs <display-index>\n"
             "  %s [--verbose] get <display-index> <vcp>\n"
             "  %s [--verbose] set <display-index> <vcp> <value>\n"
             "  %s [--verbose] set <display-index> <vcp> <value> --verify [--settle-ms <ms>] "
             "[--retries <count>] [--retry-delay-ms <ms>]\n",
-            program, program, program, program, program, program, program, program);
+            program, program, program, program, program, program, program, program, program);
 }
 
 static bool parse_unsigned(const char *text, unsigned long maximum, unsigned long *value) {
@@ -200,6 +201,21 @@ int main(int argc, char **argv) {
         if (error != RSS_DDC_OK) { fprintf(stderr, "rss-ddc: %s\n", rss_ddc_error_string(error)); return EXIT_FAILURE; }
         printf("DPCD path candidate correlation completed; no IODP construction or DPCD read was performed.\n");
         return EXIT_SUCCESS;
+    }
+    if (strcmp(argv[argument], "mccs") == 0) {
+        if (argc != argument + 2) { usage(argv[0]); return EXIT_FAILURE; }
+        RSSDDCMCCSCapabilities *capabilities = calloc(1, sizeof(*capabilities));
+        if (capabilities == NULL) { fprintf(stderr, "rss-ddc: allocation failed\n"); return EXIT_FAILURE; }
+        RSSDDCDiagnostics diagnostics = {.callback = write_diagnostic, .context = NULL};
+        RSSDDCError error = rss_ddc_get_mccs_capabilities_with_diagnostics((uint32_t)display_index, capabilities,
+                                                                            verbose ? &diagnostics : NULL);
+        if (error != RSS_DDC_OK) fprintf(stderr, "rss-ddc: %s\n", rss_ddc_error_string(error));
+        else {
+            fwrite(capabilities->raw, 1, capabilities->raw_length, stdout);
+            fputc('\n', stdout);
+        }
+        free(capabilities);
+        return error == RSS_DDC_OK ? EXIT_SUCCESS : EXIT_FAILURE;
     }
     if (strcmp(argv[argument], "dpcd") == 0) {
         if (argc != argument + 4) { usage(argv[0]); return EXIT_FAILURE; }

@@ -19,6 +19,12 @@ RSSDDCError rss_macos_get_display_snapshot(uint32_t list_index, RSSDDCDisplay *d
     if (detail != NULL && detail_capacity != 0) detail[0] = '\0';
     return RSS_DDC_OK;
 }
+RSSDDCError rss_macos_get_mccs_capabilities_snapshot(uint32_t list_index,
+                                                      RSSDDCMCCSCapabilities *capabilities,
+                                                      const RSSDDCDiagnostics *diagnostics) {
+    (void)list_index; (void)capabilities; (void)diagnostics;
+    return RSS_DDC_ERROR_UNSUPPORTED_CAPABILITY;
+}
 RSSDDCError rss_macos_resolve_binding(uint32_t list_index, RSSMacOSBinding *binding) {
     assert(list_index == 1);
     ++resolver_calls;

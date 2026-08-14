@@ -662,6 +662,26 @@ RSSDDCError rss_macos_get_display_snapshot(uint32_t list_index, RSSDDCDisplay *d
     return error;
 }
 
+/** Keeps the large private binding and variable MCCS model out of public API frames. */
+RSSDDCError rss_macos_get_mccs_capabilities_snapshot(uint32_t list_index,
+                                                      RSSDDCMCCSCapabilities *capabilities,
+                                                      const RSSDDCDiagnostics *diagnostics) {
+    if (capabilities == NULL) return RSS_DDC_ERROR_ARGUMENT;
+    RSSMacOSBinding *binding = calloc(1, sizeof(*binding));
+    if (binding == NULL) return RSS_DDC_ERROR_SYSTEM;
+    RSSDDCError error = rss_macos_resolve_binding(list_index, binding);
+    if (error == RSS_DDC_OK) {
+        error = rss_macos_provider_get_mccs_capabilities(binding, capabilities, diagnostics);
+    } else {
+        rss_macos_diagnostic(diagnostics, rss_macos_correlation_failure_string(binding->correlation_failure));
+        const char *detail = rss_macos_correlation_detail_string(binding);
+        if (detail != NULL) rss_macos_diagnostic(diagnostics, detail);
+    }
+    rss_macos_release_binding(binding);
+    free(binding);
+    return error;
+}
+
 /** Balances service_for_display's retained proxy on every success and error path. */
 void rss_macos_release_binding(RSSMacOSBinding *binding) {
     if (binding != NULL && binding->service_proxy != MACH_PORT_NULL) IOObjectRelease(binding->service_proxy);

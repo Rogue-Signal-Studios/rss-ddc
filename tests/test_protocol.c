@@ -48,6 +48,11 @@ int main(void) {
     assert(rss_ddc_request_checksum(expected_10, sizeof(expected_10) - 1) == expected_10[4]);
     assert(rss_ddc_request_checksum(expected_60, sizeof(expected_60) - 1) == expected_60[4]);
 
+    const uint8_t expected_capabilities[] = {0x83, 0xf3, 0x01, 0x20, 0x3f};
+    uint8_t capabilities_request[RSS_DDC_CONVENTIONAL_CAPABILITIES_REQUEST_SIZE] = {};
+    rss_ddc_build_conventional_capabilities_request(0x0120, capabilities_request);
+    assert(memcmp(capabilities_request, expected_capabilities, sizeof(capabilities_request)) == 0);
+
     const uint8_t reply_10[] = {0x6e, 0x88, 0x02, 0x00, 0x10, 0x00, 0x00, 0x32, 0x00, 0x32, 0xa4};
     const uint8_t reply_60[] = {0x6e, 0x88, 0x02, 0x00, 0x60, 0x00, 0x00, 0x12, 0x00, 0x12, 0xd4};
     RSSDDCVCPResult result = {};
@@ -75,6 +80,19 @@ int main(void) {
     assert(rss_ddc_parse_get_vcp_reply(malformed, sizeof(malformed), 0x10, &result) == RSS_DDC_ERROR_REPLY_VCP);
     memcpy(malformed, reply_10, sizeof(malformed)); malformed[10] ^= 0xff;
     assert(rss_ddc_parse_get_vcp_reply(malformed, sizeof(malformed), 0x10, &result) == RSS_DDC_ERROR_REPLY_CHECKSUM);
+
+    uint8_t capabilities_reply[] = {0x6e, 0x8a, 0xe3, 0x01, 0x20, 'v', 'c', 'p', '(', '1', '0', ')', 0x00};
+    uint8_t checksum = 0x50;
+    for (size_t index = 0; index + 1 < sizeof(capabilities_reply); ++index) checksum ^= capabilities_reply[index];
+    capabilities_reply[sizeof(capabilities_reply) - 1] = checksum;
+    size_t frame_size = 0;
+    RSSDDCCapabilitiesFragment fragment = {};
+    assert(rss_ddc_capabilities_reply_frame_size(capabilities_reply, sizeof(capabilities_reply), &frame_size) == RSS_DDC_OK);
+    assert(frame_size == sizeof(capabilities_reply));
+    assert(rss_ddc_parse_capabilities_reply(capabilities_reply, frame_size, &fragment) == RSS_DDC_OK);
+    assert(fragment.offset == 0x0120 && fragment.length == 7 && memcmp(fragment.bytes, "vcp(10)", 7) == 0);
+    assert(rss_ddc_validate_capabilities_fragment_offset(&fragment, 0x0120) == RSS_DDC_OK);
+    assert(rss_ddc_validate_capabilities_fragment_offset(&fragment, 0x0121) == RSS_DDC_ERROR_CAPABILITIES_MALFORMED);
     puts("test_protocol: passed");
     return 0;
 }

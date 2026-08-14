@@ -81,3 +81,16 @@ RSSDDCError rss_macos_provider_read_dpcd(RSSMacOSBinding *binding, uint32_t addr
     }
     return RSS_DDC_ERROR_UNSUPPORTED_PROVIDER;
 }
+
+/** MCCS retrieval is intentionally DCPDP13-only; no sibling provider fallback exists. */
+RSSDDCError rss_macos_provider_get_mccs_capabilities(RSSMacOSBinding *binding,
+                                                     RSSDDCMCCSCapabilities *capabilities,
+                                                     const RSSDDCDiagnostics *diagnostics) {
+    if (binding == NULL || capabilities == NULL) return RSS_DDC_ERROR_ARGUMENT;
+    if (rss_ddc_provider_backend(binding->display.provider) != RSS_DDC_BACKEND_DCPDP13) {
+        rss_macos_diagnostic(diagnostics, "operation=GetMCCSCapabilities status=unsupported; DCPDP13Service only");
+        return binding->display.provider == RSS_DDC_PROVIDER_UNKNOWN ?
+            RSS_DDC_ERROR_UNSUPPORTED_PROVIDER : RSS_DDC_ERROR_UNSUPPORTED_CAPABILITY;
+    }
+    return rss_macos_dp_get_mccs_capabilities(binding, capabilities, diagnostics);
+}

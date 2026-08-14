@@ -43,6 +43,8 @@ typedef enum {
     RSS_DDC_CAP_SET_VCP = 1u << 1,
     RSS_DDC_CAP_READ_EDID = 1u << 2,
     RSS_DDC_CAP_READ_DPCD = 1u << 3,
+    /** DCPDP13 can retrieve and strictly parse a complete MCCS capabilities string. */
+    RSS_DDC_CAP_MCCS_CAPABILITIES = 1u << 4,
 } RSSDDCCapability;
 
 /** Stable operation outcomes; reply failures remain specific so malformed data is never accepted. */
@@ -77,6 +79,12 @@ typedef enum {
     RSS_DDC_ERROR_CAPABILITIES_MALFORMED,
     /** A capabilities string or parsed model exceeds an explicit bound. */
     RSS_DDC_ERROR_CAPABILITIES_TOO_LARGE,
+    /** MCCS retrieval exceeded its bounded fragment request count. */
+    RSS_DDC_ERROR_CAPABILITIES_REQUEST_LIMIT,
+    /** MCCS fragment progression would exceed the 16-bit protocol offset. */
+    RSS_DDC_ERROR_CAPABILITIES_OFFSET_OVERFLOW,
+    /** MCCS retrieval ended without an explicit zero-length terminator. */
+    RSS_DDC_ERROR_CAPABILITIES_INCOMPLETE,
 } RSSDDCError;
 
 enum {
@@ -257,6 +265,16 @@ bool rss_ddc_mccs_capabilities_has_vcp(const RSSDDCMCCSCapabilities *capabilitie
 RSSDDCError rss_ddc_mccs_capabilities_enum_values(const RSSDDCMCCSCapabilities *capabilities,
                                                   uint8_t vcp_code, const uint8_t **values,
                                                   size_t *count);
+/**
+ * Retrieves and parses DCPDP13's complete MCCS capabilities string. This is
+ * read-only, provider-gated, and leaves unsupported providers—including
+ * PS190—unsupported rather than attempting another transport family.
+ */
+RSSDDCError rss_ddc_get_mccs_capabilities(uint32_t list_index, RSSDDCMCCSCapabilities *capabilities);
+/** Diagnostic form of rss_ddc_get_mccs_capabilities; callback text is transient. */
+RSSDDCError rss_ddc_get_mccs_capabilities_with_diagnostics(uint32_t list_index,
+                                                           RSSDDCMCCSCapabilities *capabilities,
+                                                           const RSSDDCDiagnostics *diagnostics);
 
 /**
  * Snapshots online displays into caller storage. `displays` may be NULL only

@@ -11,6 +11,7 @@ static unsigned int dcpdpservice_get_calls;
 static unsigned int ps190_edid_calls;
 static unsigned int ps190_dpcd_calls;
 static unsigned int dp_dpcd_calls;
+static unsigned int dp_mccs_calls;
 static uint32_t dp_dpcd_address;
 static size_t dp_dpcd_length;
 
@@ -83,6 +84,15 @@ RSSDDCError rss_macos_dp_read_dpcd(RSSMacOSBinding *binding, uint32_t address, u
     return RSS_DDC_OK;
 }
 
+RSSDDCError rss_macos_dp_get_mccs_capabilities(RSSMacOSBinding *binding,
+                                               RSSDDCMCCSCapabilities *capabilities,
+                                               const RSSDDCDiagnostics *diagnostics) {
+    (void)binding; (void)diagnostics;
+    ++dp_mccs_calls;
+    *capabilities = (RSSDDCMCCSCapabilities){};
+    return RSS_DDC_OK;
+}
+
 int main(void) {
     RSSMacOSBinding selected_dp = {.display.provider = RSS_DDC_PROVIDER_DCPDP13};
     RSSDDCVCPResult result = {};
@@ -91,6 +101,9 @@ int main(void) {
     assert(rss_macos_provider_get_vcp(&selected_dp, 0x60, &result, NULL) == RSS_DDC_OK);
     assert(rss_macos_provider_set_vcp(&selected_dp, 0x60, 18, NULL) == RSS_DDC_OK);
     assert(dp_get_calls == 1 && ps190_get_calls == 0 && dp_set_calls == 1 && ps190_set_calls == 0);
+    RSSDDCMCCSCapabilities capabilities = {};
+    assert(rss_macos_provider_get_mccs_capabilities(&selected_dp, &capabilities, NULL) == RSS_DDC_OK);
+    assert(dp_mccs_calls == 1 && dp_get_calls == 1 && dp_set_calls == 1);
 
     RSSMacOSBinding selected_dcpdpservice = {.display.provider = RSS_DDC_PROVIDER_DCPDP_SERVICE};
     assert(rss_macos_provider_get_vcp(&selected_dcpdpservice, 0x10, &result, NULL) == RSS_DDC_OK);
@@ -104,6 +117,9 @@ int main(void) {
     assert(rss_macos_provider_get_vcp(&selected_ps190, 0x60, &result, NULL) == RSS_DDC_OK);
     assert(rss_macos_provider_set_vcp(&selected_ps190, 0x60, 18, NULL) == RSS_DDC_OK);
     assert(dp_get_calls == 1 && ps190_get_calls == 1 && dp_set_calls == 2 && ps190_set_calls == 1);
+    assert(rss_macos_provider_get_mccs_capabilities(&selected_ps190, &capabilities, NULL) ==
+           RSS_DDC_ERROR_UNSUPPORTED_CAPABILITY);
+    assert(dp_mccs_calls == 1 && ps190_get_calls == 1 && ps190_set_calls == 1);
 
     RSSMacOSBinding selected_mcdp = {.display.provider = RSS_DDC_PROVIDER_MCDP29XX};
     assert(rss_macos_provider_read_edid(&selected_ps190, &edid, NULL) == RSS_DDC_OK);
