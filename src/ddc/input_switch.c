@@ -7,8 +7,8 @@ bool rss_ddc_lg_alt_input_value_is_supported(uint16_t value) {
 }
 
 bool rss_ddc_lg_alt_input_write_count_is_supported(unsigned int write_count) {
-    return write_count == RSS_DDC_LG_ALT_INPUT_MIN_WRITE_COUNT ||
-        write_count == RSS_DDC_LG_ALT_INPUT_WRITE_COUNT;
+    return write_count == RSS_DDC_LG_ALT_INPUT_WRITE_COUNT ||
+        write_count == RSS_DDC_LG_ALT_INPUT_TEST_TWO_WRITE_COUNT;
 }
 
 RSSDDCError rss_ddc_validate_lg_alt_input_target(RSSDDCProvider provider, bool dp_safety_gate,

@@ -52,7 +52,7 @@ int main(void) {
     assert(rss_ddc_set_input(4, RSS_DDC_INPUT_SWITCH_LG_ALT, 0x100) == RSS_DDC_ERROR_ARGUMENT);
     assert(alternate_calls == 0); /* rejected values never enter the platform path */
     assert(rss_ddc_set_input(4, RSS_DDC_INPUT_SWITCH_LG_ALT, 0x90) == RSS_DDC_OK);
-    assert(alternate_calls == 1 && alternate_value == 0x90 && standard_calls == 1 && production_write_calls == 2);
+    assert(alternate_calls == 1 && alternate_value == 0x90 && standard_calls == 1 && production_write_calls == 1);
     puts("test_input_switch_api: passed");
     return 0;
 }

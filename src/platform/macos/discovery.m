@@ -700,26 +700,6 @@ RSSDDCError rss_macos_set_lg_alt_input_snapshot(uint32_t list_index, uint16_t va
     return error;
 }
 
-/** Test-only equivalent of the production snapshot helper; it does not expose this override publicly. */
-RSSDDCError rss_macos_test_lg_alt_input_snapshot(uint32_t list_index, uint16_t value,
-                                                 unsigned int write_count,
-                                                 const RSSDDCDiagnostics *diagnostics) {
-    if (!rss_ddc_lg_alt_input_write_count_is_supported(write_count)) return RSS_DDC_ERROR_ARGUMENT;
-    RSSMacOSBinding *binding = calloc(1, sizeof(*binding));
-    if (binding == NULL) return RSS_DDC_ERROR_SYSTEM;
-    RSSDDCError error = rss_macos_resolve_binding(list_index, binding);
-    if (error == RSS_DDC_OK) {
-        error = rss_macos_dp_test_lg_alt_input(binding, value, write_count, diagnostics);
-    } else {
-        rss_macos_diagnostic(diagnostics, rss_macos_correlation_failure_string(binding->correlation_failure));
-        const char *detail = rss_macos_correlation_detail_string(binding);
-        if (detail != NULL) rss_macos_diagnostic(diagnostics, detail);
-    }
-    rss_macos_release_binding(binding);
-    free(binding);
-    return error;
-}
-
 /** Balances service_for_display's retained proxy on every success and error path. */
 void rss_macos_release_binding(RSSMacOSBinding *binding) {
     if (binding != NULL && binding->service_proxy != MACH_PORT_NULL) IOObjectRelease(binding->service_proxy);

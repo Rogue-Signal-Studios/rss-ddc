@@ -67,10 +67,8 @@ static void lg_alt_release(void *opaque, void *opaque_service) {
  * It intentionally has no GET, verification, retry, restore, or conventional-Set fallback.
  */
 static RSSDDCError execute_lg_alt_input(RSSMacOSBinding *binding, uint16_t value,
-                                        unsigned int write_count, bool experimental,
                                         const RSSDDCDiagnostics *diagnostics) {
     if (binding == NULL) return RSS_DDC_ERROR_ARGUMENT;
-    if (!rss_ddc_lg_alt_input_write_count_is_supported(write_count)) return RSS_DDC_ERROR_ARGUMENT;
     RSSDDCError error = rss_ddc_validate_lg_alt_input_target(binding->display.provider, binding->dp_safety_gate,
                                                               binding->display.product_name,
                                                               binding->display.transport);
@@ -82,24 +80,18 @@ static RSSDDCError execute_lg_alt_input(RSSMacOSBinding *binding, uint16_t value
     error = rss_ddc_prepare_lg_alt_input(value, &plan);
     if (error != RSS_DDC_OK) return error;
     char message[224] = {};
-    snprintf(message, sizeof(message), "operation=%s method=LG_ALT target=LG-HDR-QHD/DCPDP13Service/DCPEXT0 value=0x%02x requested-write-count=%u experimental=%s no-get=yes no-verify=yes no-retry=yes no-restore=yes no-fallback=yes",
-             experimental ? "InputTest" : "SetInput", value, write_count, experimental ? "yes" : "no");
+    snprintf(message, sizeof(message), "operation=SetInput method=LG_ALT target=LG-HDR-QHD/DCPDP13Service/DCPEXT0 value=0x%02x write-count=%u no-get=yes no-verify=yes no-retry=yes no-restore=yes no-fallback=yes",
+             value, plan.write_count);
     rss_macos_diagnostic(diagnostics, message);
     diagnostic_bytes(diagnostics, plan.payload, plan.payload_length);
     RSSMacOSLGAltInputContext context = {.binding = binding, .diagnostics = diagnostics,
-                                         .requested_write_count = write_count};
+                                         .requested_write_count = plan.write_count};
     RSSDDCLGAltInputCallbacks callbacks = {.context = &context, .construct = lg_alt_construct,
         .prewrite_delay = lg_alt_delay, .write_i2c = lg_alt_write, .release = lg_alt_release};
-    return rss_ddc_run_lg_alt_input_with_write_count(binding->display.provider, value, write_count, &callbacks);
+    return rss_ddc_run_lg_alt_input(binding->display.provider, value, &callbacks);
 }
 
 RSSDDCError rss_macos_dp_set_lg_alt_input(RSSMacOSBinding *binding, uint16_t value,
                                           const RSSDDCDiagnostics *diagnostics) {
-    return execute_lg_alt_input(binding, value, RSS_DDC_LG_ALT_INPUT_WRITE_COUNT, false, diagnostics);
-}
-
-RSSDDCError rss_macos_dp_test_lg_alt_input(RSSMacOSBinding *binding, uint16_t value,
-                                           unsigned int write_count,
-                                           const RSSDDCDiagnostics *diagnostics) {
-    return execute_lg_alt_input(binding, value, write_count, true, diagnostics);
+    return execute_lg_alt_input(binding, value, diagnostics);
 }

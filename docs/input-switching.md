@@ -19,12 +19,21 @@ The historical investigation evolved as follows:
 - `bb254f5` mirrored the upstream m1ddc command: IOAV data `0x50`, control
   code `0xf4`, and a checksum that includes `0x50`.
 - `3539411` promoted only that final form after hardware validation. The
-  earlier conventional and inline experiments were not promoted.
+  earlier conventional and inline experiments were not promoted. It retained
+  two identical writes without evidence that both were necessary.
 
 The final packet is `84 03 f4 00 value checksum`, sent to chip `0x37`, IOAV
 data `0x50`. The checksum is the XOR convention `6e ^ 50 ^ 84 ^ 03 ^ f4 ^ 00
-^ value`. It sends two identical writes, each after a 10 ms delay, and has no
+^ value`. Production sends one write after a 10 ms pre-write delay, with no
 response, GET, verification, restore, retry, or fallback.
+
+The original two-write form worked, but repository history contained no
+one-write result or evidence that duplication was necessary. A controlled
+hardware A/B test then established one-write success for HDMI 1 → DP 1
+(`0xd0`), DP 1 → HDMI 1 (`0x90`), and a repeated one-write DP 1 transition;
+all writes returned `IOReturn=0x00000000`. The existing two-write control also
+succeeded, but provided no observed benefit, so production now sends one F4
+transaction.
 
 | Physical input | LG_ALT value | Complete payload |
 | --- | --- | --- |
@@ -36,7 +45,7 @@ The alternate path is available only after all of these checks succeed:
 `DCPDP13Service`, the ordinary DCPDP13 safety correlation, product name
 `LG HDR QHD`, and service role `DCPEXT0`. The historical discovery record
 has no manufacturer, retail model, serial, or EDID evidence, so this exact
-product-name/branch gate is intentionally narrow rather than a general LG
+product-name/service-role gate is intentionally narrow rather than a general LG
 profile system.
 
 ## API and CLI
@@ -57,11 +66,3 @@ The CLI equivalent is:
 `LG_ALT` rejects every other value before display resolution or IOAV service
 construction. The provider capability reports only that DCPDP13 can issue this
 transport; the exact target gate is required before the first write.
-
-## Temporary A/B diagnostic
-
-The public API always performs two writes. During the controlled duplicate-write
-investigation only, the CLI also exposes an explicitly verbose, non-public test
-path: `rss-ddc --verbose input-test <display> lg-alt <value> --writes <1|2>`.
-It accepts only one or two writes, retains the exact packet and 10 ms pre-write
-delay, and never adds GET, verification, retry, restore, or fallback behavior.

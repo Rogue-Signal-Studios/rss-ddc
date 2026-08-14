@@ -51,7 +51,7 @@ int main(void) {
     assert(!rss_ddc_lg_alt_input_value_is_supported(0x100));
     assert(rss_ddc_prepare_lg_alt_input(0x90, &plan) == RSS_DDC_OK);
     assert(plan.chip == 0x37 && plan.data == 0x50 && plan.payload_length == sizeof(hdmi_1));
-    assert(plan.write_count == 2 && plan.prewrite_delay_us == 10000);
+    assert(plan.write_count == 1 && plan.prewrite_delay_us == 10000);
     assert(memcmp(plan.payload, hdmi_1, sizeof(hdmi_1)) == 0);
     assert(rss_ddc_prepare_lg_alt_input(0x91, &plan) == RSS_DDC_OK &&
            memcmp(plan.payload, hdmi_2, sizeof(hdmi_2)) == 0);
@@ -66,20 +66,22 @@ int main(void) {
     assert(rss_ddc_validate_lg_alt_input_target(RSS_DDC_PROVIDER_DCPDP13, true, "LG HDR QHD", "DCPEXT1") == RSS_DDC_ERROR_UNSUPPORTED_CAPABILITY);
 
     reset();
-    /* Production runner remains fixed to two writes. */
+    /* Production runner uses the hardware-validated single F4 write. */
     assert(rss_ddc_run_lg_alt_input(RSS_DDC_PROVIDER_DCPDP13, 0x90, &callbacks) == RSS_DDC_OK);
-    assert(construct_calls == 1 && delay_calls == 2 && write_calls == 2 && release_calls == 1);
+    assert(construct_calls == 1 && delay_calls == 1 && write_calls == 1 && release_calls == 1);
     assert(observed_chip == 0x37 && observed_data == 0x50 && observed_length == sizeof(hdmi_1));
     assert(memcmp(observed_payload, hdmi_1, sizeof(hdmi_1)) == 0);
 
     uint8_t one_write_payload[sizeof(hdmi_1)] = {};
     reset();
-    assert(rss_ddc_run_lg_alt_input_with_write_count(RSS_DDC_PROVIDER_DCPDP13, 0x90, 1, &callbacks) == RSS_DDC_OK);
+    assert(rss_ddc_run_lg_alt_input_with_write_count(RSS_DDC_PROVIDER_DCPDP13, 0x90,
+                                                      RSS_DDC_LG_ALT_INPUT_WRITE_COUNT, &callbacks) == RSS_DDC_OK);
     assert(construct_calls == 1 && delay_calls == 1 && write_calls == 1 && release_calls == 1);
     assert(observed_chip == 0x37 && observed_data == 0x50 && observed_length == sizeof(hdmi_1));
     memcpy(one_write_payload, observed_payload, sizeof(one_write_payload));
     reset();
-    assert(rss_ddc_run_lg_alt_input_with_write_count(RSS_DDC_PROVIDER_DCPDP13, 0x90, 2, &callbacks) == RSS_DDC_OK);
+    assert(rss_ddc_run_lg_alt_input_with_write_count(RSS_DDC_PROVIDER_DCPDP13, 0x90,
+                                                      RSS_DDC_LG_ALT_INPUT_TEST_TWO_WRITE_COUNT, &callbacks) == RSS_DDC_OK);
     assert(construct_calls == 1 && delay_calls == 2 && write_calls == 2 && release_calls == 1);
     assert(memcmp(one_write_payload, observed_payload, sizeof(one_write_payload)) == 0);
     reset();

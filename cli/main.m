@@ -8,7 +8,6 @@
 #include <unistd.h>
 
 #include "rss_ddc.h"
-#include "macos_internal.h"
 
 static void usage(const char *program) {
     fprintf(stderr,
@@ -20,12 +19,11 @@ static void usage(const char *program) {
             "  %s [--verbose] probe-dpcd-path <display-index>\n"
             "  %s [--verbose] mccs <display-index>\n"
             "  %s [--verbose] input <display-index> <standard|lg-alt> <value>\n"
-            "  EXPERIMENTAL: %s --verbose input-test <display-index> lg-alt <value> --writes <1|2>\n"
             "  %s [--verbose] get <display-index> <vcp>\n"
             "  %s [--verbose] set <display-index> <vcp> <value>\n"
             "  %s [--verbose] set <display-index> <vcp> <value> --verify [--settle-ms <ms>] "
             "[--retries <count>] [--retry-delay-ms <ms>]\n",
-            program, program, program, program, program, program, program, program, program, program, program);
+            program, program, program, program, program, program, program, program, program, program);
 }
 
 static bool parse_unsigned(const char *text, unsigned long maximum, unsigned long *value) {
@@ -231,22 +229,6 @@ int main(int argc, char **argv) {
         RSSDDCDiagnostics diagnostics = {.callback = write_diagnostic, .context = NULL};
         RSSDDCError error = rss_ddc_set_input_with_diagnostics((uint32_t)display_index, method, (uint16_t)value,
                                                                 verbose ? &diagnostics : NULL);
-        if (error != RSS_DDC_OK) fprintf(stderr, "rss-ddc: %s\n", rss_ddc_error_string(error));
-        return error == RSS_DDC_OK ? EXIT_SUCCESS : EXIT_FAILURE;
-    }
-    if (strcmp(argv[argument], "input-test") == 0) {
-        if (!verbose || argc != argument + 6 || strcmp(argv[argument + 2], "lg-alt") != 0 ||
-            strcmp(argv[argument + 4], "--writes") != 0) { usage(argv[0]); return EXIT_FAILURE; }
-        unsigned long value = 0;
-        unsigned long write_count = 0;
-        if (!parse_unsigned(argv[argument + 3], UINT16_MAX, &value) ||
-            !parse_unsigned(argv[argument + 5], RSS_DDC_LG_ALT_INPUT_WRITE_COUNT, &write_count) ||
-            !rss_ddc_lg_alt_input_write_count_is_supported((unsigned int)write_count)) {
-            usage(argv[0]); return EXIT_FAILURE;
-        }
-        RSSDDCDiagnostics diagnostics = {.callback = write_diagnostic, .context = NULL};
-        RSSDDCError error = rss_macos_test_lg_alt_input_snapshot((uint32_t)display_index, (uint16_t)value,
-                                                                  (unsigned int)write_count, &diagnostics);
         if (error != RSS_DDC_OK) fprintf(stderr, "rss-ddc: %s\n", rss_ddc_error_string(error));
         return error == RSS_DDC_OK ? EXIT_SUCCESS : EXIT_FAILURE;
     }
