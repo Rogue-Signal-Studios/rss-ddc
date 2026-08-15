@@ -144,7 +144,7 @@ $(BUILD)/test_library_strings: tests/test_library_strings.c $(LIBRARY) | $(BUILD
 	$(CC) $(CFLAGS) tests/test_library_strings.c $(LIBRARY) -o $@ $(LDLIBS)
 
 check-library-sources: $(LIBRARY) $(TEST_SUPPORT_SOURCES)
-	@! $(AR) t $(LIBRARY) | grep -E '(get_validation|set_validation|(^|/)tests/|(^|/)cli/)'
+	@! $(AR) t $(LIBRARY) | grep -E '(get_validation|set_validation|(^|/)tests/|(^|/)cli/|(^|/)research/)'
 
 test: $(TESTS) check-library-sources
 	$(BUILD)/test_protocol
@@ -210,10 +210,9 @@ clean:
 
 # Isolated predecessor DDC labs. These are never part of `make`, `make test`,
 # `make consumer-test`, or librss-ddc.a.
-RESEARCH_CFLAGS = $(CFLAGS) -Iresearch/common
+RESEARCH_CFLAGS = $(CFLAGS) -Iresearch/common -Isrc/platform/macos/private
 RESEARCH_LDLIBS = -framework CoreDisplay -framework CoreGraphics -framework IOKit -framework Foundation
 RESEARCH_COMMON_PARSER = research/common/ddc_parser.c
-RESEARCH_COMMON_REQUEST = research/common/ddc_request.c
 RESEARCH_COMMON_SUPPORT = research/common/ioav_lab_support.c
 RESEARCH_BINS = \
 	$(BUILD)/research/ioav-ddc-lab \
@@ -225,23 +224,24 @@ $(BUILD)/research:
 	mkdir -p $@
 
 $(BUILD)/research/ioav-ddc-lab: research/ioav-ddc-lab/ioav-ddc-lab.m \
-	$(RESEARCH_COMMON_PARSER) $(RESEARCH_COMMON_REQUEST) $(RESEARCH_COMMON_SUPPORT) | $(BUILD)/research
+	$(RESEARCH_COMMON_PARSER) $(RESEARCH_COMMON_SUPPORT) $(LIBRARY) | $(BUILD)/research
 	$(CC) $(RESEARCH_CFLAGS) research/ioav-ddc-lab/ioav-ddc-lab.m \
-		$(RESEARCH_COMMON_PARSER) $(RESEARCH_COMMON_REQUEST) $(RESEARCH_COMMON_SUPPORT) \
+		$(RESEARCH_COMMON_PARSER) $(RESEARCH_COMMON_SUPPORT) $(LIBRARY) \
 		-o $@ $(RESEARCH_LDLIBS)
 
 $(BUILD)/research/ioav-device-lab: research/ioav-device-lab/ioav-device-lab.m \
-	$(RESEARCH_COMMON_PARSER) $(RESEARCH_COMMON_REQUEST) | $(BUILD)/research
+	$(RESEARCH_COMMON_PARSER) $(RESEARCH_COMMON_SUPPORT) $(LIBRARY) | $(BUILD)/research
 	$(CC) $(RESEARCH_CFLAGS) research/ioav-device-lab/ioav-device-lab.m \
-		$(RESEARCH_COMMON_PARSER) $(RESEARCH_COMMON_REQUEST) -o $@ $(RESEARCH_LDLIBS)
+		$(RESEARCH_COMMON_PARSER) $(RESEARCH_COMMON_SUPPORT) $(LIBRARY) \
+		-o $@ $(RESEARCH_LDLIBS)
 
-$(BUILD)/research/iodp-ddc-lab: research/iodp-ddc-lab/iodp-ddc-lab.m | $(BUILD)/research
-	$(CC) $(RESEARCH_CFLAGS) research/iodp-ddc-lab/iodp-ddc-lab.m -o $@ $(RESEARCH_LDLIBS)
+$(BUILD)/research/iodp-ddc-lab: research/iodp-ddc-lab/iodp-ddc-lab.m $(LIBRARY) | $(BUILD)/research
+	$(CC) $(RESEARCH_CFLAGS) research/iodp-ddc-lab/iodp-ddc-lab.m $(LIBRARY) -o $@ $(RESEARCH_LDLIBS)
 
 $(BUILD)/test_research_lab_support: research/tests/test_research_lab_support.c \
-	$(RESEARCH_COMMON_SUPPORT) $(RESEARCH_COMMON_PARSER) $(RESEARCH_COMMON_REQUEST) | $(BUILD)
+	$(RESEARCH_COMMON_SUPPORT) $(RESEARCH_COMMON_PARSER) src/ddc/protocol.c | $(BUILD)
 	$(CC) $(RESEARCH_CFLAGS) research/tests/test_research_lab_support.c \
-		$(RESEARCH_COMMON_SUPPORT) $(RESEARCH_COMMON_PARSER) $(RESEARCH_COMMON_REQUEST) -o $@
+		$(RESEARCH_COMMON_SUPPORT) $(RESEARCH_COMMON_PARSER) src/ddc/protocol.c -o $@
 
 research: $(RESEARCH_BINS)
 

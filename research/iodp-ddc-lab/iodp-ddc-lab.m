@@ -19,24 +19,19 @@
 #include <sys/mman.h>
 #include <unistd.h>
 
+#include "coredisplay_private.h"
+#include "iodp_private.h"
+#include "rss_ddc.h"
+
 /*
- * These private IOKit declarations were derived from the locally installed
- * Apple IOKit arm64e binary.  IODPDeviceReadDPCD consumes exactly x0..x3:
- * (device, uint32 address, destination, uint32 length) and returns IOReturn.
- * The constructors use Core Foundation ownership: Create returns +1; getters
- * return objects retained by their containing IODPService.
+ * IODPService construction remains research-private. Production iodp_private.h
+ * currently exposes only the validated IODPDevice Create/ReadDPCD surface.
  */
 typedef CFTypeRef IODPServiceRef;
-typedef CFTypeRef IODPDeviceRef;
-extern CFDictionaryRef CoreDisplay_DisplayCreateInfoDictionary(CGDirectDisplayID);
 extern IODPServiceRef IODPServiceCreateWithService(CFAllocatorRef allocator, io_service_t service);
 extern IODPDeviceRef IODPServiceGetDevice(IODPServiceRef service);
-extern IODPDeviceRef IODPDeviceCreateWithService(CFAllocatorRef allocator, io_service_t service);
 extern CFTypeRef IODPServiceGetAVService(IODPServiceRef service);
 extern CFTypeID IODPServiceGetTypeID(void);
-extern CFTypeID IODPDeviceGetTypeID(void);
-extern IOReturn IODPDeviceReadDPCD(IODPDeviceRef device, uint32_t address,
-                                   void *destination, uint32_t byteCount);
 
 typedef enum {
     LAB_MODE_TOPOLOGY,
@@ -112,12 +107,11 @@ static bool parseOptions(int argc, char **argv, LabOptions *options) {
     return true;
 }
 
-/** Maps a one-based online-display index to its CoreGraphics display identifier. */
+/** Maps a one-based online-display index through rss-ddc's canonical discovery. */
 static bool displayIDForIndex(unsigned int index, CGDirectDisplayID *displayID) {
-    CGDirectDisplayID displays[16] = {};
-    CGDisplayCount count = 0;
-    if (CGGetOnlineDisplayList(16, displays, &count) != kCGErrorSuccess || index == 0 || index > count) return false;
-    *displayID = displays[index - 1];
+    RSSDDCDisplay display = {};
+    if (rss_ddc_get_display(index, &display) != RSS_DDC_OK || !display.online) return false;
+    *displayID = display.cg_display_id;
     return true;
 }
 
@@ -676,6 +670,15 @@ static int runConstructionMatrix(const DisplayServices *services) {
 
 /** Classifies only from the live EPICProviderClass; it never infers connector type. */
 static void printTopology(unsigned int index, const DisplayServices *services) {
+    RSSDDCDisplay canonical = {};
+    if (rss_ddc_get_display(index, &canonical) == RSS_DDC_OK) {
+        printf("=== rss-ddc selected display ===\n");
+        printf("list_index: %u\n", canonical.list_index);
+        printf("product: %s\n", canonical.product_name);
+        printf("provider: %s\n", rss_ddc_provider_string(canonical.provider));
+        printf("branch: %s\n", canonical.branch_device_id[0] ? canonical.branch_device_id : "<unavailable>");
+        printf("transport: %s\n", canonical.transport[0] ? canonical.transport : "<unavailable>");
+    }
     char productName[128] = {};
     productNameForDisplay(services->displayID, productName);
     printf("=== Display ===\n");

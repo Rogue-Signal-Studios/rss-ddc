@@ -4,8 +4,8 @@
 #include <string.h>
 
 #include "ddc_parser.h"
-#include "ddc_request.h"
 #include "ioav_lab_support.h"
+#include "protocol.h"
 
 static void makeReply(uint8_t *reply, uint8_t vcpCode, uint8_t resultCode, uint8_t vcpType,
                       uint16_t maximumValue, uint16_t currentValue) {
@@ -23,47 +23,34 @@ static void makeReply(uint8_t *reply, uint8_t vcpCode, uint8_t resultCode, uint8
     reply[10] = ddcGetVCPReplyChecksum(reply, DDC_GET_VCP_REPLY_SIZE - 1);
 }
 
+/** Arbitrary-VCP coverage beyond the production 0x10/0x60 fixtures in test_protocol. */
 static void assertRawFramedRequest(uint8_t vcpCode, uint8_t expectedChecksum) {
-    uint8_t request[DDC_RAW_FRAMED_GET_VCP_REQUEST_SIZE] = {0xff, 0xff, 0xff, 0xff, 0xff};
-    buildRawFramedDDCGetVCPRequest(vcpCode, request);
+    uint8_t request[RSS_DDC_GET_VCP_REQUEST_SIZE] = {0xff, 0xff, 0xff, 0xff, 0xff};
+    rss_ddc_build_raw_get_vcp(vcpCode, request);
     assert(request[0] == 0x51);
     assert(request[1] == 0x82);
     assert(request[2] == 0x01);
     assert(request[3] == vcpCode);
     assert(request[4] == expectedChecksum);
-    assert(ddcRawFramedRequestChecksum(request, sizeof(request) - 1) == expectedChecksum);
+    assert(rss_ddc_request_checksum(request, sizeof(request) - 1) == expectedChecksum);
 }
 
 static void assertIndependentRequestBuilds(void) {
-    uint8_t first[DDC_RAW_FRAMED_GET_VCP_REQUEST_SIZE];
-    uint8_t second[DDC_RAW_FRAMED_GET_VCP_REQUEST_SIZE];
+    uint8_t first[RSS_DDC_GET_VCP_REQUEST_SIZE];
+    uint8_t second[RSS_DDC_GET_VCP_REQUEST_SIZE];
 
-    buildRawFramedDDCGetVCPRequest(0x10, first);
-    buildRawFramedDDCGetVCPRequest(0xe2, second);
+    rss_ddc_build_raw_get_vcp(0x10, first);
+    rss_ddc_build_raw_get_vcp(0xe2, second);
     assert(first[3] == 0x10 && first[4] == 0xac);
     assert(second[3] == 0xe2 && second[4] == 0x5e);
 
-    buildRawFramedDDCGetVCPRequest(0x60, first);
-    buildRawFramedDDCGetVCPRequest(0xfa, second);
+    rss_ddc_build_raw_get_vcp(0x60, first);
+    rss_ddc_build_raw_get_vcp(0xfa, second);
     assert(first[3] == 0x60 && first[4] == 0xdc);
     assert(second[3] == 0xfa && second[4] == 0x46);
 }
 
 int main(void) {
-    const uint8_t expectedRawLuminanceRequest[DDC_RAW_FRAMED_GET_VCP_REQUEST_SIZE] = {
-        0x51, 0x82, 0x01, 0x10, 0xac,
-    };
-    const uint8_t expectedRawInputRequest[DDC_RAW_FRAMED_GET_VCP_REQUEST_SIZE] = {
-        0x51, 0x82, 0x01, 0x60, 0xdc,
-    };
-    uint8_t rawRequest[DDC_RAW_FRAMED_GET_VCP_REQUEST_SIZE] = {0};
-    buildRawFramedDDCGetVCPRequest(0x10, rawRequest);
-    assert(memcmp(rawRequest, expectedRawLuminanceRequest, sizeof(rawRequest)) == 0);
-    buildRawFramedDDCGetVCPRequest(0x60, rawRequest);
-    assert(memcmp(rawRequest, expectedRawInputRequest, sizeof(rawRequest)) == 0);
-
-    assertRawFramedRequest(0x10, 0xac);
-    assertRawFramedRequest(0x60, 0xdc);
     assertRawFramedRequest(0x61, 0xdd);
     assertRawFramedRequest(0xe2, 0x5e);
     assertRawFramedRequest(0xee, 0x52);

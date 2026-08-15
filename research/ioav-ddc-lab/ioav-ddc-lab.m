@@ -16,18 +16,11 @@
 #include <unistd.h>
 
 #include "ddc_parser.h"
-#include "ddc_request.h"
 #include "ioav_lab_support.h"
-
-/* Private CoreDisplay/IOKit declarations required solely by this diagnostic. */
-typedef CFTypeRef IOAVServiceRef;
-extern CFDictionaryRef CoreDisplay_DisplayCreateInfoDictionary(CGDirectDisplayID);
-extern IOAVServiceRef IOAVServiceCreateWithService(CFAllocatorRef, io_service_t);
-extern CFTypeID IOAVServiceGetTypeID(void);
-extern IOReturn IOAVServiceReadI2C(IOAVServiceRef, uint32_t chipAddress,
-                                   uint32_t dataAddress, void *buffer, uint32_t length);
-extern IOReturn IOAVServiceWriteI2C(IOAVServiceRef, uint32_t chipAddress,
-                                    uint32_t dataAddress, void *buffer, uint32_t length);
+#include "ioav_private.h"
+#include "coredisplay_private.h"
+#include "protocol.h"
+#include "rss_ddc.h"
 
 #define DDC_CHIP_ADDRESS 0x37
 #define MCDP_DDC_CHIP_ADDRESS 0xb7
@@ -187,13 +180,30 @@ static bool parseOptions(int argc, char **argv, LabOptions *options) {
     return true;
 }
 
-/** Resolves an online display-list index to a CoreGraphics display identifier. */
+/** Loads the production selected-display snapshot for the lab's 1-based index. */
+static bool loadCanonicalDisplay(unsigned int displayIndex, RSSDDCDisplay *display) {
+    if (display == NULL) return false;
+    *display = (RSSDDCDisplay){};
+    return rss_ddc_get_display(displayIndex, display) == RSS_DDC_OK;
+}
+
+/** Prints the canonical snapshot the independent registry gate will start from. */
+static void printCanonicalDisplay(const RSSDDCDisplay *display) {
+    printf("=== rss-ddc selected display ===\n");
+    printf("list_index: %u\n", display->list_index);
+    printf("product: %s\n", display->product_name[0] ? display->product_name : "<unavailable>");
+    printf("provider: %s\n", rss_ddc_provider_string(display->provider));
+    printf("branch: %s\n", display->branch_device_id[0] ? display->branch_device_id : "<unavailable>");
+    printf("transport: %s\n", display->transport[0] ? display->transport : "<unavailable>");
+    printf("online: %s\n", display->online ? "true" : "false");
+    printf("external: %s\n", display->external ? "true" : "false");
+}
+
+/** Resolves an online display-list index through rss-ddc's canonical discovery. */
 static bool displayIDForIndex(unsigned int displayIndex, CGDirectDisplayID *displayID) {
-    CGDirectDisplayID displays[16] = {};
-    CGDisplayCount displayCount = 0;
-    if (CGGetOnlineDisplayList(16, displays, &displayCount) != kCGErrorSuccess ||
-        displayIndex == 0 || displayIndex > displayCount) return false;
-    *displayID = displays[displayIndex - 1];
+    RSSDDCDisplay display = {};
+    if (!loadCanonicalDisplay(displayIndex, &display) || !display.online) return false;
+    *displayID = display.cg_display_id;
     return true;
 }
 
@@ -648,12 +658,13 @@ static io_service_t resolveUniquePS190ServiceProxy(MCDPTopology *topology) {
 
 /** Resolves the selected display to its retained DCPAVServiceProxy registry entry. */
 static io_service_t resolveDisplayProxy(unsigned int displayIndex, MCDPTopology *topology) {
-    CGDirectDisplayID displayID = 0;
-    if (!displayIDForIndex(displayIndex, &displayID)) {
-        fprintf(stderr, "Display index %u is unavailable through CoreGraphics; using PS190 registry correlation fallback.\n",
+    RSSDDCDisplay selected = {};
+    if (!loadCanonicalDisplay(displayIndex, &selected) || !selected.online) {
+        fprintf(stderr, "Display index %u is unavailable through rss-ddc; using PS190 registry correlation fallback.\n",
                 displayIndex);
         return resolveUniquePS190ServiceProxy(topology);
     }
+    CGDirectDisplayID displayID = selected.cg_display_id;
 
     io_service_t adapter = adapterForDisplay(displayID);
     if (adapter == MACH_PORT_NULL) return MACH_PORT_NULL;
@@ -675,7 +686,7 @@ static io_service_t resolveDisplayProxy(unsigned int displayIndex, MCDPTopology 
     IOObjectRelease(root);
 
     char selectedProduct[128] = {};
-    productNameForDisplay(displayID, selectedProduct);
+    snprintf(selectedProduct, sizeof(selectedProduct), "%s", selected.product_name);
 
     bool matchingFramebufferSeen = false;
     unsigned int selectedProxyCount = 0;
@@ -916,33 +927,39 @@ static int runTopologyDetail(unsigned int displayIndex, io_service_t proxy) {
     return EXIT_SUCCESS;
 }
 
-/** Lists externally connected online displays and whether each resolves to an IOAV service. */
+/** Lists online displays using rss-ddc's canonical discovery, then reports IOAV resolve status. */
 static int listDisplays(void) {
-    CGDirectDisplayID displays[16] = {};
-    CGDisplayCount displayCount = 0;
-    if (CGGetOnlineDisplayList(16, displays, &displayCount) != kCGErrorSuccess) return EXIT_FAILURE;
-
-    bool foundExternalDisplay = false;
-    for (CGDisplayCount index = 0; index < displayCount; ++index) {
-        if (CGDisplayIsBuiltin(displays[index])) continue;
-        foundExternalDisplay = true;
-        char productName[128];
-        productNameForDisplay(displays[index], productName);
-        IOAVServiceRef service = resolveDisplayService((unsigned int)(index + 1), NULL);
-        printf("[%u] %s; CG display ID: %u; IOAV/DCP service: %s\n", (unsigned int)(index + 1),
-               productName, displays[index], service == NULL ? "not resolved" : "resolved");
+    size_t count = 0;
+    RSSDDCError error = rss_ddc_list_displays(NULL, 0, &count);
+    if (error != RSS_DDC_OK) {
+        fprintf(stderr, "rss-ddc list failed: %s\n", rss_ddc_error_string(error));
+        return EXIT_FAILURE;
+    }
+    if (count == 0) {
+        printf("No displays found.\n");
+        return EXIT_SUCCESS;
+    }
+    RSSDDCDisplay *displays = calloc(count, sizeof(*displays));
+    if (displays == NULL) return EXIT_FAILURE;
+    size_t observed = count;
+    error = rss_ddc_list_displays(displays, count, &observed);
+    if (error != RSS_DDC_OK) {
+        free(displays);
+        fprintf(stderr, "rss-ddc list failed: %s\n", rss_ddc_error_string(error));
+        return EXIT_FAILURE;
+    }
+    for (size_t index = 0; index < observed; ++index) {
+        IOAVServiceRef service = resolveDisplayService(displays[index].list_index, NULL);
+        printf("[%u] %s; CG display ID: %u; provider: %s; IOAV/DCP service: %s\n",
+               displays[index].list_index,
+               displays[index].product_name[0] ? displays[index].product_name : "<unavailable>",
+               displays[index].cg_display_id,
+               rss_ddc_provider_string(displays[index].provider),
+               service == NULL ? "not resolved" : "resolved");
         if (service != NULL) CFRelease(service);
     }
-    if (!foundExternalDisplay) printf("No external displays found.\n");
+    free(displays);
     return EXIT_SUCCESS;
-}
-
-/** Constructs the four-byte DDC/CI Get VCP packet without depending on external code. */
-static void buildGetVCPRequest(uint8_t vcpCode, uint8_t request[4]) {
-    request[0] = 0x82;
-    request[1] = 0x01;
-    request[2] = vcpCode;
-    request[3] = 0x6e ^ request[0] ^ request[1] ^ request[2];
 }
 
 /** Prints bytes exactly as supplied by the IOAV read/write call. */
@@ -978,8 +995,8 @@ static IOReturn performRead(IOAVServiceRef service, uint32_t chipAddress, uint32
 
 /** Performs one exactly-once Get VCP write and reports its full IOAV call inputs. */
 static IOReturn performWrite(IOAVServiceRef service, uint32_t chipAddress, uint32_t dataAddress, uint8_t vcpCode) {
-    uint8_t request[4];
-    buildGetVCPRequest(vcpCode, request);
+    uint8_t request[RSS_DDC_CONVENTIONAL_GET_VCP_REQUEST_SIZE];
+    rss_ddc_build_conventional_get_vcp(vcpCode, request);
     printf("write: chip=0x%02x data=0x%02x length=4\n", chipAddress, dataAddress);
     printBytes("request", request, sizeof(request));
     IOReturn result = IOAVServiceWriteI2C(service, chipAddress, dataAddress,
@@ -1065,11 +1082,11 @@ static int runSentinelVCPExperiment(IOAVServiceRef service, const LabOptions *op
         return EXIT_FAILURE;
     }
 
-    uint8_t request[DDC_GET_VCP_REQUEST_SIZE] = {};
-    buildDDCGetVCPRequest(vcpCode, request);
+    uint8_t request[RSS_DDC_CONVENTIONAL_GET_VCP_REQUEST_SIZE] = {};
+    rss_ddc_build_conventional_get_vcp(vcpCode, request);
     printf("=== Single PS190 Service-Path DDC/CI Get VCP ===\n");
     printf("write tuple: chip=0x%02x data=0x%02x length=%u\n", chipAddress, writeDataAddress,
-           DDC_GET_VCP_REQUEST_SIZE);
+           RSS_DDC_CONVENTIONAL_GET_VCP_REQUEST_SIZE);
     printBytes("request", request, sizeof(request));
     IOReturn writeResult = IOAVServiceWriteI2C(service, chipAddress, writeDataAddress, request, sizeof(request));
     printf("write IOReturn: 0x%08x (%s)\n", (unsigned int)writeResult, mach_error_string(writeResult));
@@ -1132,12 +1149,18 @@ static void printServiceSafetyPredicate(const char *name, const char *actual, co
            passed ? "PASS" : "FAIL");
 }
 
-/** Expands the complete service raw-read safety gate using CoreGraphics and registry state only. */
+/** Expands the complete service raw-read safety gate using rss-ddc identity plus live registry state. */
 static bool serviceRawSafetyGate(const LabOptions *options, const MCDPTopology *topology) {
-    CGDirectDisplayID displayID = 0;
+    RSSDDCDisplay selected = {};
+    bool haveCanonical = loadCanonicalDisplay(options->displayIndex, &selected);
+    CGDirectDisplayID displayID = haveCanonical ? selected.cg_display_id : 0;
+    bool displayOnline = haveCanonical && selected.online;
     char displayProduct[128] = "<unavailable>";
-    bool displayOnline = displayIDForIndex(options->displayIndex, &displayID);
-    if (displayOnline) productNameForDisplay(displayID, displayProduct);
+    if (haveCanonical && selected.product_name[0] != '\0') {
+        snprintf(displayProduct, sizeof(displayProduct), "%s", selected.product_name);
+    }
+    if (haveCanonical) printCanonicalDisplay(&selected);
+    else printf("=== rss-ddc selected display ===\nrss_ddc_get_display: failed; independent registry gate still applies\n");
 
     IOAVPS190SelectedDisplayIdentity identity = {
         .displayIndex = options->displayIndex,
@@ -1346,8 +1369,8 @@ static int runServiceRawFramedVCPExperiment(IOAVServiceRef service, const LabOpt
     printf("DDC destination checksum seed: 0x6e\n");
 
     for (unsigned int iteration = 1; iteration <= iterationCount; ++iteration) {
-        uint8_t requestBytes[DDC_RAW_FRAMED_GET_VCP_REQUEST_SIZE];
-        buildRawFramedDDCGetVCPRequest(vcpCode, requestBytes);
+        uint8_t requestBytes[RSS_DDC_GET_VCP_REQUEST_SIZE];
+        rss_ddc_build_raw_get_vcp(vcpCode, requestBytes);
         IOAVGuardedBuffer request = {};
         IOAVGuardedBuffer reply = {};
 
@@ -1444,8 +1467,8 @@ static int runServiceRawFramedInputExperiment(IOAVServiceRef service) {
     const uint32_t writeDataAddress = DDC_NO_OFFSET;
     const uint32_t readDataAddress = DDC_NO_OFFSET;
     const uint8_t vcpCode = 0x60;
-    uint8_t requestBytes[DDC_RAW_FRAMED_GET_VCP_REQUEST_SIZE];
-    buildRawFramedDDCGetVCPRequest(vcpCode, requestBytes);
+    uint8_t requestBytes[RSS_DDC_GET_VCP_REQUEST_SIZE];
+    rss_ddc_build_raw_get_vcp(vcpCode, requestBytes);
     IOAVGuardedBuffer request = {};
     IOAVGuardedBuffer reply = {};
 

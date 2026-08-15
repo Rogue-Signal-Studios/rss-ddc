@@ -162,7 +162,13 @@ make              # CLI plus build/librss-ddc.a
 make test
 make library
 make consumer-test  # compile/link an installed-prefix consumer; never runs it
+make research       # isolated predecessor IOAV/IODP labs; not part of librss-ddc
+make research-test
 ```
+
+Predecessor DDC labs live under `research/` and are documented in
+[Research DDC labs](docs/research-labs.md). They are opt-in and never part of
+the normal library or CLI build.
 
 ## Using rss-ddc as a library
 

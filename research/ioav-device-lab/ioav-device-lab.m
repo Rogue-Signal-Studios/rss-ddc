@@ -18,23 +18,19 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include <sys/mman.h>
 #include <unistd.h>
 
 #include "ddc_parser.h"
+#include "ioav_lab_support.h"
+#include "ioav_private.h"
+#include "coredisplay_private.h"
+#include "protocol.h"
+#include "rss_ddc.h"
 
 /*
- * These declarations are reconstructed from the local arm64e IOKit binary.
- * Create returns a retained Core Foundation object.  ReadI2C uses a fixed
- * uint32_t address/address/byte-count ABI and returns only IOReturn; it does
- * not expose an actual-byte-count result to its caller.
+ * Device-path WriteI2C is research-only; production ioav_private.h currently
+ * exposes IOAVDeviceReadI2C for the validated EDID path.
  */
-typedef CFTypeRef IOAVDeviceRef;
-extern CFDictionaryRef CoreDisplay_DisplayCreateInfoDictionary(CGDirectDisplayID);
-extern IOAVDeviceRef IOAVDeviceCreateWithService(CFAllocatorRef allocator, io_service_t service);
-extern CFTypeID IOAVDeviceGetTypeID(void);
-extern IOReturn IOAVDeviceReadI2C(IOAVDeviceRef device, uint32_t chipAddress,
-                                  uint32_t dataAddress, void *buffer, uint32_t byteCount);
 extern IOReturn IOAVDeviceWriteI2C(IOAVDeviceRef device, uint32_t chipAddress,
                                    uint32_t dataAddress, void *buffer, uint32_t byteCount);
 
@@ -80,13 +76,6 @@ typedef struct {
     io_service_t dcpavDeviceProxy;
     io_service_t dcpavServiceProxy;
 } SelectedDevices;
-
-typedef struct {
-    void *mapping;
-    size_t pageSize;
-    size_t byteCount;
-    uint8_t *buffer;
-} GuardedBuffer;
 
 /** Registry-only structural facts used to pair a DCPDP proxy with a DCPAV proxy. */
 typedef struct {
@@ -160,12 +149,11 @@ static bool parseOptions(int argc, char **argv, LabOptions *options) {
     return true;
 }
 
-/** Maps a one-based online display index to its CoreGraphics display ID. */
+/** Maps a one-based online display index through rss-ddc's canonical discovery. */
 static bool displayIDForIndex(unsigned int index, CGDirectDisplayID *displayID) {
-    CGDirectDisplayID displays[16] = {};
-    CGDisplayCount count = 0;
-    if (CGGetOnlineDisplayList(16, displays, &count) != kCGErrorSuccess || index == 0 || index > count) return false;
-    *displayID = displays[index - 1];
+    RSSDDCDisplay display = {};
+    if (rss_ddc_get_display(index, &display) != RSS_DDC_OK || !display.online) return false;
+    *displayID = display.cg_display_id;
     return true;
 }
 
@@ -904,6 +892,15 @@ static bool runOpenDiagnostic(io_service_t service) {
 
 /** Reports enough correlation evidence to make device selection auditable. */
 static void printSelectedDevices(const LabOptions *options, const SelectedDevices *selected) {
+    RSSDDCDisplay canonical = {};
+    if (rss_ddc_get_display(options->displayIndex, &canonical) == RSS_DDC_OK) {
+        printf("=== rss-ddc selected display ===\n");
+        printf("list_index: %u\n", canonical.list_index);
+        printf("product: %s\n", canonical.product_name);
+        printf("provider: %s\n", rss_ddc_provider_string(canonical.provider));
+        printf("branch: %s\n", canonical.branch_device_id[0] ? canonical.branch_device_id : "<unavailable>");
+        printf("transport: %s\n", canonical.transport[0] ? canonical.transport : "<unavailable>");
+    }
     printf("=== Selected Display ===\n");
     printf("index: %u\n", options->displayIndex);
     printf("CG display ID: %u\n", selected->displayID);
@@ -1078,47 +1075,6 @@ static bool runSafetyDiagnostic(const LabOptions *options) {
     return passed;
 }
 
-/** Allocates an exact-size buffer bounded by writable canaries and inaccessible guard pages. */
-static bool createGuardedBuffer(GuardedBuffer *guarded, size_t byteCount) {
-    *guarded = (GuardedBuffer){};
-    long systemPageSize = sysconf(_SC_PAGESIZE);
-    if (systemPageSize <= 0) return false;
-    guarded->pageSize = (size_t)systemPageSize;
-    if (byteCount == 0 || byteCount + 64 > guarded->pageSize) return false;
-    guarded->mapping = mmap(NULL, guarded->pageSize * 3, PROT_NONE, MAP_ANON | MAP_PRIVATE, -1, 0);
-    if (guarded->mapping == MAP_FAILED) {
-        guarded->mapping = NULL;
-        return false;
-    }
-    uint8_t *middle = (uint8_t *)guarded->mapping + guarded->pageSize;
-    if (mprotect(middle, guarded->pageSize, PROT_READ | PROT_WRITE) != 0) {
-        munmap(guarded->mapping, guarded->pageSize * 3);
-        *guarded = (GuardedBuffer){};
-        return false;
-    }
-    guarded->byteCount = byteCount;
-    guarded->buffer = middle + guarded->pageSize - 32 - guarded->byteCount;
-    memset(guarded->buffer - 32, 0xa5, 32);
-    memset(guarded->buffer, 0xcc, guarded->byteCount);
-    memset(guarded->buffer + guarded->byteCount, 0x5a, 32);
-    return true;
-}
-
-/** Checks the local canaries surrounding a returned guarded buffer. */
-static bool guardedBufferIntact(const GuardedBuffer *guarded) {
-    for (size_t index = 0; index < 32; ++index) {
-        if (guarded->buffer[-32 + (ptrdiff_t)index] != 0xa5 ||
-            guarded->buffer[guarded->byteCount + index] != 0x5a) return false;
-    }
-    return true;
-}
-
-/** Releases the mapping created for the single guarded control read. */
-static void destroyGuardedBuffer(GuardedBuffer *guarded) {
-    if (guarded->mapping != NULL) munmap(guarded->mapping, guarded->pageSize * 3);
-    *guarded = (GuardedBuffer){};
-}
-
 /** Prints a bounded byte range as lowercase-independent hex. */
 static void printHex(const char *label, const uint8_t *bytes, size_t count) {
     printf("%s", label);
@@ -1128,8 +1084,8 @@ static void printHex(const char *label, const uint8_t *bytes, size_t count) {
 
 /** Runs the one explicitly guarded EDID control read; this function never accesses DDC address 0x37. */
 static bool runEDIDControl(IOAVDeviceRef device) {
-    GuardedBuffer guarded = {};
-    if (!createGuardedBuffer(&guarded, 128)) {
+    IOAVGuardedBuffer guarded = {};
+    if (!ioavGuardedBufferCreate(&guarded, 128)) {
         fprintf(stderr, "Could not allocate guarded EDID buffer.\n");
         return false;
     }
@@ -1140,14 +1096,14 @@ static bool runEDIDControl(IOAVDeviceRef device) {
     IOReturn result = IOAVDeviceReadI2C(device, 0x50, 0x00, guarded.buffer, 128);
     printf("IOReturn: 0x%08x (%s)\n", result, mach_error_string(result));
     printHex("first 32 bytes: ", guarded.buffer, 32);
-    bool canariesIntact = guardedBufferIntact(&guarded);
+    bool canariesIntact = ioavGuardedBufferCanariesIntact(&guarded);
     printf("canaries: %s\n", canariesIntact ? "intact" : "CHANGED");
     bool header = memcmp(guarded.buffer, (const uint8_t[]){0x00, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0x00}, 8) == 0;
     unsigned int sum = 0;
     for (size_t index = 0; index < 128; ++index) sum += guarded.buffer[index];
     printf("EDID header: %s\n", header ? "valid" : "invalid");
     printf("EDID checksum: %s\n", (sum & 0xffu) == 0 ? "valid" : "invalid");
-    destroyGuardedBuffer(&guarded);
+    ioavGuardedBufferDestroy(&guarded);
     return result == kIOReturnSuccess && canariesIntact && header && (sum & 0xffu) == 0;
 }
 
@@ -1172,15 +1128,16 @@ static ExperimentResult runOneRawDDCGetVCP(IOAVDeviceRef device) {
     const uint32_t writeDataAddress = 0x51;
     const uint32_t readDataAddress = UINT32_MAX;
     const uint8_t vcpCode = 0x10;
-    uint8_t request[4] = {0x82, 0x01, 0x10, 0xfd};
+    uint8_t request[RSS_DDC_CONVENTIONAL_GET_VCP_REQUEST_SIZE];
+    rss_ddc_build_conventional_get_vcp(vcpCode, request);
 
-    GuardedBuffer guarded = {};
-    if (!createGuardedBuffer(&guarded, DDC_GET_VCP_REPLY_SIZE)) {
+    IOAVGuardedBuffer guarded = {};
+    if (!ioavGuardedBufferCreate(&guarded, DDC_GET_VCP_REPLY_SIZE)) {
         printf("guarded response allocation: failed\n");
         printf("final classification: %s\n", experimentResultString(EXPERIMENT_MEMORY_ANOMALY));
         return EXPERIMENT_MEMORY_ANOMALY;
     }
-    bool canariesBeforeRead = guardedBufferIntact(&guarded);
+    bool canariesBeforeRead = ioavGuardedBufferCanariesIntact(&guarded);
 
     printf("=== One Device-Level DDC/CI Get VCP ===\n");
     printf("write tuple: chip=0x%02x data=0x%02x length=%u\n", chipAddress, writeDataAddress,
@@ -1191,14 +1148,14 @@ static ExperimentResult runOneRawDDCGetVCP(IOAVDeviceRef device) {
     printHex("buffer before read: ", guarded.buffer, guarded.byteCount);
     printf("canaries before read: %s\n", canariesBeforeRead ? "intact" : "CHANGED");
     if (!canariesBeforeRead) {
-        destroyGuardedBuffer(&guarded);
+        ioavGuardedBufferDestroy(&guarded);
         printf("final classification: %s\n", experimentResultString(EXPERIMENT_MEMORY_ANOMALY));
         return EXPERIMENT_MEMORY_ANOMALY;
     }
     IOReturn writeResult = IOAVDeviceWriteI2C(device, chipAddress, writeDataAddress, request, sizeof(request));
     printf("write IOReturn: 0x%08x (%s)\n", writeResult, mach_error_string(writeResult));
     if (writeResult != kIOReturnSuccess) {
-        destroyGuardedBuffer(&guarded);
+        ioavGuardedBufferDestroy(&guarded);
         printf("final classification: %s\n", experimentResultString(EXPERIMENT_IO_ERROR));
         return EXPERIMENT_IO_ERROR;
     }
@@ -1210,10 +1167,10 @@ static ExperimentResult runOneRawDDCGetVCP(IOAVDeviceRef device) {
                                              guarded.buffer, guarded.byteCount);
     printf("read IOReturn: 0x%08x (%s)\n", readResult, mach_error_string(readResult));
     printHex("reply: ", guarded.buffer, guarded.byteCount);
-    bool canariesAfterRead = guardedBufferIntact(&guarded);
+    bool canariesAfterRead = ioavGuardedBufferCanariesIntact(&guarded);
     printf("canaries after read: %s\n", canariesAfterRead ? "intact" : "CHANGED");
     if (!canariesAfterRead) {
-        destroyGuardedBuffer(&guarded);
+        ioavGuardedBufferDestroy(&guarded);
         printf("final classification: %s\n", experimentResultString(EXPERIMENT_MEMORY_ANOMALY));
         return EXPERIMENT_MEMORY_ANOMALY;
     }
@@ -1236,7 +1193,7 @@ static ExperimentResult runOneRawDDCGetVCP(IOAVDeviceRef device) {
     } else {
         result = EXPERIMENT_INVALID_DDC_REPLY;
     }
-    destroyGuardedBuffer(&guarded);
+    ioavGuardedBufferDestroy(&guarded);
     printf("final classification: %s\n", experimentResultString(result));
     return result;
 }
