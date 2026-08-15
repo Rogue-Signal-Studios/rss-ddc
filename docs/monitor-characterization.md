@@ -58,7 +58,7 @@ native C representation  ↔  deterministic monitor-knowledge/v0.1 JSON
 
 | Layer | What it is | Status on this branch |
 | --- | --- | --- |
-| Characterization | Process / orchestrator (historical Alien Probe Quick+Extended subset) | Design only |
+| Characterization | Process / orchestrator (historical Alien Probe Quick+Extended subset) | Slice 1 orchestration core implemented internally; pipeline stages deferred |
 | `monitor-knowledge/v0.1` | Canonical durable document: identity, capabilities, methods, values, input routes, relationships, evidence | Implemented historically (`38cf0b1`); **not present** on current main; serializer deferred |
 | Current `RSSDDCMonitorKnowledge` | Reconstructed subset: copied `RSSDDCKnowledgeRoute` facts, max 128 | Implemented (`src/core/monitor_knowledge.c`) |
 | `RSSDDCDisplay` / `RSSDDCEDIDInfo` / `RSSDDCProfileIdentity` | Identity and connection evidence (historically also inside the v0.1 document) | Implemented beside knowledge |
@@ -994,7 +994,7 @@ not used.
 
 ### Slice 1 — Orchestration types + pure merge tests (no hardware)
 
-- **Files:** internal header / `src/core/characterize.c` (pipeline state),
+- **Files:** `src/core/characterize.h`, `src/core/characterize.c`,
   `tests/test_characterize.c`
 - **New:** runtime state; merge fixture PROFILE+DECLARED+OBSERVED facts;
   **do not** restore `resolve_value` here
@@ -1004,6 +1004,61 @@ not used.
 - **Accept:** method resolution vs current-value are tested as two questions
   (G3); write_authorized remains false on OBSERVED/DECLARED fixtures;
   semantic IDs in fixtures use canonical dotted names / `inputs.switching`
+
+#### Slice 1 implementation (this branch)
+
+Internal only. There is no public `rss_ddc_characterize_display`. Identity,
+profile, transport, MCCS, and probe stages are not wired.
+
+**Orchestration state.** `RSSDDCCharacterization` owns one accumulated
+`RSSDDCMonitorKnowledge`. No display snapshot, EDID, mode, JSON, or
+relationship fields are stored; those remain later-slice concerns.
+
+**Semantic ID normalization.**
+`rss_ddc_characterization_normalize_semantic_id` is exact and case-sensitive.
+Known aliases found in current profile packs or documented schema prose:
+
+| Input | Canonical |
+| --- | --- |
+| `brightness` | `display.brightness` |
+| `contrast` | `display.contrast` |
+| `color-preset` | `display.color_preset` |
+| `picture-mode`, `picture_mode` | `display.picture_mode` |
+| `input`, `input.current`, `inputs.current` | `inputs.switching` |
+
+Canonical IDs, including `inputs.switching` and `vendor.unknown.vcp.XX`, are
+copied unchanged. Unknown IDs are copied unchanged. Empty/NULL is
+`RSS_DDC_ERROR_ARGUMENT`. Normalization runs before merge and before
+method/current-value lookup so `brightness` and `display.brightness` compose
+as one semantic.
+
+**Lossless composition.** `rss_ddc_characterization_add_knowledge` copies
+incoming routes, normalizes their semantic IDs, then calls existing
+`rss_ddc_monitor_knowledge_merge`. Competing routes and provenance are
+retained. Capacity remains 128 routes. Overflow returns
+`RSS_DDC_ERROR_PROFILE_CONFLICT` and leaves the accumulated object unchanged.
+Facts are not dropped silently.
+
+**Method vs current value.** `rss_ddc_characterization_resolve` is the
+existing method-authority resolver after normalization. Independently,
+`rss_ddc_characterization_current_value` is a bounded v1 runtime rule, not
+restored `resolve_value`:
+
+- only `FACT_OBSERVED` routes with UNSIGNED or STRING values compete
+- UNKNOWN never outranks a known observation
+- PROFILE values are not treated as live current state
+- disagreeing observed values yield `CONFLICT` and no selected route
+- agreeing observations keep the lexicographically lowest `source_id`
+- the selected route retains its provenance/evidence
+
+Example: a hardware-validated PROFILE brightness method with UNKNOWN value
+can win `preferred_read`, while a live OBSERVED value `42` is the current
+value.
+
+**Known limitations.** No timestamps; freshness is evidence-class only.
+DECLARED facts are retained by merge but do not supply current value in v1.
+No pipeline stages, no v0.1 JSON, no provenance/risk enum changes, no
+hardware.
 
 ### Slice 2 — Identity + profile match + transport assembly (no new probing)
 

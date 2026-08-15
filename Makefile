@@ -23,7 +23,7 @@ CLI_CFLAGS = $(CFLAGS) -Icli/presentation
 LDLIBS = -framework CoreDisplay
 
 PORTABLE_CORE_SOURCES = \
-	src/core/correlation.c src/core/enumeration.c src/core/input_switch.c src/core/mccs_capabilities.c src/core/mccs_retrieval.c src/core/monitor_knowledge.c src/core/picture_mode.c src/core/probe.c src/core/profile_store.c src/core/provider.c src/core/rss_ddc.c src/core/verify.c \
+	src/core/characterize.c src/core/correlation.c src/core/enumeration.c src/core/input_switch.c src/core/mccs_capabilities.c src/core/mccs_retrieval.c src/core/monitor_knowledge.c src/core/picture_mode.c src/core/probe.c src/core/profile_store.c src/core/provider.c src/core/rss_ddc.c src/core/verify.c \
 	src/ddc/input_switch.c src/ddc/protocol.c src/ddc/edid.c src/dpcd/dpcd.c src/dpcd/reader.c \
 	src/platform/macos/providers/dispatch.c src/platform/macos/providers/mcdp/get_vcp.c
 MACOS_BACKEND_SOURCES = \
@@ -42,7 +42,7 @@ TESTS = \
 	$(BUILD)/test_dcpdpservice $(BUILD)/test_dcpdpservice_get $(BUILD)/test_dcpdpservice_set \
 	$(BUILD)/test_display_resolution $(BUILD)/test_mccs_capabilities $(BUILD)/test_mccs_retrieval \
 	$(BUILD)/test_input_switch $(BUILD)/test_input_switch_api $(BUILD)/test_picture_mode $(BUILD)/test_profile_store \
-	$(BUILD)/test_monitor_knowledge $(BUILD)/test_probe $(BUILD)/test_probe_extended $(BUILD)/test_cli_presentation \
+	$(BUILD)/test_monitor_knowledge $(BUILD)/test_characterize $(BUILD)/test_probe $(BUILD)/test_probe_extended $(BUILD)/test_cli_presentation \
 	$(BUILD)/test_library_strings
 
 .DEFAULT_GOAL := all
@@ -131,6 +131,9 @@ $(BUILD)/test_profile_store: tests/test_profile_store.c src/core/profile_store.c
 $(BUILD)/test_monitor_knowledge: tests/test_monitor_knowledge.c src/core/monitor_knowledge.c src/core/profile_store.c src/core/provider.c | $(BUILD)
 	$(CC) $(CFLAGS) -pthread $^ -o $@
 
+$(BUILD)/test_characterize: tests/test_characterize.c src/core/characterize.c src/core/monitor_knowledge.c src/core/profile_store.c src/core/provider.c | $(BUILD)
+	$(CC) $(CFLAGS) -pthread $^ -o $@
+
 $(BUILD)/test_probe: tests/test_probe.c src/core/probe.c src/core/monitor_knowledge.c src/core/profile_store.c src/core/provider.c src/core/mccs_capabilities.c | $(BUILD)
 	$(CC) $(CFLAGS) -DRSS_DDC_TESTING -pthread $^ -o $@
 
@@ -166,6 +169,7 @@ test: $(TESTS) check-library-sources
 	$(BUILD)/test_picture_mode
 	$(BUILD)/test_profile_store
 	$(BUILD)/test_monitor_knowledge
+	$(BUILD)/test_characterize
 	$(BUILD)/test_probe
 	$(BUILD)/test_probe_extended
 	$(BUILD)/test_cli_presentation
