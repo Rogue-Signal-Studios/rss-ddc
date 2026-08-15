@@ -208,5 +208,45 @@ consumer-test: $(LIBRARY) examples/consumer.c examples/consumer.cpp | $(BUILD)
 clean:
 	rm -rf $(BUILD) $(NAME)
 
+# Isolated predecessor DDC labs. These are never part of `make`, `make test`,
+# `make consumer-test`, or librss-ddc.a.
+RESEARCH_CFLAGS = $(CFLAGS) -Iresearch/common
+RESEARCH_LDLIBS = -framework CoreDisplay -framework CoreGraphics -framework IOKit -framework Foundation
+RESEARCH_COMMON_PARSER = research/common/ddc_parser.c
+RESEARCH_COMMON_REQUEST = research/common/ddc_request.c
+RESEARCH_COMMON_SUPPORT = research/common/ioav_lab_support.c
+RESEARCH_BINS = \
+	$(BUILD)/research/ioav-ddc-lab \
+	$(BUILD)/research/ioav-device-lab \
+	$(BUILD)/research/iodp-ddc-lab
+RESEARCH_TESTS = $(BUILD)/test_research_lab_support
+
+$(BUILD)/research:
+	mkdir -p $@
+
+$(BUILD)/research/ioav-ddc-lab: research/ioav-ddc-lab/ioav-ddc-lab.m \
+	$(RESEARCH_COMMON_PARSER) $(RESEARCH_COMMON_REQUEST) $(RESEARCH_COMMON_SUPPORT) | $(BUILD)/research
+	$(CC) $(RESEARCH_CFLAGS) research/ioav-ddc-lab/ioav-ddc-lab.m \
+		$(RESEARCH_COMMON_PARSER) $(RESEARCH_COMMON_REQUEST) $(RESEARCH_COMMON_SUPPORT) \
+		-o $@ $(RESEARCH_LDLIBS)
+
+$(BUILD)/research/ioav-device-lab: research/ioav-device-lab/ioav-device-lab.m \
+	$(RESEARCH_COMMON_PARSER) $(RESEARCH_COMMON_REQUEST) | $(BUILD)/research
+	$(CC) $(RESEARCH_CFLAGS) research/ioav-device-lab/ioav-device-lab.m \
+		$(RESEARCH_COMMON_PARSER) $(RESEARCH_COMMON_REQUEST) -o $@ $(RESEARCH_LDLIBS)
+
+$(BUILD)/research/iodp-ddc-lab: research/iodp-ddc-lab/iodp-ddc-lab.m | $(BUILD)/research
+	$(CC) $(RESEARCH_CFLAGS) research/iodp-ddc-lab/iodp-ddc-lab.m -o $@ $(RESEARCH_LDLIBS)
+
+$(BUILD)/test_research_lab_support: research/tests/test_research_lab_support.c \
+	$(RESEARCH_COMMON_SUPPORT) $(RESEARCH_COMMON_PARSER) $(RESEARCH_COMMON_REQUEST) | $(BUILD)
+	$(CC) $(RESEARCH_CFLAGS) research/tests/test_research_lab_support.c \
+		$(RESEARCH_COMMON_SUPPORT) $(RESEARCH_COMMON_PARSER) $(RESEARCH_COMMON_REQUEST) -o $@
+
+research: $(RESEARCH_BINS)
+
+research-test: $(RESEARCH_TESTS) research
+	$(BUILD)/test_research_lab_support
+
 .PHONY: all library check-library-sources test install-library install-cli install \
-	uninstall-library uninstall-cli uninstall consumer-test clean
+	uninstall-library uninstall-cli uninstall consumer-test clean research research-test
