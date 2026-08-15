@@ -5,12 +5,22 @@ enriches the existing monitor-knowledge model, merges competing facts, and
 resolves effective read/write methods. It does not introduce a second knowledge
 schema and does not implement the engine.
 
-Git/source on `feature/monitor-characterization` is authoritative. The JSON
-illustration `schemaVersion: monitor-knowledge/v0.1` exists only as an
-architecture proposal on `docs/canonical-rogue-display-architecture`
-(`docs/monitor-knowledge-schema.md`). That proposal is conceptual vocabulary.
-The **canonical runtime result** is the existing C model in `include/rss_ddc.h`:
-`RSSDDCMonitorKnowledge` plus the existing identity/transport snapshots.
+Git/source on `feature/monitor-characterization` is authoritative for *what
+is implemented now*. Historical branches remain authoritative for *what was
+designed and previously implemented*. See
+[monitor knowledge architecture reconciliation](monitor-knowledge-architecture-reconciliation.md).
+
+**Canonical durable contract:** `monitor-knowledge/v0.1` (implemented on
+`feature/monitor-knowledge-core` as a C document with JSON parse/serialize;
+`#define RSS_DDC_MONITOR_KNOWLEDGE_SCHEMA "monitor-knowledge/v0.1"`).
+
+**Current native subset:** reconstructed `RSSDDCMonitorKnowledge` route facts
+in `include/rss_ddc.h`, plus `RSSDDCDisplay` / optional EDID snapshots. This
+is a recovery-scope subset (`3f922f9`), not a competing schema and not a
+repeal of v0.1.
+
+Characterization populates the current C subset now. A future serializer, if
+restored, must emit v0.1, not a new `CharacterizationResult` type.
 
 ## 1. Purpose
 
@@ -38,19 +48,25 @@ monitor-capability discovery.
 
 ## 2. Relationship to monitor-knowledge/v0.1
 
+Determination **B** (see reconciliation doc): v0.1 is the durable contract;
+current `RSSDDCMonitorKnowledge` is the bounded native implementation of a
+subset.
+
+```text
+native C representation  ↔  deterministic monitor-knowledge/v0.1 JSON
+```
+
 | Layer | What it is | Status on this branch |
 | --- | --- | --- |
-| Characterization | Process / orchestrator | Design only (this document) |
-| `RSSDDCMonitorKnowledge` | Canonical runtime result: bounded copied `RSSDDCKnowledgeRoute` facts | Implemented (`src/core/monitor_knowledge.c`) |
-| `RSSDDCDisplay` / `RSSDDCEDIDInfo` / `RSSDDCProfileIdentity` | Identity and connection evidence | Implemented |
-| `monitor-knowledge/v0.1` JSON document | Conceptual maximal schema (identity, capabilities, methods, values, relationships, evidence) | Proposal only; no parser, storage, or public API |
+| Characterization | Process / orchestrator (historical Alien Probe Quick+Extended subset) | Design only |
+| `monitor-knowledge/v0.1` | Canonical durable document: identity, capabilities, methods, values, input routes, relationships, evidence | Implemented historically (`38cf0b1`); **not present** on current main; serializer deferred |
+| Current `RSSDDCMonitorKnowledge` | Reconstructed subset: copied `RSSDDCKnowledgeRoute` facts, max 128 | Implemented (`src/core/monitor_knowledge.c`) |
+| `RSSDDCDisplay` / `RSSDDCEDIDInfo` / `RSSDDCProfileIdentity` | Identity and connection evidence (historically also inside the v0.1 document) | Implemented beside knowledge |
+| Profile packs `schemaVersion` 1 | Narrower persistable mappings; evidence source / gated update target | Implemented; distinct from v0.1 |
 
-Characterization **populates, merges, and resolves** the existing C knowledge
-model. It does not serialize a parallel `CharacterizationResult` document.
-
-A future JSON export, if added, must be a projection of the same C facts into
-the v0.1 vocabulary. That is a serializer, not a competing model, and is a
-non-goal of this design.
+Characterization **populates, merges, and resolves** the current C subset.
+It does not invent a parallel result schema. Restoring v0.1 JSON is an
+explicit later knowledge-model task, not a characterization Slice 1 task.
 
 ## 3. Terminology
 
@@ -209,7 +225,10 @@ from one error.
 | Competing methods | `candidate_at`; `CONFLICT` clears preferred routes |
 
 Canonical semantic IDs for characterization orchestration (caller-supplied
-strings to `add_profile_control` / `resolve`; existing APIs unchanged):
+strings to `add_profile_control` / `resolve`; existing APIs unchanged).
+Authority is the historical semantic registry and resolution tests
+(`38cf0b1:src/core/monitor_knowledge.c`,
+`feature/monitor-knowledge-core:docs/semantic-controls.md`):
 
 | Profile control id | Canonical semantic ID | Typical method |
 | --- | --- | --- |
@@ -221,9 +240,10 @@ strings to `add_profile_control` / `resolve`; existing APIs unchanged):
 | `gamma` / `sharpness` / others | `display.<profile-name>` | profile address |
 | unknown Extended VCP | `vendor.unknown.vcp.XX` | observed only |
 
-The v0.1 name `input.current` is treated as the same concept as
-`inputs.switching`. Characterization uses `inputs.switching` because that is
-the string already used by `tests/test_monitor_knowledge.c`.
+Schema prose also uses `input.current` / `inputs.current` for the same input
+capability. Characterization uses the **implemented** ID `inputs.switching`.
+Do not bulk-rename existing tests or profile pack JSON in characterization
+slices; map at the orchestration boundary.
 
 ### EVIDENCE / PROVENANCE
 
@@ -235,9 +255,9 @@ the string already used by `tests/test_monitor_knowledge.c`.
 | Identity / connection | `RSSDDCDisplay` (not a knowledge provenance record) |
 | EDID | `RSSDDCEDIDInfo` beside knowledge |
 | Provider / transport | display snapshot + capability bits |
-| MCCS advertisement | `DECLARED` + `source_id=mccs-capabilities` (probe currently tags `source=RESEARCH`) |
+| MCCS advertisement | `DECLARED` + `source_id=mccs-capabilities` (probe currently tags `source=RESEARCH`; historically evidence type `mccs_advertised`) |
 | Known profile | `PROFILE` + profile source class |
-| Quick / Extended Probe | `OBSERVED` + `source_id=alien-probe-live-read` (also tagged `RESEARCH` today) |
+| Quick / Extended Probe | `OBSERVED` + `source_id=alien-probe-live-read` (probe currently tags `source=RESEARCH`; historically `stable_get` / `extended_discovery`, confidence `observed`, validation `read_validated`) |
 | Hardware-validated known behavior | profile `HARDWARE_VALIDATED` and/or hardcoded production gates |
 | Local/manual profile | `RSS_DDC_PROFILE_SOURCE_LOCAL` |
 
@@ -264,9 +284,16 @@ Profile load already rejects writable controls unless
 
 ## 6. Schema gaps
 
-No `schemaVersion` bump. The C knowledge object has no schema version field.
-The v0.1 JSON document is unimplemented; characterizing into it would be a new
-serializer, which this design refuses.
+No profile-pack `schemaVersion` bump. Current C knowledge has no schema
+version field because reconstruction omitted the v0.1 document. Restoring
+`RSS_DDC_MONITOR_KNOWLEDGE_SCHEMA "monitor-knowledge/v0.1"` is deferred
+knowledge-model work, not a characterization convenience extension.
+
+Fields the current C subset cannot represent (historically present at
+`38cf0b1`): identity-in-document, capability availability/conditions, method
+risk, per-value validation, advertised/observed/validated ranges, input
+routes, relationships, typed raw aliases, timestamped evidence records. Do
+not reintroduce them in Slice 1.
 
 ### G1. Display manufacturer/serial are usually empty
 
@@ -290,66 +317,75 @@ It does not invent a fingerprint (architecture.md rejected SHA-256 for now).
 
 ### G3. Resolution selects methods, not current values
 
-A hardware-validated **profile** route can outrank a live OBSERVED GET for
-`preferred_read` even when the profile value is `UNKNOWN`. Characterization
-must publish:
+This is a **reconstruction gap**, not missing historical policy.
+`feature/monitor-knowledge-core:docs/monitor-knowledge-resolution.md` already
+separated retained knowledge, effective **method** selection, and independent
+value / range / input-route resolvers (`rss_ddc_monitor_knowledge_resolve_value`,
+`_resolve_range`). Historical Quick Probe stored current as value id
+`observed` with `validation: read_validated`, separate from methods
+(`feature/alien-probe-extended:src/core/probe.c`).
 
-1. effective read **method** from resolution
-2. current **value** from the highest-quality OBSERVED fact for that semantic ID
-   (else UNKNOWN)
+Until that resolver is restored, a hardware-validated PROFILE route can
+outrank a live OBSERVED GET for `preferred_read` even when the profile value
+is `UNKNOWN`. Characterization must still publish:
 
-Do not change the resolver in early slices. Orchestration interprets the two
-questions separately. If a later slice changes the resolver, that is an
-explicit monitor-knowledge change with tests, not a silent schema bump.
+1. effective read **method** from the current route resolver
+2. current **value** from the highest-quality OBSERVED fact (else UNKNOWN)
+
+Do not restore `resolve_value` in Slice 1. Orchestration answers the two
+questions separately.
 
 ### G4. Knowledge bound vs Extended Probe cardinality
 
 `RSSDDCMonitorKnowledge` retains at most **128** facts.
 Extended Probe can theoretically emit up to 256 OBSERVED + 256 DECLARED facts.
 
-**Smallest fix:** do not dump the full 0x00–0xFF scan into knowledge.
-Promote into knowledge only:
+**Historical intent (`32bfd82` alien-probe.md):** protocol-valid Extended
+addresses belong **in** canonical knowledge as `vendor.unknown.vcp.xx` with
+`read_extended` and `writable:false`, plus a separate diagnostic inventory.
 
-- MCCS-advertised VCPs (declared)
-- Quick Probe observations
-- profile-known addresses
-- product-relevant semantics
-- Extended observations that are protocol-valid **and** (advertised or
-  profile-known or product-relevant)
-
-The full scan remains in `RSSDDCProbeExtendedDiagnostics` (transient).
+**Reconstruction accommodation:** keep the full 256-address log in
+`RSSDDCProbeExtendedDiagnostics`. Promote into current knowledge with
+priority: known semantics, advertised, profile-known, then remaining
+protocol-valid unknowns until the 128 bound. Unpromoted valids stay
+diagnostic. Restoring full historical promotion requires v0.1 document
+capacity (deferred).
 
 ### G5. Relationships / structured input routes / availability conditions
 
-v0.1 proposes `relationships`, connector/port-structured input values, and
-conditional availability (HDR disables a preset, etc.). The C model has none
-of these. They are **not** required to ship characterization of brightness,
-contrast, input, and picture mode.
+These were **implemented** in historical v0.1 C (`38cf0b1`), not merely
+proposed. Condition groups were stored but not evaluated. They are **not**
+required to ship characterization of brightness, contrast, input, and picture
+mode on the reconstructed subset.
 
-**Do not extend the C model for convenience.** Revisit only when a product
-consumer cannot represent a required control with routes + enums + provenance.
+**Do not reintroduce them in characterization slices.** They remain deferred
+knowledge-model restoration, not a new invention.
 
 ### G6. Semantic ID drift
 
-Documented in §4. Characterization's mapping table is the fix. No schema bump.
+Documented in §5. Historical registry + `inputs.switching` are authoritative.
+Map profile pack short names at the orchestration boundary. No bulk rename.
+No schema bump.
 
 ### G7. Probe tags live reads as `RESEARCH`
 
-`src/core/probe.c` `add_knowledge_fact` sets `provenance.source = RESEARCH`
-and `confidence = OBSERVED`. That makes live reads lose method resolution to
-any hardware-validated profile route, which is correct for **write** authority
-and acceptable for **method** selection. It is wrong if interpreted as “live
-data is low quality.” Orchestration must not let that tagging authorize writes
-and must still prefer OBSERVED facts for current value (G3).
+Reconstruction artifact. Historical probe JSON used evidence types
+`stable_get` / `extended_discovery` / `mccs_advertised`, not research source
+(`feature/alien-probe-extended:src/core/probe.c`). “Observed through a probe”
+must not be conflated with “research-only evidence.”
 
-Changing probe provenance is **B extend**, later, with tests. Not required to
-start orchestration.
+Until probe enums are corrected (later knowledge/probe slice, not
+characterization Slice 1), orchestration treats those RESEARCH-tagged OBSERVED
+facts as production observations: they never authorize writes, and they remain
+the source of current value (G3).
 
 ### Gaps that are not schema gaps
 
 - MCCS ranges: parser is evidence-only by design.
 - `reported_maximum` is not a write range: already documented.
-- No knowledge JSON serialization: intentional in Slice 6.
+- No knowledge JSON serialization on this branch: reconstruction Slice 6
+  (`docs/monitor-knowledge.md`) deferred it; restoring v0.1 JSON remains
+  deferred.
 
 ## 7. Locked pipeline
 
@@ -477,7 +513,7 @@ to label `profile_known`. Quick Probe must not require Extended Probe.
 | H1. Quick/Extended Probe each call `load_mccs` | Duplicate MCCS I/O if characterization already retrieved MCCS | Early slices accept duplicate I/O. Later: inject already-parsed MCCS or skip `load_mccs` when present. |
 | H2. Probe convenience APIs ignore profiles | `rss_ddc_probe_quick_for_display` does not load a store or set `profile_knowledge` | Orchestrator uses `rss_ddc_probe_create` with borrowed profile knowledge. |
 | H3. Probe knowledge overwrites, does not merge | `rss_ddc_probe_quick` destroys prior probe knowledge and builds observation-only facts | Orchestrator merges probe knowledge with profile knowledge via `rss_ddc_monitor_knowledge_merge`. |
-| H4. 128-fact overflow on Extended | `add_route` returns `PROFILE_CONFLICT` at 128 | G4 promotion policy. |
+| H4. 128-fact overflow on Extended | `add_route` returns `PROFILE_CONFLICT` at 128 | G4: diagnostics keep all 256; promote with priority until bound |
 | H5. Semantic ID mismatch | profile `brightness` vs probe `display.brightness` | Canonical mapping table at add/resolve time. |
 | H6. Manufacturer/serial empty | profile optional predicates never match live snapshots | G1; do not block characterization. |
 | H7. Hidden EDID prerequisite | identity “completeness” must not require EDID (unsupported on DCPDP13) | EDID is optional enrichment. |
@@ -852,7 +888,9 @@ RGB gains are Quick Probe evidence, not Stream Deck-required controls.
 **Cancel / progress:** not in the v1 synchronous API. Deep scans can take on
 the order of tens of seconds (`25 ms` inter-address + `25 ms` repeat × 256).
 Product UIs that need progress should call Extended separately later, not
-force an async characterization core now.
+force an async characterization core now. Historical Extended had a progress
+callback and `--json` MonitorKnowledge on stdout; restoring that UI is a CLI
+slice, not Slice 1.
 
 ## 16. Proposed API
 
@@ -889,9 +927,10 @@ Additional accessors (still not a competing schema): EDID info if present,
 MCCS model if present, Quick/Extended diagnostics if that stage ran, stage
 error/warning bits, sufficiency flag.
 
-`RSSDDCCharacterization` is **runtime pipeline state**. The canonical result
-downstream products should persist or reason about is
-`rss_ddc_characterization_knowledge()` plus the display snapshot.
+`RSSDDCCharacterization` is **runtime pipeline state**. Downstream products
+consume `rss_ddc_characterization_knowledge()` plus the display snapshot
+(current C subset). That return shape must stay compatible with a future
+v0.1 serializer of the same facts. Do not add a second public result schema.
 
 Do not implement this header in the design commit.
 
@@ -955,93 +994,105 @@ not used.
 
 ### Slice 1 — Orchestration types + pure merge tests (no hardware)
 
-- **Files:** `include/rss_ddc.h` (opaque + options later, or internal header
-  first), `src/core/characterize.c` (empty pipeline state),
+- **Files:** internal header / `src/core/characterize.c` (pipeline state),
   `tests/test_characterize.c`
-- **New:** runtime state object; helpers that merge fixture knowledge and
-  resolve product-relevant IDs
-- **Reuse:** `rss_ddc_monitor_knowledge_*`
+- **New:** runtime state; merge fixture PROFILE+DECLARED+OBSERVED facts;
+  **do not** restore `resolve_value` here
+- **Reuse:** current `rss_ddc_monitor_knowledge_*`
 - **Hardware:** no
-- **schemaVersion:** no change
-- **Accept:** tests cover merge of PROFILE+DECLARED+OBSERVED without I/O;
-  write_authorized remains false on OBSERVED/DECLARED fixtures
+- **schemaVersion:** no change; v0.1 serializer remains deferred
+- **Accept:** method resolution vs current-value are tested as two questions
+  (G3); write_authorized remains false on OBSERVED/DECLARED fixtures;
+  semantic IDs in fixtures use canonical dotted names / `inputs.switching`
 
 ### Slice 2 — Identity + profile match + transport assembly (no new probing)
 
 - **Files:** `characterize.c`, tests with synthetic `RSSDDCDisplay` + pack data
 - **Reuse:** `rss_ddc_profile_identity_from_display`, `profile_store_resolve`,
   `add_profile_control`, `rss_ddc_provider_capabilities`
-- **Hardware:** none in tests; live `rss_ddc_get_display` only if a later
-  optional CLI hook is added (not required here)
-- **Accept:** canonical semantic ID mapping applied; `NOT_FOUND` is non-fatal;
-  capability bits interpreted; no probe
+- **Change from prior plan:** normalize profile pack short names to canonical
+  semantic IDs at this boundary before any later evidence is merged
+- **Hardware:** none in tests
+- **Accept:** mapping table applied; `NOT_FOUND` is non-fatal; no probe
 
 ### Slice 3 — Passive MCCS → DECLARED facts
 
-- **Files:** `characterize.c`, tests with fixture MCCS strings
-  (`rss_ddc_parse_mccs_capabilities`)
-- **Reuse:** MCCS parser; add DECLARED routes
-- **Hardware:** not for tests; live `rss_ddc_get_mccs_capabilities` behind the
-  orchestrator for real runs
-- **Accept:** advertisement never sets `write_authorized`; unknown advertised
-  VCPs use `vendor.unknown.vcp.XX` within G4
+Unchanged except DECLARED facts must not be treated as research-only.
 
 ### Slice 4 — Quick Probe → merge/resolution
 
-- **Files:** `characterize.c`, wrap `rss_ddc_probe_create`/`_quick`
-- **Reuse:** probe + merge + resolve
-- **Hardware:** tests stay injected-transport (existing `test_probe.c` pattern)
-- **Accept:** profile facts survive; OBSERVED current value distinct from
-  preferred profile method (G3); no SET callbacks
+- **Change:** interpret RESEARCH-tagged probe facts as production `stable_get`
+  observations (G7) without changing probe enums yet
+- **Accept:** profile facts survive; current value from OBSERVED, not from
+  preferred PROFILE method (G3); no SET callbacks
 
 ### Slice 5 — Sufficiency decision
 
-- **Files:** policy function + tests
-- **Hardware:** no
-- **Accept:** documented SHOULD / SHOULD NOT cases as unit tests
+Unchanged.
 
 ### Slice 6 — Optional Extended Probe
 
-- **Files:** wrap `rss_ddc_probe_extended`; G4 promotion
-- **Hardware:** injected transport tests; live only via existing
-  `probe-extended` CLI until characterization CLI exists
-- **Accept:** 128-bound never overflowed in tests with dense advertisements;
-  abort path retained
+- **Change:** keep `RSSDDCProbeExtendedDiagnostics` as the full diagnostic
+  container. Promote into knowledge per G4 (historical A + reconstruction
+  bound). Unknown protocol-valid VCPs may enter knowledge as
+  `vendor.unknown.vcp.XX` until the 128 bound; they never authorize writes.
+- **Accept:** 128-bound never overflowed; abort path retained; diagnostics
+  still contain unpromoted addresses
 
 ### Slice 7 — Public/internal characterization API
 
-- **Files:** `include/rss_ddc.h` accessors listed in §16
-- **Hardware:** no new hardware; `rss_ddc_characterize_display` may call live
-  GET when used
-- **Accept:** consumer-test still excludes research; library archive still
-  excludes research objects; no schema bump
+- **Change:** API returns current C runtime knowledge + snapshot, preserving
+  compatibility with future v0.1 serialization. No second result type.
+- **Accept:** consumer-test still excludes research objects; no schema bump
 
 ### Slice 8 — CLI characterization view
 
-- **Files:** `cli/main.m`, `cli/presentation/*`
-- **Reuse:** existing table/plain render patterns
-- **Hardware:** operator-run only; not part of `make test`
+Unchanged.
 
 ### Slice 9 — Optional profile update policy
 
-- **Files:** profile store save path; default off
-- **Hardware:** no
-- **Accept:** advertised/unknown/variable facts cannot be saved as validated
-  enums
+Unchanged: gated; never automatic from advertisement or stable GET.
 
 ## 20. Non-goals
 
 - No competing characterization schema and no `CharacterizationResult` JSON
   type
+- No restoring v0.1 JSON parse/serialize in characterization slices
+  (deferred knowledge-model work)
 - No automatic unsafe writes; characterization is read-only toward the monitor
 - No mandatory Extended Probe
+- No Guided Discovery or Experimental Validation in production characterization
 - No research-lab behavior in production characterization
 - No consumer-specific capability interpretation
 - No automatic promotion of arbitrary observations into validated profiles
 - No stable public display UUID / EDID fingerprint in this design
 - No async/progress API in v1
-- No relationships graph, HDR availability conditions, or structured
-  connector/port input objects until a proven C-model gap appears
-- No `schemaVersion` change for monitor knowledge
+- No reintroduction of relationships / condition evaluation / structured
+  input-route objects in these slices
+- No profile-pack `schemaVersion` change
 - No modification of research labs
 - No hardware experiments as part of implementing this document
+
+## 21. Historical architecture reconciliation
+
+Index and decision record:
+[monitor knowledge architecture reconciliation](monitor-knowledge-architecture-reconciliation.md).
+
+Summary of corrections to the first characterization pass:
+
+- **v0.1 is not unused vocabulary.** It was implemented (`c7f6834`–`38cf0b1`)
+  and consumed by historical Quick/Extended Probe. Current C is a reconstructed
+  subset (`3f922f9`).
+- **Semantic IDs:** use historical dotted registry IDs and implemented
+  `inputs.switching`; map profile pack short names at orchestration time.
+- **Evidence:** production probe observations are `stable_get` /
+  `extended_discovery`, not research-only. Current RESEARCH tagging is a
+  reconstruction artifact (G7).
+- **Method vs current value:** historically separate resolvers. Preserve that
+  split in orchestration (G3); do not restore `resolve_value` in Slice 1.
+- **Extended Probe:** historically promoted protocol-valid unknowns into
+  knowledge as `vendor.unknown.vcp.xx` (`writable:false`). Diagnostics remain
+  the full scan. The 128-fact bound forces priority promotion until v0.1
+  capacity is restored (G4).
+- **Profiles:** remain a narrower validated store. Observation/MCCS/stable GET
+  never auto-promote into validated profile mappings.
