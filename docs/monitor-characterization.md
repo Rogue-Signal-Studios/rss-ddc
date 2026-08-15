@@ -58,7 +58,7 @@ native C representation  ↔  deterministic monitor-knowledge/v0.1 JSON
 
 | Layer | What it is | Status on this branch |
 | --- | --- | --- |
-| Characterization | Process / orchestrator (historical Alien Probe Quick+Extended subset) | Slice 1 orchestration core implemented internally; pipeline stages deferred |
+| Characterization | Process / orchestrator (historical Alien Probe Quick+Extended subset) | Slice 2 identity/profile/transport assembly implemented internally; MCCS and probe stages deferred |
 | `monitor-knowledge/v0.1` | Canonical durable document: identity, capabilities, methods, values, input routes, relationships, evidence | Implemented historically (`38cf0b1`); **not present** on current main; serializer deferred |
 | Current `RSSDDCMonitorKnowledge` | Reconstructed subset: copied `RSSDDCKnowledgeRoute` facts, max 128 | Implemented (`src/core/monitor_knowledge.c`) |
 | `RSSDDCDisplay` / `RSSDDCEDIDInfo` / `RSSDDCProfileIdentity` | Identity and connection evidence (historically also inside the v0.1 document) | Implemented beside knowledge |
@@ -1069,6 +1069,59 @@ hardware.
   semantic IDs at this boundary before any later evidence is merged
 - **Hardware:** none in tests
 - **Accept:** mapping table applied; `NOT_FOUND` is non-fatal; no probe
+
+#### Slice 2 implementation (this branch)
+
+Internal only. There is still no public `rss_ddc_characterize_display`.
+
+**Identity source.** Tests and later pipeline stages that already have a
+snapshot call `rss_ddc_characterization_assemble`. The platform wrapper
+`rss_ddc_characterization_prepare` resolves `list_index` with existing
+`rss_ddc_get_display` and then assembles. Display resolution failure is fatal
+and leaves characterization unchanged. Manufacturer/serial on
+`RSSDDCDisplay` remain whatever discovery populated; this slice does not copy
+EDID identity fields into the display snapshot (reconstruction gap, deferred).
+
+**EDID optionality.** Assemble copies a caller-supplied `RSSDDCEDIDInfo` when
+present. Prepare attaches EDID only when `rss_ddc_read_edid` plus
+`rss_ddc_parse_edid` both succeed. Missing/failed EDID is non-fatal; identity
+still succeeds with the display snapshot.
+
+**Profile match inputs.** Match uses `rss_ddc_profile_identity_from_display`
+plus `rss_ddc_profile_store_resolve`. No MCCS or probe evidence is consulted.
+A NULL or empty store, or `NOT_FOUND`, is non-fatal and adds no PROFILE facts.
+Equal-authority profile ambiguity returns `RSS_DDC_ERROR_PROFILE_CONFLICT` and
+sets profile status CONFLICT without merging either side. Write authorization
+remains the existing resolver/loader policy.
+
+**Profile semantic normalization boundary.** Profile pack IDs are not renamed
+in storage. At assemble time, `rss_ddc_profile_control_name` is normalized
+before `rss_ddc_monitor_knowledge_add_profile_control`, then merged through
+Slice 1 `add_knowledge`. Authoritative aliases remain those from Slice 1 plus
+historical registry IDs. Remaining pack IDs (`gamma`, `sharpness`,
+`response-time`, `adaptive-sync`, `energy-saving`, `black-stabilizer`,
+`audio-mute`) are left unchanged: taxonomy examples exist
+(`gaming.response_time`, `display.sharpness`, …) but they are not registry
+entries and conflict with the `display.<profile-name>` heuristic.
+
+**Provider capability storage.** Assemble stores
+`rss_ddc_provider_capabilities(display.provider)` separately from the copied
+`RSSDDCDisplay`. `RSS_DDC_CAP_PICTURE_MODE` is a profile exact-gate, not a
+provider transport bit, and is not OR'd into this field.
+
+**Transport vs monitor capability.** Provider bits answer whether this path
+can attempt GET/SET/MCCS/DPCD/EDID/alternate-input. They do not create
+DECLARED monitor-knowledge routes. Slice 3 is the first stage that may add
+DECLARED facts from MCCS retrieval.
+
+**Degraded behavior.** No profile → success, empty PROFILE set. No useful
+provider bits (`UNKNOWN` / `MCDP29XX`) → success; later stages may be
+unavailable. Knowledge overflow while merging PROFILE facts →
+`RSS_DDC_ERROR_PROFILE_CONFLICT`, accumulated knowledge unchanged, profile
+status remains NONE.
+
+**Slice 3 boundary.** Stop before `rss_ddc_get_mccs_capabilities`. Do not
+emit DECLARED facts from transport bits.
 
 ### Slice 3 — Passive MCCS → DECLARED facts
 

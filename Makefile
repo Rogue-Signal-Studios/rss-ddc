@@ -23,7 +23,7 @@ CLI_CFLAGS = $(CFLAGS) -Icli/presentation
 LDLIBS = -framework CoreDisplay
 
 PORTABLE_CORE_SOURCES = \
-	src/core/characterize.c src/core/correlation.c src/core/enumeration.c src/core/input_switch.c src/core/mccs_capabilities.c src/core/mccs_retrieval.c src/core/monitor_knowledge.c src/core/picture_mode.c src/core/probe.c src/core/profile_store.c src/core/provider.c src/core/rss_ddc.c src/core/verify.c \
+	src/core/characterize.c src/core/characterize_prepare.c src/core/correlation.c src/core/enumeration.c src/core/input_switch.c src/core/mccs_capabilities.c src/core/mccs_retrieval.c src/core/monitor_knowledge.c src/core/picture_mode.c src/core/probe.c src/core/profile_store.c src/core/provider.c src/core/rss_ddc.c src/core/verify.c \
 	src/ddc/input_switch.c src/ddc/protocol.c src/ddc/edid.c src/dpcd/dpcd.c src/dpcd/reader.c \
 	src/platform/macos/providers/dispatch.c src/platform/macos/providers/mcdp/get_vcp.c
 MACOS_BACKEND_SOURCES = \
