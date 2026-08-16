@@ -15,6 +15,9 @@ struct RSSDDCCharacterization {
     RSSDDCCharacterizationProfileStatus profile_status;
     RSSDDCEffectiveProfile effective_profile;
     uint32_t provider_capabilities;
+    bool mccs_attempted;
+    RSSDDCError mccs_status;
+    RSSDDCMCCSCapabilities *mccs;
 };
 
 typedef struct {
@@ -52,6 +55,7 @@ RSSDDCCharacterization *rss_ddc_characterization_create(void) {
         free(characterization);
         return NULL;
     }
+    characterization->mccs_status = RSS_DDC_OK;
     return characterization;
 }
 
@@ -60,6 +64,7 @@ void rss_ddc_characterization_destroy(RSSDDCCharacterization *characterization) 
         return;
     }
     rss_ddc_monitor_knowledge_destroy(characterization->knowledge);
+    free(characterization->mccs);
     free(characterization);
 }
 
@@ -334,4 +339,155 @@ const RSSDDCEffectiveProfile *rss_ddc_characterization_effective_profile(
                    characterization->profile_status == RSS_DDC_CHARACTERIZATION_PROFILE_MATCHED
                ? &characterization->effective_profile
                : NULL;
+}
+
+static bool mccs_retrieval_supported(const RSSDDCCharacterization *characterization) {
+    return characterization != NULL &&
+           (characterization->provider_capabilities & RSS_DDC_CAP_MCCS_CAPABILITIES) != 0;
+}
+
+static const char *declared_semantic_id(uint8_t vcp, char *unknown, size_t unknown_capacity) {
+    static const struct {
+        uint8_t vcp;
+        const char *semantic_id;
+    } known[] = {
+        {0x10, "display.brightness"},     {0x12, "display.contrast"},
+        {0x14, "display.color_preset"},   {0x15, "display.picture_mode"},
+        {0x16, "display.rgb.red_gain"},   {0x18, "display.rgb.green_gain"},
+        {0x1a, "display.rgb.blue_gain"},  {0x60, "inputs.switching"},
+    };
+    for (size_t index = 0; index < sizeof(known) / sizeof(known[0]); ++index) {
+        if (known[index].vcp == vcp) {
+            return known[index].semantic_id;
+        }
+    }
+    (void)snprintf(unknown, unknown_capacity, "vendor.unknown.vcp.%02x", vcp);
+    return unknown;
+}
+
+RSSDDCError rss_ddc_characterization_collect_passive_mccs_failed(
+    RSSDDCCharacterization *characterization, RSSDDCError status) {
+    if (characterization == NULL) {
+        return RSS_DDC_ERROR_ARGUMENT;
+    }
+    if (!mccs_retrieval_supported(characterization)) {
+        characterization->mccs_attempted = false;
+        characterization->mccs_status = RSS_DDC_ERROR_UNSUPPORTED_CAPABILITY;
+        return RSS_DDC_OK;
+    }
+    characterization->mccs_attempted = true;
+    characterization->mccs_status = status == RSS_DDC_OK ? RSS_DDC_ERROR_READ : status;
+    return RSS_DDC_OK;
+}
+
+static RSSDDCError add_declared_mccs_route(RSSDDCMonitorKnowledge *knowledge,
+                                           const RSSDDCMCCSVcpCapability *feature) {
+    RSSDDCKnowledgeRoute route = {0};
+    char unknown[RSS_DDC_TEXT_MAX] = {};
+    const char *semantic_id = declared_semantic_id(feature->vcp_code, unknown, sizeof(unknown));
+    RSSDDCError error =
+        rss_ddc_characterization_normalize_semantic_id(semantic_id, route.semantic_id,
+                                                       sizeof(route.semantic_id));
+    if (error != RSS_DDC_OK) {
+        return error;
+    }
+    (void)snprintf(route.route_id, sizeof(route.route_id), "mccs-vcp-%02x", feature->vcp_code);
+    (void)snprintf(route.transport_family, sizeof(route.transport_family), "%s", "mccs-vcp");
+    (void)snprintf(route.command_semantics, sizeof(route.command_semantics), "%s",
+                   "monitor-declared-mccs");
+    (void)snprintf(route.provenance.source_id, sizeof(route.provenance.source_id), "%s",
+                   "mccs-capabilities");
+    (void)snprintf(route.provenance.evidence_id, sizeof(route.provenance.evidence_id), "%s",
+                   "mccs-advertised");
+    route.kind = RSS_DDC_KNOWLEDGE_ROUTE_STANDARD_VCP;
+    route.address = feature->vcp_code;
+    route.readable = false;
+    route.writable = false;
+    route.write_authorized = false;
+    route.value.state = RSS_DDC_KNOWLEDGE_VALUE_UNKNOWN;
+    route.provenance.source = RSS_DDC_PROFILE_SOURCE_RESEARCH;
+    route.provenance.confidence = RSS_DDC_PROFILE_CONFIDENCE_OBSERVED;
+    route.provenance.fact_kind = RSS_DDC_KNOWLEDGE_FACT_DECLARED;
+    return rss_ddc_monitor_knowledge_add_route(knowledge, &route);
+}
+
+RSSDDCError rss_ddc_characterization_collect_passive_mccs(
+    RSSDDCCharacterization *characterization, const RSSDDCMCCSCapabilities *capabilities) {
+    if (characterization == NULL || characterization->knowledge == NULL) {
+        return RSS_DDC_ERROR_ARGUMENT;
+    }
+    if (!mccs_retrieval_supported(characterization)) {
+        return rss_ddc_characterization_collect_passive_mccs_failed(
+            characterization, RSS_DDC_ERROR_UNSUPPORTED_CAPABILITY);
+    }
+    if (capabilities == NULL) {
+        return RSS_DDC_ERROR_ARGUMENT;
+    }
+
+    RSSDDCMonitorKnowledge *declared = rss_ddc_monitor_knowledge_create();
+    RSSDDCMCCSCapabilities *copy = NULL;
+    if (declared == NULL) {
+        return RSS_DDC_ERROR_SYSTEM;
+    }
+    for (size_t index = 0; index < capabilities->feature_count; ++index) {
+        RSSDDCError error = add_declared_mccs_route(declared, &capabilities->features[index]);
+        if (error != RSS_DDC_OK) {
+            rss_ddc_monitor_knowledge_destroy(declared);
+            characterization->mccs_attempted = true;
+            characterization->mccs_status = error;
+            return error;
+        }
+    }
+    RSSDDCError error = rss_ddc_characterization_add_knowledge(characterization, declared);
+    rss_ddc_monitor_knowledge_destroy(declared);
+    if (error != RSS_DDC_OK) {
+        characterization->mccs_attempted = true;
+        characterization->mccs_status = error;
+        return error;
+    }
+
+    copy = malloc(sizeof(*copy));
+    if (copy == NULL) {
+        return RSS_DDC_ERROR_SYSTEM;
+    }
+    *copy = *capabilities;
+    free(characterization->mccs);
+    characterization->mccs = copy;
+    characterization->mccs_attempted = true;
+    characterization->mccs_status = RSS_DDC_OK;
+    return RSS_DDC_OK;
+}
+
+RSSDDCError rss_ddc_characterization_collect_passive_mccs_raw(
+    RSSDDCCharacterization *characterization, const char *raw, size_t raw_length) {
+    if (characterization == NULL) {
+        return RSS_DDC_ERROR_ARGUMENT;
+    }
+    if (!mccs_retrieval_supported(characterization)) {
+        return rss_ddc_characterization_collect_passive_mccs_failed(
+            characterization, RSS_DDC_ERROR_UNSUPPORTED_CAPABILITY);
+    }
+    RSSDDCMCCSCapabilities parsed = {0};
+    RSSDDCError error = rss_ddc_parse_mccs_capabilities(raw, raw_length, &parsed);
+    if (error != RSS_DDC_OK) {
+        return rss_ddc_characterization_collect_passive_mccs_failed(characterization, error);
+    }
+    return rss_ddc_characterization_collect_passive_mccs(characterization, &parsed);
+}
+
+bool rss_ddc_characterization_mccs_supported(const RSSDDCCharacterization *characterization) {
+    return mccs_retrieval_supported(characterization);
+}
+
+bool rss_ddc_characterization_mccs_attempted(const RSSDDCCharacterization *characterization) {
+    return characterization != NULL && characterization->mccs_attempted;
+}
+
+RSSDDCError rss_ddc_characterization_mccs_status(const RSSDDCCharacterization *characterization) {
+    return characterization == NULL ? RSS_DDC_ERROR_ARGUMENT : characterization->mccs_status;
+}
+
+const RSSDDCMCCSCapabilities *rss_ddc_characterization_mccs(
+    const RSSDDCCharacterization *characterization) {
+    return characterization == NULL ? NULL : characterization->mccs;
 }

@@ -8,9 +8,9 @@
 
 /*
  * Characterization orchestration. Internal, and hardware-free except
- * rss_ddc_characterization_prepare, which uses existing display/EDID lookup.
- * It does not restore monitor-knowledge/v0.1 JSON, retrieve MCCS, probe, or
- * call GET/SET VCP.
+ * rss_ddc_characterization_prepare (display/EDID) and
+ * rss_ddc_characterization_collect_passive (MCCS retrieval). It does not
+ * restore monitor-knowledge/v0.1 JSON, probe, or call GET/SET VCP.
  */
 
 typedef struct RSSDDCCharacterization RSSDDCCharacterization;
@@ -122,6 +122,52 @@ const RSSDDCProfileIdentity *rss_ddc_characterization_profile_identity(
 
 /** Effective matched profile, or NULL unless status is MATCHED. */
 const RSSDDCEffectiveProfile *rss_ddc_characterization_effective_profile(
+    const RSSDDCCharacterization *characterization);
+
+/**
+ * Pure Slice 3 conversion: if provider bits include MCCS retrieval, copy
+ * `capabilities` and merge one DECLARED route per advertised VCP. If MCCS
+ * retrieval is not supported, returns OK, adds no DECLARED facts, and ignores
+ * `capabilities`. DECLARED routes are never write_authorized. Advertised
+ * enum lists stay on the retained MCCS model, not as extra knowledge routes.
+ */
+RSSDDCError rss_ddc_characterization_collect_passive_mccs(
+    RSSDDCCharacterization *characterization, const RSSDDCMCCSCapabilities *capabilities);
+
+/**
+ * Parses `raw` with rss_ddc_parse_mccs_capabilities then collect_passive_mccs.
+ * Parse failure is non-fatal: identity/profile knowledge is preserved, no
+ * DECLARED facts are added, and the parse error is stored as MCCS status.
+ */
+RSSDDCError rss_ddc_characterization_collect_passive_mccs_raw(
+    RSSDDCCharacterization *characterization, const char *raw, size_t raw_length);
+
+/**
+ * Records a non-fatal MCCS stage failure (unsupported or retrieval/parse
+ * error) without adding DECLARED facts or clearing identity/profile state.
+ */
+RSSDDCError rss_ddc_characterization_collect_passive_mccs_failed(
+    RSSDDCCharacterization *characterization, RSSDDCError status);
+
+/**
+ * Platform Slice 3 entry: if MCCS retrieval is unsupported, records that and
+ * returns OK. Otherwise calls rss_ddc_get_mccs_capabilities for the assembled
+ * display and collect_passive_mccs. Retrieval/parse failure is non-fatal.
+ * Requires a prior assemble/prepare. Does not GET/SET VCP or probe.
+ */
+RSSDDCError rss_ddc_characterization_collect_passive(RSSDDCCharacterization *characterization);
+
+/** True when assembled provider bits include RSS_DDC_CAP_MCCS_CAPABILITIES. */
+bool rss_ddc_characterization_mccs_supported(const RSSDDCCharacterization *characterization);
+
+/** True when this run attempted to apply or retrieve an MCCS document. */
+bool rss_ddc_characterization_mccs_attempted(const RSSDDCCharacterization *characterization);
+
+/** Last MCCS stage status: OK, UNSUPPORTED_CAPABILITY, or a retrieval/parse error. */
+RSSDDCError rss_ddc_characterization_mccs_status(const RSSDDCCharacterization *characterization);
+
+/** Borrowed parsed MCCS model, or NULL when none was successfully applied. */
+const RSSDDCMCCSCapabilities *rss_ddc_characterization_mccs(
     const RSSDDCCharacterization *characterization);
 
 #endif

@@ -58,7 +58,7 @@ native C representation  ↔  deterministic monitor-knowledge/v0.1 JSON
 
 | Layer | What it is | Status on this branch |
 | --- | --- | --- |
-| Characterization | Process / orchestrator (historical Alien Probe Quick+Extended subset) | Slice 2 identity/profile/transport assembly implemented internally; MCCS and probe stages deferred |
+| Characterization | Process / orchestrator (historical Alien Probe Quick+Extended subset) | Slice 3 passive MCCS DECLARED evidence implemented internally; Quick/Extended Probe deferred |
 | `monitor-knowledge/v0.1` | Canonical durable document: identity, capabilities, methods, values, input routes, relationships, evidence | Implemented historically (`38cf0b1`); **not present** on current main; serializer deferred |
 | Current `RSSDDCMonitorKnowledge` | Reconstructed subset: copied `RSSDDCKnowledgeRoute` facts, max 128 | Implemented (`src/core/monitor_knowledge.c`) |
 | `RSSDDCDisplay` / `RSSDDCEDIDInfo` / `RSSDDCProfileIdentity` | Identity and connection evidence (historically also inside the v0.1 document) | Implemented beside knowledge |
@@ -1120,12 +1120,68 @@ unavailable. Knowledge overflow while merging PROFILE facts →
 `RSS_DDC_ERROR_PROFILE_CONFLICT`, accumulated knowledge unchanged, profile
 status remains NONE.
 
-**Slice 3 boundary.** Stop before `rss_ddc_get_mccs_capabilities`. Do not
-emit DECLARED facts from transport bits.
+**Slice 3 boundary.** Stop before `rss_ddc_get_mccs_capabilities` in `prepare`.
+Do not emit DECLARED facts from transport bits. Passive MCCS is a separate
+stage (`collect_passive`).
 
 ### Slice 3 — Passive MCCS → DECLARED facts
 
-Unchanged except DECLARED facts must not be treated as research-only.
+- **Files:** `characterize.c`, `characterize_prepare.c`, `tests/test_characterize.c`
+- **Reuse:** `rss_ddc_parse_mccs_capabilities`, `rss_ddc_get_mccs_capabilities`,
+  `rss_ddc_mccs_capabilities_enum_values`, Slice 1 `add_knowledge`
+- **Hardware:** none in tests; `collect_passive` is the library-only retrieval
+  wrapper
+- **Accept:** DECLARED facts are not write-authorized; PROFILE facts survive
+
+#### Slice 3 implementation (this branch)
+
+`prepare` / `assemble` still stop at identity + profile + transport.
+`rss_ddc_characterization_collect_passive` is a later explicit stage.
+
+**Transport vs advertisement.** `RSS_DDC_CAP_MCCS_CAPABILITIES` means this
+provider path may retrieve a capabilities string. It does not create DECLARED
+knowledge. Only a successfully parsed MCCS document produces DECLARED routes.
+
+**Passive stage.** Tests call `collect_passive_mccs` /
+`collect_passive_mccs_raw` with parser fixtures. The platform wrapper
+retrieves via `rss_ddc_get_mccs_capabilities` then converts. No Get VCP.
+
+**DECLARED mapping.** One knowledge route per advertised VCP:
+
+| VCP | Semantic ID |
+| --- | --- |
+| `0x10` | `display.brightness` |
+| `0x12` | `display.contrast` |
+| `0x14` | `display.color_preset` |
+| `0x15` | `display.picture_mode` |
+| `0x16` / `0x18` / `0x1a` | `display.rgb.red_gain` / `green_gain` / `blue_gain` |
+| `0x60` | `inputs.switching` |
+| other | `vendor.unknown.vcp.XX` (`%02x`, same as probe) |
+
+Routes use `FACT_DECLARED`, `source_id=mccs-capabilities`,
+`evidence_id=mccs-advertised`, value UNKNOWN, `writable=false`,
+`write_authorized=false`. RESEARCH source tagging is unchanged reconstruction
+baggage.
+
+**Enum handling.** Advertised enum bytes stay on the copied
+`RSSDDCMCCSCapabilities` (query with `rss_ddc_mccs_capabilities_enum_values`).
+They are not exploded into extra knowledge routes: that would overflow the
+128-route bound and would imply current/writable values the advertisement does
+not prove.
+
+**Unknown VCPs.** Represented as `vendor.unknown.vcp.XX` DECLARED routes, plus
+the retained MCCS model.
+
+**Write authorization.** MCCS advertisement never sets `write_authorized`.
+A PROFILE write-authorized route for the same semantic remains; resolver
+policy still selects the validated method.
+
+**Degraded behavior.** No MCCS cap → OK, no DECLARED facts. Retrieval or parse
+failure → OK, status stored, identity/profile preserved, no fabricated facts.
+Empty feature list → OK, no DECLARED routes. Merge overflow →
+`RSS_DDC_ERROR_PROFILE_CONFLICT`, knowledge unchanged.
+
+**Slice 4 boundary.** Stop before Quick Probe / Get VCP observation.
 
 ### Slice 4 — Quick Probe → merge/resolution
 
