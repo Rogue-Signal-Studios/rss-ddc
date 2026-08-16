@@ -58,7 +58,7 @@ native C representation  ↔  deterministic monitor-knowledge/v0.1 JSON
 
 | Layer | What it is | Status on this branch |
 | --- | --- | --- |
-| Characterization | Process / orchestrator combining identity, profile, passive MCCS, Alien Probe™ Quick Auto Probe, and sufficiency | Slice 5 DEFAULT sufficiency implemented internally; Extended Probe, Guided Discovery, and Experimental Validation deferred |
+| Characterization | Process / orchestrator combining identity, profile, passive MCCS, Alien Probe™ Quick and Extended Auto Probe, and sufficiency | Slice 6 Extended Auto Probe ingest/promotion implemented internally; Guided Discovery and Experimental Validation deferred |
 | `monitor-knowledge/v0.1` | Canonical durable document: identity, capabilities, methods, values, input routes, relationships, evidence | Implemented historically (`38cf0b1`); **not present** on current main; serializer deferred |
 | Current `RSSDDCMonitorKnowledge` | Reconstructed subset: copied `RSSDDCKnowledgeRoute` facts, max 128 | Implemented (`src/core/monitor_knowledge.c`) |
 | `RSSDDCDisplay` / `RSSDDCEDIDInfo` / `RSSDDCProfileIdentity` | Identity and connection evidence (historically also inside the v0.1 document) | Implemented beside knowledge |
@@ -1298,15 +1298,64 @@ CONFLICT (profile match conflict or equal-authority method conflict);
 UNAVAILABLE (no assembled display).
 
 **Slice 6 boundary.** Stop before invoking Alien Probe™ Extended Auto Probe.
+Slice 6 is a later explicit stage (`collect_extended`).
 
-### Slice 6 — Optional Extended Probe
+### Slice 6 — Alien Probe™ Extended Auto Probe
 
-- **Change:** keep `RSSDDCProbeExtendedDiagnostics` as the full diagnostic
-  container. Promote into knowledge per G4 (historical A + reconstruction
-  bound). Unknown protocol-valid VCPs may enter knowledge as
-  `vendor.unknown.vcp.XX` until the 128 bound; they never authorize writes.
-- **Accept:** 128-bound never overflowed; abort path retained; diagnostics
-  still contain unpromoted addresses
+- **Files:** `characterize.h`, `characterize.c`, `characterize_prepare.c`,
+  `tests/test_characterize.c`
+- **Reuse:** `rss_ddc_probe_extended` / `rss_ddc_probe_extended_for_display`,
+  `rss_ddc_probe_extended_diagnostics`, Slice 5 sufficiency, Slice 1
+  `add_knowledge`
+- **Hardware:** none; tests drive the existing Extended Auto Probe with a mock
+  GET transport. `collect_extended` is the library-only platform wrapper
+- **Accept:** full diagnostics retained separately from promoted knowledge;
+  128-route cap never silently drops diagnostics; GET never authorizes write
+
+#### Slice 6 implementation (this branch)
+
+This stage ingests **existing** Alien Probe™ Extended Auto Probe results. It
+does not add a parallel scan engine, change GET pacing, or SET.
+
+**When it runs.** `rss_ddc_characterization_collect_extended` runs Extended
+only if Slice 5 `extended_recommended` is true and GET VCP is available.
+CONFLICT and already-sufficient characterizations do not run it. Tests ingest
+via `collect_extended_probe` after `rss_ddc_probe_extended`.
+
+**Diagnostics vs knowledge.** The full `RSSDDCProbeExtendedDiagnostics`
+(256 observations, abort/status counts) is copied into owned storage.
+`semantic_id` pointers into per-observation buffers are retargeted after copy.
+Canonical knowledge receives only selectively promoted OBSERVED routes.
+
+**Promotion priority.** Protocol-valid observations only, in order:
+
+1. unresolved product-relevant IDs (`display.brightness`, `display.contrast`,
+   `display.color_preset`, `display.picture_mode`, `inputs.switching`)
+2. advertised MCCS controls that remain unresolved
+3. known semantic controls that already have PROFILE/DECLARED evidence but no
+   live OBSERVED fact
+4. other known semantic mappings (`0x10`/`0x12`/`0x14`/`0x15`/`0x16`/`0x18`/
+   `0x1a`/`0x60`)
+5. `vendor.unknown.vcp.XX` last
+
+Promotion remaps `0x15` → `display.picture_mode` and `0x60` →
+`inputs.switching` using the Slice 3 VCP table (Extended's own diagnostic
+strings may still say `vendor.unknown.vcp.15` / `.60`). Failures stay
+diagnostic. `current > maximum` and VARIABLE classification are preserved.
+A successful GET never sets `write_authorized`.
+
+**Capacity.** Promotion is one route at a time. Overflow increments
+`skipped_capacity` and returns OK; prior knowledge and full diagnostics stay.
+Summary: `considered`, `promoted`, `skipped_capacity`,
+`skipped_nonpromotable`.
+
+**Sufficiency.** Callers recompute `rss_ddc_characterization_sufficiency`
+after promotion. Extended may turn INSUFFICIENT into SUFFICIENT when a
+read method is now resolved, or leave it INSUFFICIENT when DECLARED-only
+picture mode / missing input remain, or when observation does not authorize
+writes.
+
+**Slice 7 boundary.** Stop before public `rss_ddc_characterize_display`.
 
 ### Slice 7 — Public/internal characterization API
 

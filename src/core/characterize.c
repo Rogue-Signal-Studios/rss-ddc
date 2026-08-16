@@ -23,6 +23,12 @@ struct RSSDDCCharacterization {
     RSSDDCError quick_status;
     RSSDDCProbeDiagnostics quick_diagnostics;
     RSSDDCProbeObservation quick_observations[RSS_DDC_PROBE_QUICK_CONTROL_COUNT];
+    bool extended_attempted;
+    bool has_extended_diagnostics;
+    RSSDDCError extended_status;
+    RSSDDCProbeExtendedDiagnostics extended_diagnostics;
+    RSSDDCProbeExtendedObservation *extended_observations;
+    RSSDDCCharacterizationPromotionSummary extended_promotion;
 };
 
 typedef struct {
@@ -62,6 +68,7 @@ RSSDDCCharacterization *rss_ddc_characterization_create(void) {
     }
     characterization->mccs_status = RSS_DDC_OK;
     characterization->quick_status = RSS_DDC_OK;
+    characterization->extended_status = RSS_DDC_OK;
     return characterization;
 }
 
@@ -71,6 +78,7 @@ void rss_ddc_characterization_destroy(RSSDDCCharacterization *characterization) 
     }
     rss_ddc_monitor_knowledge_destroy(characterization->knowledge);
     free(characterization->mccs);
+    free(characterization->extended_observations);
     free(characterization);
 }
 
@@ -798,4 +806,258 @@ RSSDDCError rss_ddc_characterization_sufficiency(
         result->reasons |= RSS_DDC_CHARACTERIZATION_REASON_PROBE_HELPFUL;
     }
     return RSS_DDC_OK;
+}
+
+static bool observation_is_strict_valid(const RSSDDCProbeObservation *observation) {
+    return observation != NULL && observation->protocol_valid && observation->semantic_request_match;
+}
+
+static bool is_product_relevant_id(const char *semantic_id) {
+    return strcmp(semantic_id, "display.brightness") == 0 || strcmp(semantic_id, "display.contrast") == 0 ||
+           strcmp(semantic_id, "display.color_preset") == 0 ||
+           strcmp(semantic_id, "display.picture_mode") == 0 || strcmp(semantic_id, "inputs.switching") == 0;
+}
+
+static bool is_vendor_unknown_id(const char *semantic_id) {
+    return strncmp(semantic_id, "vendor.unknown.vcp.", 19) == 0;
+}
+
+static bool knowledge_has_observed(const RSSDDCMonitorKnowledge *knowledge, const char *semantic_id) {
+    if (knowledge == NULL || semantic_id == NULL) {
+        return false;
+    }
+    for (size_t index = 0; index < rss_ddc_monitor_knowledge_route_count(knowledge); ++index) {
+        const RSSDDCKnowledgeRoute *route = rss_ddc_monitor_knowledge_route_at(knowledge, index);
+        if (route != NULL && strcmp(route->semantic_id, semantic_id) == 0 &&
+            route->provenance.fact_kind == RSS_DDC_KNOWLEDGE_FACT_OBSERVED) {
+            return true;
+        }
+    }
+    return false;
+}
+
+static unsigned extended_promotion_priority(RSSDDCCharacterization *characterization,
+                                            const RSSDDCProbeObservation *observation,
+                                            const char *semantic_id) {
+    bool usable = false;
+    bool conflict = false;
+    (void)control_method_state(characterization, semantic_id, &usable, &conflict);
+    const bool advertised = observation->advertised == RSS_DDC_PROBE_KNOWLEDGE_YES ||
+                            mccs_has_vcp(characterization, observation->requested_vcp);
+    const bool known = !is_vendor_unknown_id(semantic_id);
+
+    if (is_product_relevant_id(semantic_id) && !usable && !conflict) {
+        return 0;
+    }
+    if (advertised && !usable && !conflict) {
+        return 1;
+    }
+    if (known && (knowledge_has_semantic(rss_ddc_characterization_knowledge(characterization), semantic_id) ||
+                  advertised) &&
+        !knowledge_has_observed(rss_ddc_characterization_knowledge(characterization), semantic_id)) {
+        return 2;
+    }
+    if (known) {
+        return 3;
+    }
+    return 4;
+}
+
+typedef struct {
+    uint8_t vcp;
+    unsigned priority;
+} RSSDDCExtendedPromotionItem;
+
+static int compare_extended_promotion(const void *left, const void *right) {
+    const RSSDDCExtendedPromotionItem *first = left;
+    const RSSDDCExtendedPromotionItem *second = right;
+    if (first->priority != second->priority) {
+        return first->priority < second->priority ? -1 : 1;
+    }
+    return (int)first->vcp - (int)second->vcp;
+}
+
+static RSSDDCError observed_route_from_extended(const RSSDDCProbeObservation *observation,
+                                                const char *semantic_id, RSSDDCKnowledgeRoute *route) {
+    memset(route, 0, sizeof(*route));
+    if (!copy_terminated(semantic_id, route->semantic_id, sizeof(route->semantic_id))) {
+        return RSS_DDC_ERROR_ARGUMENT;
+    }
+    (void)snprintf(route->route_id, sizeof(route->route_id), "mccs-vcp-%02x", observation->requested_vcp);
+    route->kind = RSS_DDC_KNOWLEDGE_ROUTE_STANDARD_VCP;
+    route->address = observation->requested_vcp;
+    (void)snprintf(route->transport_family, sizeof(route->transport_family), "%s", "mccs-vcp");
+    (void)snprintf(route->command_semantics, sizeof(route->command_semantics), "%s", "read-only-get-vcp");
+    route->readable = true;
+    route->writable = false;
+    route->write_authorized = false;
+    route->value.state = RSS_DDC_KNOWLEDGE_VALUE_UNSIGNED;
+    route->value.unsigned_value = observation->current_value;
+    route->reported_maximum_present = true;
+    route->reported_maximum = observation->maximum_value;
+    route->provenance.source = RSS_DDC_PROFILE_SOURCE_RESEARCH;
+    route->provenance.confidence = RSS_DDC_PROFILE_CONFIDENCE_OBSERVED;
+    route->provenance.fact_kind = RSS_DDC_KNOWLEDGE_FACT_OBSERVED;
+    (void)snprintf(route->provenance.source_id, sizeof(route->provenance.source_id), "%s",
+                   "alien-probe-live-read");
+    (void)snprintf(route->provenance.evidence_id, sizeof(route->provenance.evidence_id), "%s",
+                   observation->stable ? "stable-get" : "variable-get");
+    return RSS_DDC_OK;
+}
+
+static RSSDDCError copy_extended_diagnostics(RSSDDCCharacterization *characterization,
+                                             const RSSDDCProbeExtendedDiagnostics *diagnostics) {
+    RSSDDCProbeExtendedObservation *copy =
+        calloc(RSS_DDC_PROBE_EXTENDED_ADDRESS_COUNT, sizeof(*copy));
+    if (copy == NULL) {
+        return RSS_DDC_ERROR_SYSTEM;
+    }
+    size_t count = diagnostics->observation_count;
+    if (count > RSS_DDC_PROBE_EXTENDED_ADDRESS_COUNT) {
+        count = RSS_DDC_PROBE_EXTENDED_ADDRESS_COUNT;
+    }
+    if (diagnostics->observations != NULL && count > 0) {
+        memcpy(copy, diagnostics->observations, count * sizeof(*copy));
+        for (size_t index = 0; index < count; ++index) {
+            if (copy[index].semantic_id_buffer[0] != '\0') {
+                copy[index].observation.semantic_id = copy[index].semantic_id_buffer;
+            }
+        }
+    } else {
+        count = 0;
+    }
+    free(characterization->extended_observations);
+    characterization->extended_observations = copy;
+    characterization->extended_diagnostics = *diagnostics;
+    characterization->extended_diagnostics.observations = copy;
+    characterization->extended_diagnostics.observation_count = count;
+    characterization->has_extended_diagnostics = true;
+    return RSS_DDC_OK;
+}
+
+static RSSDDCError promote_extended_observations(RSSDDCCharacterization *characterization) {
+    RSSDDCCharacterizationPromotionSummary summary = {0};
+    const RSSDDCProbeExtendedDiagnostics *diagnostics = &characterization->extended_diagnostics;
+    RSSDDCExtendedPromotionItem items[RSS_DDC_PROBE_EXTENDED_ADDRESS_COUNT];
+    size_t item_count = 0;
+
+    for (size_t index = 0; index < diagnostics->observation_count; ++index) {
+        const RSSDDCProbeExtendedObservation *extended = &diagnostics->observations[index];
+        ++summary.considered;
+        if (!observation_is_strict_valid(&extended->observation)) {
+            ++summary.skipped_nonpromotable;
+            continue;
+        }
+        items[item_count].vcp = extended->observation.requested_vcp;
+        char unknown[32] = {};
+        const char *semantic_id = declared_semantic_id(extended->observation.requested_vcp, unknown,
+                                                       sizeof(unknown));
+        items[item_count].priority =
+            extended_promotion_priority(characterization, &extended->observation, semantic_id);
+        ++item_count;
+    }
+
+    qsort(items, item_count, sizeof(items[0]), compare_extended_promotion);
+
+    for (size_t index = 0; index < item_count; ++index) {
+        const RSSDDCProbeExtendedObservation *extended =
+            &diagnostics->observations[items[index].vcp];
+        char unknown[32] = {};
+        const char *semantic_id =
+            declared_semantic_id(extended->observation.requested_vcp, unknown, sizeof(unknown));
+        RSSDDCKnowledgeRoute route = {0};
+        RSSDDCError error = observed_route_from_extended(&extended->observation, semantic_id, &route);
+        if (error != RSS_DDC_OK) {
+            return error;
+        }
+        RSSDDCMonitorKnowledge *observed = rss_ddc_monitor_knowledge_create();
+        if (observed == NULL) {
+            return RSS_DDC_ERROR_SYSTEM;
+        }
+        error = rss_ddc_monitor_knowledge_add_route(observed, &route);
+        if (error != RSS_DDC_OK) {
+            rss_ddc_monitor_knowledge_destroy(observed);
+            return error;
+        }
+        error = rss_ddc_characterization_add_knowledge(characterization, observed);
+        rss_ddc_monitor_knowledge_destroy(observed);
+        if (error == RSS_DDC_ERROR_PROFILE_CONFLICT) {
+            ++summary.skipped_capacity;
+            continue;
+        }
+        if (error != RSS_DDC_OK) {
+            return error;
+        }
+        ++summary.promoted;
+    }
+
+    characterization->extended_promotion = summary;
+    return RSS_DDC_OK;
+}
+
+RSSDDCError rss_ddc_characterization_collect_extended_probe_failed(
+    RSSDDCCharacterization *characterization, RSSDDCError status) {
+    if (characterization == NULL) {
+        return RSS_DDC_ERROR_ARGUMENT;
+    }
+    if (!get_vcp_supported(characterization)) {
+        characterization->extended_attempted = false;
+        characterization->extended_status = RSS_DDC_ERROR_UNSUPPORTED_CAPABILITY;
+        return RSS_DDC_OK;
+    }
+    characterization->extended_attempted = true;
+    characterization->extended_status = status == RSS_DDC_OK ? RSS_DDC_ERROR_READ : status;
+    return RSS_DDC_OK;
+}
+
+RSSDDCError rss_ddc_characterization_collect_extended_probe(RSSDDCCharacterization *characterization,
+                                                            const RSSDDCProbe *probe) {
+    if (characterization == NULL || characterization->knowledge == NULL) {
+        return RSS_DDC_ERROR_ARGUMENT;
+    }
+    if (!get_vcp_supported(characterization)) {
+        return rss_ddc_characterization_collect_extended_probe_failed(
+            characterization, RSS_DDC_ERROR_UNSUPPORTED_CAPABILITY);
+    }
+    if (probe == NULL) {
+        return RSS_DDC_ERROR_ARGUMENT;
+    }
+
+    RSSDDCProbeExtendedDiagnostics diagnostics = {0};
+    RSSDDCError error = rss_ddc_probe_extended_diagnostics(probe, &diagnostics);
+    if (error != RSS_DDC_OK) {
+        return error;
+    }
+    error = copy_extended_diagnostics(characterization, &diagnostics);
+    if (error != RSS_DDC_OK) {
+        characterization->extended_attempted = true;
+        characterization->extended_status = error;
+        return error;
+    }
+    error = promote_extended_observations(characterization);
+    characterization->extended_attempted = true;
+    characterization->extended_status = error;
+    return error;
+}
+
+bool rss_ddc_characterization_extended_attempted(const RSSDDCCharacterization *characterization) {
+    return characterization != NULL && characterization->extended_attempted;
+}
+
+RSSDDCError rss_ddc_characterization_extended_status(const RSSDDCCharacterization *characterization) {
+    return characterization == NULL ? RSS_DDC_ERROR_ARGUMENT : characterization->extended_status;
+}
+
+const RSSDDCProbeExtendedDiagnostics *rss_ddc_characterization_extended_diagnostics(
+    const RSSDDCCharacterization *characterization) {
+    return characterization != NULL && characterization->has_extended_diagnostics
+               ? &characterization->extended_diagnostics
+               : NULL;
+}
+
+const RSSDDCCharacterizationPromotionSummary *rss_ddc_characterization_extended_promotion(
+    const RSSDDCCharacterization *characterization) {
+    return characterization != NULL && characterization->extended_attempted
+               ? &characterization->extended_promotion
+               : NULL;
 }

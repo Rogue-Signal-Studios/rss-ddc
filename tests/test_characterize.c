@@ -1223,6 +1223,309 @@ static void test_sufficiency_stable_quick_observation(void) {
     rss_ddc_characterization_destroy(characterization);
 }
 
+typedef struct {
+    RSSDDCError error;
+    RSSDDCVCPResult result;
+} Slice6Reply;
+
+typedef struct {
+    Slice6Reply replies[RSS_DDC_PROBE_EXTENDED_ADDRESS_COUNT][RSS_DDC_PROBE_EXTENDED_REPEAT_COUNT];
+    unsigned attempts[RSS_DDC_PROBE_EXTENDED_ADDRESS_COUNT];
+} Slice6MockGet;
+
+static RSSDDCError slice6_mock_get_vcp(void *context, uint8_t code, RSSDDCVCPResult *result) {
+    Slice6MockGet *mock = context;
+    unsigned attempt = mock->attempts[code]++;
+    assert(attempt < RSS_DDC_PROBE_EXTENDED_REPEAT_COUNT);
+    Slice6Reply reply = mock->replies[code][attempt];
+    if (reply.error == RSS_DDC_OK) {
+        *result = reply.result;
+    }
+    return reply.error;
+}
+
+static void slice6_set_reply(Slice6MockGet *mock, uint8_t code, unsigned attempt, RSSDDCError error,
+                             uint8_t echoed, uint16_t maximum, uint16_t current) {
+    mock->replies[code][attempt] = (Slice6Reply){
+        .error = error,
+        .result = {.vcp_code = echoed, .maximum_value = maximum, .current_value = current},
+    };
+}
+
+static void slice6_set_stable(Slice6MockGet *mock, uint8_t code, uint16_t maximum, uint16_t current) {
+    slice6_set_reply(mock, code, 0, RSS_DDC_OK, code, maximum, current);
+    slice6_set_reply(mock, code, 1, RSS_DDC_OK, code, maximum, current);
+}
+
+static void slice6_fill_protocol_reported(Slice6MockGet *mock) {
+    for (uint16_t code = 0; code < RSS_DDC_PROBE_EXTENDED_ADDRESS_COUNT; ++code) {
+        slice6_set_reply(mock, (uint8_t)code, 0, RSS_DDC_ERROR_REPLY_STATUS, 0, 0, 0);
+    }
+}
+
+static RSSDDCProbe *slice6_run_extended(Slice6MockGet *mock, const RSSDDCDisplay *display) {
+    RSSDDCProbeReadTransport transport = {.context = mock, .get_vcp = slice6_mock_get_vcp};
+    RSSDDCProbeTarget target = {.correlation = RSS_DDC_PROBE_CORRELATION_EXACT, .display = *display};
+    RSSDDCProbe *probe = NULL;
+    assert(rss_ddc_probe_create(&target, &transport, &probe) == RSS_DDC_OK);
+    assert(rss_ddc_probe_extended(probe) == RSS_DDC_OK);
+    return probe;
+}
+
+static const char *slice6_pack_brightness_contrast(void) {
+    return "{\"schemaVersion\":1,\"databaseVersion\":\"x\",\"minimumRSSDDCVersion\":\"0.1.0\","
+           "\"packId\":\"slice6-bc\",\"profiles\":[{\"id\":\"one\",\"identity\":{"
+           "\"productName\":\"Test\",\"provider\":\"DCPDP13Service\",\"transport\":\"DCPEXT0\","
+           "\"external\":true},\"confidence\":\"hardware-validated\",\"controls\":["
+           "{\"id\":\"brightness\",\"method\":\"vcp\",\"address\":16,\"readable\":true,"
+           "\"writable\":true,\"confidence\":\"hardware-validated\",\"enums\":[]},"
+           "{\"id\":\"contrast\",\"method\":\"vcp\",\"address\":18,\"readable\":true,"
+           "\"writable\":true,\"confidence\":\"hardware-validated\",\"enums\":[]}]}]}";
+}
+
+static void test_extended_not_recommended_is_not_run(void) {
+    RSSDDCDisplay display = slice2_display();
+    RSSDDCCharacterization *characterization = slice5_assembled(&display, slice5_actionable_pack_dcpdp13());
+    size_t before = rss_ddc_monitor_knowledge_route_count(rss_ddc_characterization_knowledge(characterization));
+    RSSDDCCharacterizationSufficiencyResult sufficiency = {0};
+    assert(rss_ddc_characterization_sufficiency(characterization, &sufficiency) == RSS_DDC_OK);
+    assert(sufficiency.status == RSS_DDC_CHARACTERIZATION_SUFFICIENCY_SUFFICIENT);
+    assert(!sufficiency.extended_recommended);
+    assert(!rss_ddc_characterization_extended_attempted(characterization));
+    assert(rss_ddc_characterization_extended_diagnostics(characterization) == NULL);
+    assert(rss_ddc_monitor_knowledge_route_count(rss_ddc_characterization_knowledge(characterization)) ==
+           before);
+    rss_ddc_characterization_destroy(characterization);
+}
+
+static void test_extended_promotes_input_and_picture_mode(void) {
+    RSSDDCCharacterization *characterization = rss_ddc_characterization_create();
+    RSSDDCDisplay display = slice2_display();
+    Slice6MockGet mock = {0};
+    RSSDDCProbe *probe = NULL;
+    RSSDDCCharacterizationSufficiencyResult before = {0};
+    RSSDDCCharacterizationSufficiencyResult after = {0};
+    const RSSDDCKnowledgeRoute *input = NULL;
+    const RSSDDCKnowledgeRoute *picture = NULL;
+    slice6_fill_protocol_reported(&mock);
+    slice6_set_stable(&mock, 0x10, 100, 42);
+    slice6_set_stable(&mock, 0x12, 100, 50);
+    slice6_set_stable(&mock, 0x14, 4, 1);
+    slice6_set_stable(&mock, 0x15, 255, 0x31);
+    slice6_set_stable(&mock, 0x60, 18, 0x11);
+    assert(characterization != NULL);
+    assert(rss_ddc_characterization_assemble(characterization, &display, NULL, NULL) == RSS_DDC_OK);
+    assert(rss_ddc_characterization_sufficiency(characterization, &before) == RSS_DDC_OK);
+    assert(before.status == RSS_DDC_CHARACTERIZATION_SUFFICIENCY_INSUFFICIENT);
+    assert(before.extended_recommended);
+    probe = slice6_run_extended(&mock, &display);
+    assert(rss_ddc_characterization_collect_extended_probe(characterization, probe) == RSS_DDC_OK);
+    assert(rss_ddc_characterization_extended_attempted(characterization));
+    assert(rss_ddc_characterization_extended_diagnostics(characterization) != NULL);
+    assert(rss_ddc_characterization_extended_diagnostics(characterization)->observation_count ==
+           RSS_DDC_PROBE_EXTENDED_ADDRESS_COUNT);
+    input = route_with_kind(rss_ddc_characterization_knowledge(characterization), "inputs.switching",
+                            RSS_DDC_KNOWLEDGE_FACT_OBSERVED);
+    picture = route_with_kind(rss_ddc_characterization_knowledge(characterization), "display.picture_mode",
+                              RSS_DDC_KNOWLEDGE_FACT_OBSERVED);
+    assert(input != NULL && picture != NULL);
+    assert(input->address == 0x60);
+    assert(picture->address == 0x15);
+    assert(!input->write_authorized && !picture->write_authorized);
+    assert(rss_ddc_characterization_sufficiency(characterization, &after) == RSS_DDC_OK);
+    assert(after.status == RSS_DDC_CHARACTERIZATION_SUFFICIENCY_SUFFICIENT);
+    assert(!after.extended_recommended);
+    rss_ddc_probe_destroy(probe);
+    rss_ddc_characterization_destroy(characterization);
+}
+
+static void test_extended_coexists_and_does_not_authorize_write(void) {
+    RSSDDCDisplay display = slice2_display();
+    RSSDDCCharacterization *characterization = slice5_assembled(&display, slice5_pack_without_picture_mode());
+    Slice4MockGet quick_mock = {0};
+    Slice6MockGet extended_mock = {0};
+    RSSDDCProbe *quick = NULL;
+    RSSDDCProbe *extended = NULL;
+    const RSSDDCMonitorKnowledge *knowledge = NULL;
+    RSSDDCCharacterizationSufficiencyResult result = {0};
+    assert(rss_ddc_characterization_collect_passive_mccs_raw(characterization, "vcp(10 15)",
+                                                             strlen("vcp(10 15)")) == RSS_DDC_OK);
+    quick = slice5_quick_all_stable(&quick_mock, &display, 42);
+    assert(rss_ddc_characterization_collect_quick_probe(characterization, quick) == RSS_DDC_OK);
+    slice6_fill_protocol_reported(&extended_mock);
+    slice6_set_stable(&extended_mock, 0x10, 100, 42);
+    slice6_set_stable(&extended_mock, 0x15, 255, 1);
+    extended = slice6_run_extended(&extended_mock, &display);
+    assert(rss_ddc_characterization_collect_extended_probe(characterization, extended) == RSS_DDC_OK);
+    knowledge = rss_ddc_characterization_knowledge(characterization);
+    assert(count_fact_kind(knowledge, "display.brightness", RSS_DDC_KNOWLEDGE_FACT_PROFILE) == 1);
+    assert(count_fact_kind(knowledge, "display.brightness", RSS_DDC_KNOWLEDGE_FACT_DECLARED) == 1);
+    assert(count_fact_kind(knowledge, "display.brightness", RSS_DDC_KNOWLEDGE_FACT_OBSERVED) == 1);
+    assert(count_fact_kind(knowledge, "display.picture_mode", RSS_DDC_KNOWLEDGE_FACT_DECLARED) == 1);
+    assert(count_fact_kind(knowledge, "display.picture_mode", RSS_DDC_KNOWLEDGE_FACT_OBSERVED) == 1);
+    assert(!route_with_kind(knowledge, "display.picture_mode", RSS_DDC_KNOWLEDGE_FACT_OBSERVED)
+                ->write_authorized);
+    assert(rss_ddc_characterization_sufficiency(characterization, &result) == RSS_DDC_OK);
+    assert(result.status == RSS_DDC_CHARACTERIZATION_SUFFICIENCY_SUFFICIENT);
+    rss_ddc_probe_destroy(quick);
+    rss_ddc_probe_destroy(extended);
+    rss_ddc_characterization_destroy(characterization);
+}
+
+static void test_extended_failures_remain_diagnostics(void) {
+    RSSDDCCharacterization *characterization = rss_ddc_characterization_create();
+    RSSDDCDisplay display = slice2_display();
+    Slice6MockGet mock = {0};
+    RSSDDCProbe *probe = NULL;
+    const RSSDDCProbeExtendedDiagnostics *diagnostics = NULL;
+    const RSSDDCMonitorKnowledge *knowledge = NULL;
+    slice6_fill_protocol_reported(&mock);
+    slice6_set_stable(&mock, 0x10, 10, 18);
+    slice6_set_reply(&mock, 0x12, 0, RSS_DDC_OK, 0x12, 100, 50);
+    slice6_set_reply(&mock, 0x12, 1, RSS_DDC_OK, 0x12, 100, 51);
+    slice6_set_reply(&mock, 0x61, 0, RSS_DDC_ERROR_REPLY_CHECKSUM, 0, 0, 0);
+    slice6_set_reply(&mock, 0x62, 0, RSS_DDC_ERROR_READ, 0, 0, 0);
+    slice6_set_reply(&mock, 0x63, 0, RSS_DDC_OK, 0x14, 1, 1);
+    assert(rss_ddc_characterization_assemble(characterization, &display, NULL, NULL) == RSS_DDC_OK);
+    probe = slice6_run_extended(&mock, &display);
+    assert(rss_ddc_characterization_collect_extended_probe(characterization, probe) == RSS_DDC_OK);
+    diagnostics = rss_ddc_characterization_extended_diagnostics(characterization);
+    assert(diagnostics->observations[0x10].observation.current_exceeds_maximum);
+    assert(diagnostics->observations[0x10].observation.current_value == 18);
+    assert(diagnostics->observations[0x12].observation.category == RSS_DDC_PROBE_RESULT_VARIABLE);
+    assert(diagnostics->observations[0x61].observation.category == RSS_DDC_PROBE_RESULT_MALFORMED);
+    assert(diagnostics->observations[0x62].observation.category == RSS_DDC_PROBE_RESULT_TRANSPORT_ERROR);
+    assert(diagnostics->observations[0x63].observation.category == RSS_DDC_PROBE_RESULT_SEMANTIC_MISMATCH);
+    knowledge = rss_ddc_characterization_knowledge(characterization);
+    assert(route_with_kind(knowledge, "display.brightness", RSS_DDC_KNOWLEDGE_FACT_OBSERVED)
+               ->value.unsigned_value == 18);
+    assert(route_with_kind(knowledge, "display.contrast", RSS_DDC_KNOWLEDGE_FACT_OBSERVED)
+               ->value.unsigned_value == 50);
+    assert(count_fact_kind(knowledge, "display.rgb.red_gain", RSS_DDC_KNOWLEDGE_FACT_OBSERVED) == 0);
+    rss_ddc_probe_destroy(probe);
+    rss_ddc_characterization_destroy(characterization);
+}
+
+static void test_extended_priority_beats_capacity(void) {
+    RSSDDCDisplay display = slice2_display();
+    RSSDDCCharacterization *characterization = slice5_assembled(&display, slice6_pack_brightness_contrast());
+    RSSDDCMonitorKnowledge *batch = rss_ddc_monitor_knowledge_create();
+    Slice6MockGet mock = {0};
+    RSSDDCProbe *probe = NULL;
+    const RSSDDCCharacterizationPromotionSummary *promotion = NULL;
+    size_t before = 0;
+    for (unsigned index = 0; index < 124; ++index) {
+        char route_id[RSS_DDC_PROFILE_ID_MAX] = {};
+        (void)snprintf(route_id, sizeof(route_id), "fill-%u", index);
+        RSSDDCKnowledgeRoute route =
+            make_route("display.contrast", "fill", RSS_DDC_PROFILE_SOURCE_RESEARCH,
+                       RSS_DDC_PROFILE_CONFIDENCE_OBSERVED, RSS_DDC_KNOWLEDGE_FACT_OBSERVED, route_id,
+                       (uint16_t)index, RSS_DDC_KNOWLEDGE_VALUE_UNSIGNED, index, true, false, false);
+        assert(rss_ddc_monitor_knowledge_add_route(batch, &route) == RSS_DDC_OK);
+    }
+    assert(rss_ddc_characterization_add_knowledge(characterization, batch) == RSS_DDC_OK);
+    before = rss_ddc_monitor_knowledge_route_count(rss_ddc_characterization_knowledge(characterization));
+    assert(before == 126);
+    slice6_fill_protocol_reported(&mock);
+    slice6_set_stable(&mock, 0x15, 255, 1);
+    slice6_set_stable(&mock, 0x42, 4, 99);
+    slice6_set_stable(&mock, 0x43, 4, 7);
+    slice6_set_stable(&mock, 0x60, 18, 0x11);
+    probe = slice6_run_extended(&mock, &display);
+    assert(rss_ddc_characterization_collect_extended_probe(characterization, probe) == RSS_DDC_OK);
+    promotion = rss_ddc_characterization_extended_promotion(characterization);
+    assert(promotion != NULL);
+    assert(promotion->considered == RSS_DDC_PROBE_EXTENDED_ADDRESS_COUNT);
+    assert(promotion->skipped_capacity >= 2);
+    assert(rss_ddc_characterization_extended_diagnostics(characterization)->observation_count ==
+           RSS_DDC_PROBE_EXTENDED_ADDRESS_COUNT);
+    assert(rss_ddc_monitor_knowledge_route_count(rss_ddc_characterization_knowledge(characterization)) ==
+           128);
+    assert(route_with_kind(rss_ddc_characterization_knowledge(characterization), "inputs.switching",
+                           RSS_DDC_KNOWLEDGE_FACT_OBSERVED) != NULL);
+    assert(route_with_kind(rss_ddc_characterization_knowledge(characterization), "display.picture_mode",
+                           RSS_DDC_KNOWLEDGE_FACT_OBSERVED) != NULL);
+    assert(route_with_semantic(rss_ddc_characterization_knowledge(characterization),
+                               "vendor.unknown.vcp.42") == NULL);
+    rss_ddc_probe_destroy(probe);
+    rss_ddc_monitor_knowledge_destroy(batch);
+    rss_ddc_characterization_destroy(characterization);
+}
+
+static void test_extended_advertised_before_unknown_and_still_insufficient(void) {
+    RSSDDCDisplay display = slice2_display();
+    RSSDDCCharacterization *characterization = slice5_assembled(&display, slice6_pack_brightness_contrast());
+    RSSDDCMonitorKnowledge *batch = rss_ddc_monitor_knowledge_create();
+    Slice6MockGet mock = {0};
+    RSSDDCProbe *probe = NULL;
+    RSSDDCCharacterizationSufficiencyResult result = {0};
+    const RSSDDCCharacterizationPromotionSummary *promotion = NULL;
+    assert(rss_ddc_characterization_collect_passive_mccs_raw(characterization, "vcp(15 42)",
+                                                             strlen("vcp(15 42)")) == RSS_DDC_OK);
+    for (unsigned index = 0; index < 123; ++index) {
+        char route_id[RSS_DDC_PROFILE_ID_MAX] = {};
+        (void)snprintf(route_id, sizeof(route_id), "fill-%u", index);
+        RSSDDCKnowledgeRoute route =
+            make_route("display.contrast", "fill", RSS_DDC_PROFILE_SOURCE_RESEARCH,
+                       RSS_DDC_PROFILE_CONFIDENCE_OBSERVED, RSS_DDC_KNOWLEDGE_FACT_OBSERVED, route_id,
+                       (uint16_t)index, RSS_DDC_KNOWLEDGE_VALUE_UNSIGNED, index, true, false, false);
+        assert(rss_ddc_monitor_knowledge_add_route(batch, &route) == RSS_DDC_OK);
+    }
+    assert(rss_ddc_characterization_add_knowledge(characterization, batch) == RSS_DDC_OK);
+    assert(rss_ddc_monitor_knowledge_route_count(rss_ddc_characterization_knowledge(characterization)) ==
+           127);
+    slice6_fill_protocol_reported(&mock);
+    slice6_set_stable(&mock, 0x42, 4, 1);
+    slice6_set_stable(&mock, 0x99, 4, 2);
+    probe = slice6_run_extended(&mock, &display);
+    assert(rss_ddc_characterization_collect_extended_probe(characterization, probe) == RSS_DDC_OK);
+    promotion = rss_ddc_characterization_extended_promotion(characterization);
+    assert(promotion->promoted >= 1);
+    assert(route_with_kind(rss_ddc_characterization_knowledge(characterization), "vendor.unknown.vcp.42",
+                           RSS_DDC_KNOWLEDGE_FACT_OBSERVED) != NULL);
+    assert(route_with_semantic(rss_ddc_characterization_knowledge(characterization),
+                               "vendor.unknown.vcp.99") == NULL);
+    assert(rss_ddc_characterization_sufficiency(characterization, &result) == RSS_DDC_OK);
+    assert(result.status == RSS_DDC_CHARACTERIZATION_SUFFICIENCY_INSUFFICIENT);
+    assert(route_with_kind(rss_ddc_characterization_knowledge(characterization), "display.picture_mode",
+                           RSS_DDC_KNOWLEDGE_FACT_OBSERVED) == NULL);
+    assert(route_with_kind(rss_ddc_characterization_knowledge(characterization), "display.picture_mode",
+                           RSS_DDC_KNOWLEDGE_FACT_DECLARED) != NULL);
+    rss_ddc_probe_destroy(probe);
+    rss_ddc_monitor_knowledge_destroy(batch);
+    rss_ddc_characterization_destroy(characterization);
+}
+
+static void test_extended_abort_preserves_prior_knowledge(void) {
+    RSSDDCDisplay display = slice2_display();
+    RSSDDCCharacterization *characterization = slice5_assembled(&display, slice5_actionable_pack_dcpdp13());
+    Slice6MockGet mock = {0};
+    RSSDDCProbe *probe = NULL;
+    size_t before = rss_ddc_monitor_knowledge_route_count(rss_ddc_characterization_knowledge(characterization));
+    for (uint16_t code = 0; code < RSS_DDC_PROBE_EXTENDED_ADDRESS_COUNT; ++code) {
+        slice6_set_reply(&mock, (uint8_t)code, 0, RSS_DDC_ERROR_READ, 0, 0, 0);
+        slice6_set_reply(&mock, (uint8_t)code, 1, RSS_DDC_ERROR_READ, 0, 0, 0);
+    }
+    probe = slice6_run_extended(&mock, &display);
+    assert(rss_ddc_characterization_collect_extended_probe(characterization, probe) == RSS_DDC_OK);
+    assert(rss_ddc_characterization_extended_diagnostics(characterization)->aborted);
+    assert(rss_ddc_monitor_knowledge_route_count(rss_ddc_characterization_knowledge(characterization)) ==
+           before);
+    assert(rss_ddc_characterization_extended_promotion(characterization)->promoted == 0);
+    rss_ddc_probe_destroy(probe);
+    rss_ddc_characterization_destroy(characterization);
+}
+
+static void test_extended_no_get_is_not_run(void) {
+    RSSDDCDisplay display = slice4_no_get_display();
+    RSSDDCCharacterization *characterization = slice5_assembled(&display, NULL);
+    assert(rss_ddc_characterization_collect_extended_probe(characterization, NULL) == RSS_DDC_OK);
+    assert(!rss_ddc_characterization_extended_attempted(characterization));
+    assert(rss_ddc_characterization_extended_status(characterization) ==
+           RSS_DDC_ERROR_UNSUPPORTED_CAPABILITY);
+    rss_ddc_characterization_destroy(characterization);
+}
+
 int main(void) {
     test_semantic_normalization();
     test_composition_retains_competing_facts();
@@ -1257,5 +1560,13 @@ int main(void) {
     test_sufficiency_profile_conflict();
     test_sufficiency_variable_is_not_stable_current();
     test_sufficiency_stable_quick_observation();
+    test_extended_not_recommended_is_not_run();
+    test_extended_promotes_input_and_picture_mode();
+    test_extended_coexists_and_does_not_authorize_write();
+    test_extended_failures_remain_diagnostics();
+    test_extended_priority_beats_capacity();
+    test_extended_advertised_before_unknown_and_still_insufficient();
+    test_extended_abort_preserves_prior_knowledge();
+    test_extended_no_get_is_not_run();
     puts("test_characterize: passed");
 }

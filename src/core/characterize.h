@@ -10,9 +10,10 @@
  * Characterization orchestration. Internal, and hardware-free except
  * rss_ddc_characterization_prepare (display/EDID),
  * rss_ddc_characterization_collect_passive (MCCS retrieval), and
- * rss_ddc_characterization_collect_quick (Alien Probe Quick Auto Probe).
- * It does not restore monitor-knowledge/v0.1 JSON, run Extended Probe, or
- * call SET VCP. Sufficiency is a pure decision over current evidence.
+ * rss_ddc_characterization_collect_quick (Alien Probe Quick Auto Probe), and
+ * rss_ddc_characterization_collect_extended (Alien Probe Extended Auto Probe).
+ * It does not restore monitor-knowledge/v0.1 JSON or call SET VCP. Sufficiency
+ * is a pure decision over current evidence. Extended runs only when recommended.
  */
 
 typedef struct RSSDDCCharacterization RSSDDCCharacterization;
@@ -242,5 +243,50 @@ typedef struct {
 RSSDDCError rss_ddc_characterization_sufficiency(
     const RSSDDCCharacterization *characterization,
     RSSDDCCharacterizationSufficiencyResult *result);
+
+typedef struct {
+    size_t considered;
+    size_t promoted;
+    size_t skipped_capacity;
+    size_t skipped_nonpromotable;
+} RSSDDCCharacterizationPromotionSummary;
+
+/**
+ * Records a non-fatal Extended Auto Probe stage failure without promoting
+ * OBSERVED facts or clearing prior characterization knowledge.
+ */
+RSSDDCError rss_ddc_characterization_collect_extended_probe_failed(
+    RSSDDCCharacterization *characterization, RSSDDCError status);
+
+/**
+ * Ingests an already-run Alien Probe Extended Auto Probe
+ * (`rss_ddc_probe_extended`). Copies full diagnostics and selectively
+ * promotes protocol-valid OBSERVED facts. Does not SET. If GET VCP is
+ * unsupported, returns OK with no promotion.
+ */
+RSSDDCError rss_ddc_characterization_collect_extended_probe(
+    RSSDDCCharacterization *characterization, const RSSDDCProbe *probe);
+
+/**
+ * Platform Slice 6 entry: runs Extended only when Slice 5 sufficiency
+ * recommends it and GET VCP is available. Otherwise returns OK without
+ * execution. Does not SET, verify, or run Guided Discovery.
+ */
+RSSDDCError rss_ddc_characterization_collect_extended(RSSDDCCharacterization *characterization);
+
+bool rss_ddc_characterization_extended_attempted(const RSSDDCCharacterization *characterization);
+
+RSSDDCError rss_ddc_characterization_extended_status(const RSSDDCCharacterization *characterization);
+
+/**
+ * Borrowed Extended Auto Probe diagnostics; observation pointers are valid
+ * until the next Extended collect or destroy. NULL before an Extended stage
+ * copies diagnostics.
+ */
+const RSSDDCProbeExtendedDiagnostics *rss_ddc_characterization_extended_diagnostics(
+    const RSSDDCCharacterization *characterization);
+
+const RSSDDCCharacterizationPromotionSummary *rss_ddc_characterization_extended_promotion(
+    const RSSDDCCharacterization *characterization);
 
 #endif

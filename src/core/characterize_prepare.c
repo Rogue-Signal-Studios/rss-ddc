@@ -56,3 +56,31 @@ RSSDDCError rss_ddc_characterization_collect_quick(RSSDDCCharacterization *chara
     rss_ddc_probe_destroy(probe);
     return error;
 }
+
+RSSDDCError rss_ddc_characterization_collect_extended(RSSDDCCharacterization *characterization) {
+    const RSSDDCDisplay *display = rss_ddc_characterization_display(characterization);
+    if (characterization == NULL || display == NULL) {
+        return RSS_DDC_ERROR_ARGUMENT;
+    }
+    if (!rss_ddc_characterization_quick_supported(characterization)) {
+        return rss_ddc_characterization_collect_extended_probe_failed(
+            characterization, RSS_DDC_ERROR_UNSUPPORTED_CAPABILITY);
+    }
+    RSSDDCCharacterizationSufficiencyResult sufficiency = {0};
+    RSSDDCError error = rss_ddc_characterization_sufficiency(characterization, &sufficiency);
+    if (error != RSS_DDC_OK) {
+        return error;
+    }
+    if (sufficiency.status == RSS_DDC_CHARACTERIZATION_SUFFICIENCY_CONFLICT ||
+        !sufficiency.extended_recommended) {
+        return RSS_DDC_OK;
+    }
+    RSSDDCProbe *probe = NULL;
+    error = rss_ddc_probe_extended_for_display(display->list_index, &probe);
+    if (error != RSS_DDC_OK) {
+        return rss_ddc_characterization_collect_extended_probe_failed(characterization, error);
+    }
+    error = rss_ddc_characterization_collect_extended_probe(characterization, probe);
+    rss_ddc_probe_destroy(probe);
+    return error;
+}
