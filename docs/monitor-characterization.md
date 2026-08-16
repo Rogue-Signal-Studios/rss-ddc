@@ -1530,7 +1530,10 @@ lacks a method, Extended may still run.
 not invoked by `rss_ddc_characterize_display`. It performs no monitor I/O and
 does not save files. Builtin/pack/research records are never rewritten; new
 facts are LOCAL overlays via `rss_ddc_profile_store_put_local_profile`. Disk
-persistence remains `rss_ddc_profile_store_save_file`.
+persistence of a user overlay is `rss_ddc_profile_store_save_local_file`.
+`rss_ddc_profile_store_save_file` still dumps the whole store, including
+builtin records and last-loaded pack metadata, and must not be used for mixed
+builtin+local user files.
 
 **Eligible (authoritative).** Hardware-validated PROFILE or production write
 methods the current schema can represent: Picture Mode VCP `0x15` with its
@@ -1555,8 +1558,30 @@ INPUT control fails closed.
 non-identical write method, or bounds); `unsupported` (identity incomplete or
 nothing safely representable — Odyssey DEFAULT).
 
-No `rss-ddc profile` CLI command exists; CLI work is deferred. `rss-ddc
-characterize` does not mutate stores.
+No `rss-ddc profile` CLI command existed in Slice 10. `rss-ddc characterize`
+does not mutate stores.
+
+### Slice 11 — Explicit profile update CLI
+
+- **Files:** `cli/main.m`, `cli/presentation/args.c`,
+  `cli/presentation/profile_update.c`, `profile_store.c`, `rss_ddc.h`, CLI
+  tests, this document, `docs/monitor-profiles.md`, `README.md`
+- **Reuse:** public characterize + profile-update APIs; LOCAL-only export
+- **Hardware:** none for implementation tests; optional `/tmp` file smoke after
+  commit
+- **Accept:** `profile update --output` required; characterize remains
+  read-only; no monitor SET; LOCAL overlay metadata is `local-export`
+
+`rss-ddc profile update <display-index> --output <file>` characterizes in
+DEFAULT mode, updates the in-memory store explicitly, and saves LOCAL overlay
+records only when the result is CREATED or UPDATED. Builtin profiles stay
+builtin. Reload of builtin plus that file restores Picture Mode from builtin
+and LG_ALT input from the local overlay when those facts exist.
+
+`rss-ddc characterize` remains read-only and never modifies profiles.
+`profile update` still performs no monitor writes. Automatic persistence only
+keeps already-authoritative, representable knowledge; not every monitor gains
+write support.
 
 ## 20. Non-goals
 

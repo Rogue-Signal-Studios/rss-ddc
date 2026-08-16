@@ -28,6 +28,7 @@ make
 ./rss-ddc characterize 1
 ./rss-ddc characterize 1 --mode passive
 ./rss-ddc characterize 1 --mode deep
+./rss-ddc profile update 1 --output /tmp/local-profiles.json
 ./rss-ddc --verbose info 1
 ./rss-ddc get 1 0x10
 ./rss-ddc edid 1 --decode
@@ -81,7 +82,7 @@ when a display fails closed.
 
 `characterize` is a read-only report for one current list index. It calls
 `rss_ddc_characterize_display` and does not SET, update profiles, or run
-Guided Discovery / Experimental Validation.
+Guided Discovery / Experimental Validation. It never writes a profile store.
 
 ```sh
 ./rss-ddc characterize 1
@@ -89,6 +90,26 @@ Guided Discovery / Experimental Validation.
 ./rss-ddc characterize 1 --mode default
 ./rss-ddc characterize 1 --mode deep
 ```
+
+`profile update` is the explicit profile-store write path. It characterizes
+the selected display in DEFAULT mode (read-only toward the monitor), calls
+`rss_ddc_characterization_update_profile`, and saves only LOCAL overlay
+records to `--output`. There is no implicit user profile path; `--output` is
+required. Automatic update persists already-authoritative, schema-representable
+knowledge only. Example: LG HDR QHD can persist validated LG_ALT input
+(`lg-alt-input` at `0xf4`) as a local overlay while builtin Picture Mode stays
+builtin. Odyssey currently has no safely persistable authoritative controls, so
+the command reports `UNSUPPORTED` and writes no file. This does not mean every
+monitor can automatically gain write support.
+
+```sh
+./rss-ddc profile update 1 --output /tmp/local-profiles.json
+```
+
+CREATED and UPDATED write the LOCAL overlay. UNCHANGED does not rewrite the
+file. UNSUPPORTED does not create an empty file. CONFLICT leaves an existing
+file unchanged and exits non-zero. The command never issues monitor SET,
+LG_ALT SET, or picture-mode SET.
 
 PASSIVE is identity, profile match, transport bits, and MCCS only. DEFAULT
 adds Alien Probe Quick, then Extended only if sufficiency recommends it. DEEP

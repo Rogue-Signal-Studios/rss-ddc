@@ -62,8 +62,107 @@ RSSDDCError rss_ddc_profile_store_load_pack_file(RSSDDCProfileStore*s,const char
 #pragma clang diagnostic ignored "-Wformat-nonliteral"
 static void emit(char*b,size_t cap,size_t *n,const char *fmt,...){va_list a;va_start(a,fmt);int w=vsnprintf(b&&*n<cap?b+*n:NULL,b&&*n<cap?cap-*n:0,fmt,a);va_end(a);if(w>0)*n+=(size_t)w;}
 #pragma clang diagnostic pop
-RSSDDCError rss_ddc_profile_store_export_json(const RSSDDCProfileStore*s,char*b,size_t cap,size_t*required){if(!s||!required)return RSS_DDC_ERROR_ARGUMENT;size_t n=0;emit(b,cap,&n,"{\"schemaVersion\":1,\"databaseVersion\":\"%s\",\"minimumRSSDDCVersion\":\"%s\",\"packId\":\"%s\",\"profiles\":[",s->has_info?s->info.database_version:"local-export",s->has_info?s->info.minimum_rss_ddc_version:"0.1.0",s->has_info?s->info.pack_id:"local-export");for(size_t i=0;i<s->profile_count;i++){const ProfileRecord*r=&s->profiles[i];emit(b,cap,&n,"%s{\"id\":\"%s\",\"identity\":{\"productName\":\"%s\",\"provider\":\"%s\",\"transport\":\"%s\",\"external\":%s",i?",":"",r->id,r->identity.product_name,rss_ddc_provider_string(r->identity.provider),r->identity.transport,r->identity.external?"true":"false");if(r->identity.manufacturer[0])emit(b,cap,&n,",\"manufacturer\":\"%s\"",r->identity.manufacturer);if(r->identity.serial[0])emit(b,cap,&n,",\"serial\":\"%s\"",r->identity.serial);if(r->identity.branch_device_id[0])emit(b,cap,&n,",\"branchDeviceId\":\"%s\"",r->identity.branch_device_id);emit(b,cap,&n,"},\"confidence\":\"%s\",\"controls\":[",rss_ddc_profile_confidence_name(r->confidence));for(size_t j=0;j<r->control_count;j++){const RSSDDCProfileControl*q=&r->controls[j];emit(b,cap,&n,"%s{\"id\":\"%s\",\"method\":\"%s\",\"address\":%u,\"readable\":%s,\"writable\":%s,\"confidence\":\"%s\",\"enums\":[",j?",":"",rss_ddc_profile_control_name(q->id),q->method==RSS_DDC_PROFILE_METHOD_VCP?"vcp":"lg-alt-input",q->address,q->readable?"true":"false",q->writable?"true":"false",rss_ddc_profile_confidence_name(q->confidence));for(size_t k=0;k<q->enum_value_count;k++)emit(b,cap,&n,"%s{\"id\":\"%s\",\"name\":\"%s\",\"value\":%u}",k?",":"",q->enum_values[k].id,q->enum_values[k].name,q->enum_values[k].raw_value);emit(b,cap,&n,"]}");}emit(b,cap,&n,"]}");}emit(b,cap,&n,"]}");*required=n+1;if(!b&&!cap)return RSS_DDC_OK;if(!b||cap<n+1)return RSS_DDC_ERROR_ARGUMENT;b[n]=0;return RSS_DDC_OK;}
-RSSDDCError rss_ddc_profile_store_save_file(const RSSDDCProfileStore*s,const char*path){if(!s||!path||strlen(path)>RSS_DDC_PROFILE_PATH_MAX)return RSS_DDC_ERROR_ARGUMENT;size_t n=0;RSSDDCError z=rss_ddc_profile_store_export_json(s,NULL,0,&n);if(z)return z;char *d=malloc(n),*tmp=malloc(strlen(path)+12);if(!d||!tmp){free(d);free(tmp);return RSS_DDC_ERROR_SYSTEM;}z=rss_ddc_profile_store_export_json(s,d,n,&n);if(z){free(d);free(tmp);return z;}snprintf(tmp,strlen(path)+12,"%s.tmp.XXXXXX",path);int fd=mkstemp(tmp);if(fd<0){free(d);free(tmp);return RSS_DDC_ERROR_SYSTEM;}size_t off=0;while(off<n-1){ssize_t w=write(fd,d+off,n-1-off);if(w<=0){z=RSS_DDC_ERROR_SYSTEM;break;}off+=(size_t)w;}if(!z&&fsync(fd)!=0)z=RSS_DDC_ERROR_SYSTEM;if(close(fd)!=0&&!z)z=RSS_DDC_ERROR_SYSTEM;if(!z&&rename(tmp,path)!=0)z=RSS_DDC_ERROR_SYSTEM;if(z)unlink(tmp);free(d);free(tmp);return z;}
+static void emit_one_profile(char *b, size_t cap, size_t *n, const ProfileRecord *r, bool leading_comma) {
+    emit(b, cap, n, "%s{\"id\":\"%s\",\"identity\":{\"productName\":\"%s\",\"provider\":\"%s\",\"transport\":\"%s\",\"external\":%s",
+         leading_comma ? "," : "", r->id, r->identity.product_name, rss_ddc_provider_string(r->identity.provider),
+         r->identity.transport, r->identity.external ? "true" : "false");
+    if (r->identity.manufacturer[0]) emit(b, cap, n, ",\"manufacturer\":\"%s\"", r->identity.manufacturer);
+    if (r->identity.serial[0]) emit(b, cap, n, ",\"serial\":\"%s\"", r->identity.serial);
+    if (r->identity.branch_device_id[0]) emit(b, cap, n, ",\"branchDeviceId\":\"%s\"", r->identity.branch_device_id);
+    emit(b, cap, n, "},\"confidence\":\"%s\",\"controls\":[", rss_ddc_profile_confidence_name(r->confidence));
+    for (size_t j = 0; j < r->control_count; j++) {
+        const RSSDDCProfileControl *q = &r->controls[j];
+        emit(b, cap, n, "%s{\"id\":\"%s\",\"method\":\"%s\",\"address\":%u,\"readable\":%s,\"writable\":%s,\"confidence\":\"%s\",\"enums\":[",
+             j ? "," : "", rss_ddc_profile_control_name(q->id),
+             q->method == RSS_DDC_PROFILE_METHOD_VCP ? "vcp" : "lg-alt-input", q->address,
+             q->readable ? "true" : "false", q->writable ? "true" : "false",
+             rss_ddc_profile_confidence_name(q->confidence));
+        for (size_t k = 0; k < q->enum_value_count; k++) {
+            emit(b, cap, n, "%s{\"id\":\"%s\",\"name\":\"%s\",\"value\":%u}", k ? "," : "", q->enum_values[k].id,
+                 q->enum_values[k].name, q->enum_values[k].raw_value);
+        }
+        emit(b, cap, n, "]}");
+    }
+    emit(b, cap, n, "]}");
+}
+static RSSDDCError export_json_internal(const RSSDDCProfileStore *s, char *b, size_t cap, size_t *required,
+                                        const char *database_version, const char *minimum_version, const char *pack_id,
+                                        bool local_only) {
+    if (!s || !required || !database_version || !minimum_version || !pack_id) return RSS_DDC_ERROR_ARGUMENT;
+    size_t n = 0;
+    bool first = true;
+    emit(b, cap, &n, "{\"schemaVersion\":1,\"databaseVersion\":\"%s\",\"minimumRSSDDCVersion\":\"%s\",\"packId\":\"%s\",\"profiles\":[",
+         database_version, minimum_version, pack_id);
+    for (size_t i = 0; i < s->profile_count; i++) {
+        const ProfileRecord *r = &s->profiles[i];
+        if (local_only && r->source != RSS_DDC_PROFILE_SOURCE_LOCAL) continue;
+        emit_one_profile(b, cap, &n, r, !first);
+        first = false;
+    }
+    emit(b, cap, &n, "]}");
+    *required = n + 1;
+    if (!b && !cap) return RSS_DDC_OK;
+    if (!b || cap < n + 1) return RSS_DDC_ERROR_ARGUMENT;
+    b[n] = 0;
+    return RSS_DDC_OK;
+}
+RSSDDCError rss_ddc_profile_store_export_json(const RSSDDCProfileStore *s, char *b, size_t cap, size_t *required) {
+    if (!s) return RSS_DDC_ERROR_ARGUMENT;
+    return export_json_internal(s, b, cap, required, s->has_info ? s->info.database_version : "local-export",
+                                s->has_info ? s->info.minimum_rss_ddc_version : "0.1.0",
+                                s->has_info ? s->info.pack_id : "local-export", false);
+}
+RSSDDCError rss_ddc_profile_store_export_local_json(const RSSDDCProfileStore *s, char *b, size_t cap, size_t *required) {
+    return export_json_internal(s, b, cap, required, "local-export", "0.1.0", "local-export", true);
+}
+static RSSDDCError save_exported(const RSSDDCProfileStore *s, const char *path,
+                                 RSSDDCError (*exporter)(const RSSDDCProfileStore *, char *, size_t, size_t *)) {
+    if (!s || !path || strlen(path) > RSS_DDC_PROFILE_PATH_MAX || !exporter) return RSS_DDC_ERROR_ARGUMENT;
+    size_t n = 0;
+    RSSDDCError z = exporter(s, NULL, 0, &n);
+    if (z) return z;
+    char *d = malloc(n), *tmp = malloc(strlen(path) + 12);
+    if (!d || !tmp) {
+        free(d);
+        free(tmp);
+        return RSS_DDC_ERROR_SYSTEM;
+    }
+    z = exporter(s, d, n, &n);
+    if (z) {
+        free(d);
+        free(tmp);
+        return z;
+    }
+    snprintf(tmp, strlen(path) + 12, "%s.tmp.XXXXXX", path);
+    int fd = mkstemp(tmp);
+    if (fd < 0) {
+        free(d);
+        free(tmp);
+        return RSS_DDC_ERROR_SYSTEM;
+    }
+    size_t off = 0;
+    while (off < n - 1) {
+        ssize_t w = write(fd, d + off, n - 1 - off);
+        if (w <= 0) {
+            z = RSS_DDC_ERROR_SYSTEM;
+            break;
+        }
+        off += (size_t)w;
+    }
+    if (!z && fsync(fd) != 0) z = RSS_DDC_ERROR_SYSTEM;
+    if (close(fd) != 0 && !z) z = RSS_DDC_ERROR_SYSTEM;
+    if (!z && rename(tmp, path) != 0) z = RSS_DDC_ERROR_SYSTEM;
+    if (z) unlink(tmp);
+    free(d);
+    free(tmp);
+    return z;
+}
+RSSDDCError rss_ddc_profile_store_save_file(const RSSDDCProfileStore *s, const char *path) {
+    return save_exported(s, path, rss_ddc_profile_store_export_json);
+}
+RSSDDCError rss_ddc_profile_store_save_local_file(const RSSDDCProfileStore *s, const char *path) {
+    return save_exported(s, path, rss_ddc_profile_store_export_local_json);
+}
 
 static bool match(const RSSDDCProfileIdentity *p, const RSSDDCProfileIdentity *a, unsigned *score) {
     if (p->provider != a->provider || p->external != a->external || strcmp(p->product_name, a->product_name) ||

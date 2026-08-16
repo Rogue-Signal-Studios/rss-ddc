@@ -251,9 +251,31 @@ static void test_characterize_args(void) {
     char *extra[] = {(char *)"rss-ddc", (char *)"characterize", (char *)"1", (char *)"--mode", (char *)"passive",
                      (char *)"--json"};
     assert(!rss_ddc_cli_parse_characterize_options(6, extra, 3, &mode));
+    char *output[] = {(char *)"rss-ddc", (char *)"characterize", (char *)"1", (char *)"--output",
+                      (char *)"/tmp/x.json"};
+    assert(!rss_ddc_cli_parse_characterize_options(5, output, 3, &mode));
     assert(strcmp(rss_ddc_cli_characterize_mode_name(RSS_DDC_CHARACTERIZE_MODE_PASSIVE), "passive") == 0);
     assert(strcmp(rss_ddc_cli_characterize_mode_name(RSS_DDC_CHARACTERIZE_MODE_DEFAULT), "default") == 0);
     assert(strcmp(rss_ddc_cli_characterize_mode_name(RSS_DDC_CHARACTERIZE_MODE_DEEP), "deep") == 0);
+}
+
+static void test_profile_update_args(void) {
+    RSSDDCCliProfileUpdateOptions options = {};
+    char *missing[] = {(char *)"rss-ddc", (char *)"profile", (char *)"update", (char *)"1"};
+    assert(!rss_ddc_cli_parse_profile_update_options(4, missing, 4, &options));
+    char *space[] = {(char *)"rss-ddc", (char *)"profile", (char *)"update", (char *)"1", (char *)"--output",
+                     (char *)"/tmp/local.json"};
+    assert(rss_ddc_cli_parse_profile_update_options(6, space, 4, &options));
+    assert(strcmp(options.output_path, "/tmp/local.json") == 0);
+    char *equals[] = {(char *)"rss-ddc", (char *)"profile", (char *)"update", (char *)"1",
+                      (char *)"--output=/tmp/equals.json"};
+    assert(rss_ddc_cli_parse_profile_update_options(5, equals, 4, &options));
+    assert(strcmp(options.output_path, "/tmp/equals.json") == 0);
+    char *empty[] = {(char *)"rss-ddc", (char *)"profile", (char *)"update", (char *)"1", (char *)"--output="};
+    assert(!rss_ddc_cli_parse_profile_update_options(5, empty, 4, &options));
+    char *extra[] = {(char *)"rss-ddc", (char *)"profile", (char *)"update", (char *)"1", (char *)"--output",
+                     (char *)"/tmp/local.json", (char *)"--mode", (char *)"deep"};
+    assert(!rss_ddc_cli_parse_profile_update_options(8, extra, 4, &options));
 }
 
 static RSSDDCDisplay sample_display(void) {
@@ -541,6 +563,7 @@ int main(void) {
     test_precedence_and_auto();
     test_global_args();
     test_characterize_args();
+    test_profile_update_args();
     test_plain_and_table_renderers();
     test_probe_renderers();
     test_extended_probe_renderer();

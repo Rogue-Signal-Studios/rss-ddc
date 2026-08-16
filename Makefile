@@ -16,6 +16,7 @@ CLI_PRESENTATION_SOURCES = \
 	cli/presentation/plain.c cli/presentation/render.c cli/presentation/args.c \
 	cli/presentation/visible_width.c
 CLI_CHARACTERIZE_RENDER = cli/presentation/characterize_render.c
+CLI_PROFILE_UPDATE = cli/presentation/profile_update.c
 
 CFLAGS = -std=c11 -Wall -Wextra -Werror -Wformat=2 -fmodules -Iinclude -Isrc/core -Isrc/ddc -Isrc/dpcd -Isrc/platform/macos
 CLI_CFLAGS = $(CFLAGS) -Icli/presentation
@@ -45,7 +46,7 @@ TESTS = \
 	$(BUILD)/test_display_resolution $(BUILD)/test_mccs_capabilities $(BUILD)/test_mccs_retrieval \
 	$(BUILD)/test_input_switch $(BUILD)/test_input_switch_api $(BUILD)/test_picture_mode $(BUILD)/test_profile_store \
 	$(BUILD)/test_monitor_knowledge $(BUILD)/test_characterize $(BUILD)/test_probe $(BUILD)/test_probe_extended $(BUILD)/test_cli_presentation \
-	$(BUILD)/test_cli_characterize $(BUILD)/test_library_strings
+	$(BUILD)/test_cli_characterize $(BUILD)/test_cli_profile $(BUILD)/test_library_strings
 
 .DEFAULT_GOAL := all
 
@@ -65,8 +66,8 @@ $(BUILD)/%.o: %.m | $(BUILD)
 $(LIBRARY): $(LIBRARY_OBJECTS)
 	$(AR) rcs $@ $^
 
-$(NAME): $(LIBRARY) $(CLI_SOURCES) $(CLI_PRESENTATION_SOURCES) $(CLI_CHARACTERIZE_RENDER)
-	$(CC) $(CLI_CFLAGS) $(CLI_SOURCES) $(CLI_PRESENTATION_SOURCES) $(CLI_CHARACTERIZE_RENDER) $(LIBRARY) -o $@ $(LDLIBS)
+$(NAME): $(LIBRARY) $(CLI_SOURCES) $(CLI_PRESENTATION_SOURCES) $(CLI_CHARACTERIZE_RENDER) $(CLI_PROFILE_UPDATE)
+	$(CC) $(CLI_CFLAGS) $(CLI_SOURCES) $(CLI_PRESENTATION_SOURCES) $(CLI_CHARACTERIZE_RENDER) $(CLI_PROFILE_UPDATE) $(LIBRARY) -o $@ $(LDLIBS)
 
 # Private bindings embed public display snapshots. Rebuild every library
 # object and the CLI together whenever either layout-defining header changes.
@@ -148,6 +149,9 @@ $(BUILD)/test_cli_presentation: tests/test_cli_presentation.c tests/cli_presenta
 $(BUILD)/test_cli_characterize: tests/test_cli_characterize.c $(CLI_PRESENTATION_SOURCES) $(CLI_CHARACTERIZE_RENDER) src/core/characterize.c src/core/monitor_knowledge.c src/core/profile_store.c src/core/provider.c src/core/mccs_capabilities.c src/core/probe.c src/ddc/input_switch.c src/ddc/protocol.c | $(BUILD)
 	$(CC) $(CLI_CFLAGS) -pthread $^ -o $@
 
+$(BUILD)/test_cli_profile: tests/test_cli_profile.c $(CLI_PRESENTATION_SOURCES) $(CLI_PROFILE_UPDATE) src/core/characterize.c src/core/monitor_knowledge.c src/core/profile_store.c src/core/provider.c src/core/mccs_capabilities.c src/core/probe.c src/ddc/input_switch.c src/ddc/protocol.c | $(BUILD)
+	$(CC) $(CLI_CFLAGS) -pthread $^ -o $@
+
 $(BUILD)/test_library_strings: tests/test_library_strings.c $(LIBRARY) | $(BUILD)
 	$(CC) $(CFLAGS) tests/test_library_strings.c $(LIBRARY) -o $@ $(LDLIBS)
 
@@ -179,6 +183,7 @@ test: $(TESTS) check-library-sources
 	$(BUILD)/test_probe_extended
 	$(BUILD)/test_cli_presentation
 	$(BUILD)/test_cli_characterize
+	$(BUILD)/test_cli_profile
 	$(BUILD)/test_library_strings
 
 install-library: $(LIBRARY)

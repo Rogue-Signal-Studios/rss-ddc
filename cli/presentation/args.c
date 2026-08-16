@@ -113,3 +113,36 @@ bool rss_ddc_cli_parse_characterize_options(int argc, char **argv, int first_opt
     }
     return rss_ddc_cli_parse_characterize_mode(value, mode);
 }
+
+bool rss_ddc_cli_parse_profile_update_options(int argc, char **argv, int first_option,
+                                              RSSDDCCliProfileUpdateOptions *options) {
+    if (options == NULL) {
+        return false;
+    }
+    memset(options, 0, sizeof(*options));
+    if (argv == NULL || first_option < 0 || first_option >= argc || argv[first_option] == NULL) {
+        fprintf(stderr, "rss-ddc: profile update requires --output <file>\n");
+        return false;
+    }
+    const char *argument = argv[first_option];
+    const char *value = NULL;
+    if (strncmp(argument, "--output=", 9) == 0) {
+        value = argument + 9;
+        if (first_option + 1 != argc || value[0] == '\0') {
+            fprintf(stderr, "rss-ddc: profile update requires --output <file>\n");
+            return false;
+        }
+    } else if (strcmp(argument, "--output") == 0) {
+        if (first_option + 1 >= argc || first_option + 2 != argc || argv[first_option + 1] == NULL ||
+            argv[first_option + 1][0] == '\0') {
+            fprintf(stderr, "rss-ddc: profile update requires --output <file>\n");
+            return false;
+        }
+        value = argv[first_option + 1];
+    } else {
+        fprintf(stderr, "rss-ddc: profile update requires --output <file>\n");
+        return false;
+    }
+    options->output_path = value;
+    return true;
+}

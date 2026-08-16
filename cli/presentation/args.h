@@ -32,4 +32,17 @@ const char *rss_ddc_cli_characterize_mode_name(RSSDDCCharacterizeMode mode);
 bool rss_ddc_cli_parse_characterize_options(int argc, char **argv, int first_option,
                                             RSSDDCCharacterizeMode *mode);
 
+/** Parsed options for `profile update <index> --output <file>`. */
+typedef struct {
+    const char *output_path;
+} RSSDDCCliProfileUpdateOptions;
+
+/**
+ * Parses required `--output <file>` or `--output=<file>` after
+ * `profile update <index>`. No established user profile-path convention exists,
+ * so an explicit path is required.
+ */
+bool rss_ddc_cli_parse_profile_update_options(int argc, char **argv, int first_option,
+                                              RSSDDCCliProfileUpdateOptions *options);
+
 #endif

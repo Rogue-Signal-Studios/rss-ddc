@@ -31,7 +31,13 @@ the target; failed writes remove only the temporary file.
 `rss_ddc_profile_store_put_local_profile` inserts or replaces one LOCAL overlay
 in memory. It never rewrites builtin, validated-pack, or research records and
 does not write disk. Characterization profile update uses that primitive;
-callers who want a file must call `rss_ddc_profile_store_save_file` separately.
+callers who want a LOCAL overlay file must call
+`rss_ddc_profile_store_save_local_file`. That export writes only LOCAL-origin
+records with explicit `packId`/`databaseVersion` `local-export` and does not
+flatten builtin profiles or copy last-loaded pack metadata.
+`rss_ddc_profile_store_save_file` still exports the entire in-memory store
+using the store's current pack info and is not safe for mixed builtin+local
+user files.
 
 The historical `fc48972` bug arose when the multi-megabyte bounded store was
 copied as a stack local during parsing/appending/builtin resolution. This

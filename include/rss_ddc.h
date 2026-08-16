@@ -376,8 +376,21 @@ RSSDDCError rss_ddc_profile_store_pack_info(const RSSDDCProfileStore *store, RSS
 /** Export is caller-buffer owned; NULL/0 queries required bytes including NUL. */
 RSSDDCError rss_ddc_profile_store_export_json(const RSSDDCProfileStore *store, char *buffer, size_t capacity,
                                               size_t *required);
+/**
+ * Export only LOCAL-origin records using explicit local-pack metadata
+ * (`schemaVersion` 1, `packId`/`databaseVersion` `local-export`). Builtin,
+ * validated-pack, and research records are omitted. NULL/0 queries required
+ * bytes including NUL.
+ */
+RSSDDCError rss_ddc_profile_store_export_local_json(const RSSDDCProfileStore *store, char *buffer, size_t capacity,
+                                                    size_t *required);
 /** Save writes a complete temporary file and atomically renames it over `path` on success. */
 RSSDDCError rss_ddc_profile_store_save_file(const RSSDDCProfileStore *store, const char *path);
+/**
+ * Atomically writes LOCAL overlay JSON to `path`. Does not flatten builtin
+ * profiles into the file and does not copy last-loaded pack metadata.
+ */
+RSSDDCError rss_ddc_profile_store_save_local_file(const RSSDDCProfileStore *store, const char *path);
 /**
  * Inserts or replaces one LOCAL overlay profile in memory. Builtin, validated-pack,
  * and research records are never modified. A LOCAL record with the same identity
@@ -832,7 +845,8 @@ typedef struct {
  * Never contacts the monitor, never SET/writes, and never mutates `store`
  * during rss_ddc_characterize_display. Persists only hardware-validated
  * PROFILE/production methods the current schema can represent faithfully.
- * Does not save to disk; call rss_ddc_profile_store_save_file separately.
+ * Does not save to disk; call rss_ddc_profile_store_save_local_file for a
+ * LOCAL overlay, or rss_ddc_profile_store_save_file to export the entire store.
  * Builtin records are not modified; additions are LOCAL overlays.
  * On CONFLICT/UNSUPPORTED the store is unchanged. `*result` is written on
  * every return except RSS_DDC_ERROR_ARGUMENT when `result` is NULL.

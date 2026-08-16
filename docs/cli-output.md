@@ -92,6 +92,10 @@ column each for current Unicode table borders.
 - `probe-extended`
 - `characterize` (resolved-control table; probe summaries stay compact)
 
+`profile update` prints a compact report rather than a table. `characterize`
+never writes a profile file; `profile update --output` is the explicit LOCAL
+overlay save path and still performs no monitor writes.
+
 Interactive table mode also prints concise probe summaries using the exact
 underlying Slice 8 counters. `characterize` does not dump every Quick or
 Extended observation by default.

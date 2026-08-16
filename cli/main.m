@@ -12,6 +12,7 @@
 #include "presentation/config.h"
 #include "presentation/output_settings.h"
 #include "presentation/plain.h"
+#include "presentation/profile_update.h"
 #include "presentation/render.h"
 #include "presentation/terminal.h"
 
@@ -21,6 +22,7 @@ static void usage(const char *program) {
             "  %s [--color=yes|no|auto] [--table=yes|no|auto] [--unicode=yes|no|auto] list\n"
             "  %s [--verbose] [--color=yes|no|auto] [--table=yes|no|auto] [--unicode=yes|no|auto] info <display-index>\n"
             "  %s [--color=yes|no|auto] [--table=yes|no|auto] [--unicode=yes|no|auto] characterize <display-index> [--mode passive|default|deep]\n"
+            "  %s [--color=yes|no|auto] [--table=yes|no|auto] [--unicode=yes|no|auto] profile update <display-index> --output <file>\n"
             "  %s [--verbose] edid <display-index> [--decode|--hex|--raw <file>]\n"
             "  %s [--verbose] dpcd <display-index> <address> <length>\n"
             "  %s [--verbose] probe-dpcd-path <display-index>\n"
@@ -34,7 +36,7 @@ static void usage(const char *program) {
             "  %s [--verbose] set <display-index> <vcp> <value> --verify [--settle-ms <ms>] "
             "[--retries <count>] [--retry-delay-ms <ms>]\n",
             program, program, program, program, program, program, program, program, program, program, program, program,
-            program, program);
+            program, program, program);
 }
 
 static bool parse_unsigned(const char *text, unsigned long maximum, unsigned long *value) {
@@ -171,6 +173,84 @@ int main(int argc, char **argv) {
         rss_ddc_cli_render_display_list(stdout, displays, count, &output);
         free(displays);
         return EXIT_SUCCESS;
+    }
+    if (strcmp(argv[argument], "profile") == 0) {
+        RSSDDCCliProfileUpdateOptions profile_options = {};
+        unsigned long profile_index = 0;
+        RSSDDCProfileStore *store = NULL;
+        RSSDDCCharacterization *result = NULL;
+        RSSDDCCharacterizeOptions options = rss_ddc_default_characterize_options();
+        RSSDDCCharacterizationProfileUpdateResult update = {};
+        RSSDDCEffectiveProfile effective = {};
+        const RSSDDCEffectiveProfile *effective_ptr = NULL;
+        RSSDDCError error = RSS_DDC_OK;
+        bool written = false;
+        if (argc <= argument + 1 || strcmp(argv[argument + 1], "update") != 0) {
+            usage(argv[0]);
+            return EXIT_FAILURE;
+        }
+        if (argc <= argument + 2 || !parse_unsigned(argv[argument + 2], UINT32_MAX, &profile_index) ||
+            profile_index == 0) {
+            usage(argv[0]);
+            return EXIT_FAILURE;
+        }
+        if (!rss_ddc_cli_parse_profile_update_options(argc, argv, argument + 3, &profile_options)) {
+            usage(argv[0]);
+            return EXIT_FAILURE;
+        }
+        store = rss_ddc_profile_store_create();
+        if (store == NULL) {
+            fprintf(stderr, "rss-ddc: %s\n", rss_ddc_error_string(RSS_DDC_ERROR_SYSTEM));
+            return EXIT_FAILURE;
+        }
+        (void)rss_ddc_profile_store_load_builtin(store);
+        if (access(profile_options.output_path, F_OK) == 0) {
+            error = rss_ddc_profile_store_load_local_file(store, profile_options.output_path);
+            if (error != RSS_DDC_OK) {
+                fprintf(stderr, "rss-ddc: %s\n", rss_ddc_error_string(error));
+                rss_ddc_profile_store_destroy(store);
+                return EXIT_FAILURE;
+            }
+        }
+        options.mode = RSS_DDC_CHARACTERIZE_MODE_DEFAULT;
+        error = rss_ddc_characterize_display((uint32_t)profile_index, store, &options, &result);
+        if (error != RSS_DDC_OK || result == NULL) {
+            fprintf(stderr, "rss-ddc: %s\n", rss_ddc_error_string(error));
+            rss_ddc_characterization_destroy(result);
+            rss_ddc_profile_store_destroy(store);
+            return EXIT_FAILURE;
+        }
+        error = rss_ddc_characterization_update_profile(result, store, &update);
+        if (error != RSS_DDC_OK && error != RSS_DDC_ERROR_PROFILE_CONFLICT) {
+            fprintf(stderr, "rss-ddc: %s\n", rss_ddc_error_string(error));
+            rss_ddc_characterization_destroy(result);
+            rss_ddc_profile_store_destroy(store);
+            return EXIT_FAILURE;
+        }
+        if (rss_ddc_characterization_profile_identity(result) != NULL &&
+            rss_ddc_profile_store_resolve(store, rss_ddc_characterization_profile_identity(result),
+                                          &effective) == RSS_DDC_OK) {
+            effective_ptr = &effective;
+        }
+        if (error == RSS_DDC_OK) {
+            RSSDDCError save_error =
+                rss_ddc_cli_profile_update_save_if_needed(store, update.status, profile_options.output_path,
+                                                          &written);
+            if (save_error != RSS_DDC_OK) {
+                fprintf(stderr, "rss-ddc: %s\n", rss_ddc_error_string(save_error));
+                rss_ddc_characterization_destroy(result);
+                rss_ddc_profile_store_destroy(store);
+                return EXIT_FAILURE;
+            }
+        }
+        {
+            RSSDDCCliEffectiveOutput output = resolve_presentation(&parsed, false);
+            rss_ddc_cli_render_profile_update(stdout, result, &update, effective_ptr,
+                                              written ? profile_options.output_path : NULL, &output);
+        }
+        rss_ddc_characterization_destroy(result);
+        rss_ddc_profile_store_destroy(store);
+        return error == RSS_DDC_OK ? EXIT_SUCCESS : EXIT_FAILURE;
     }
     unsigned long display_index = 0;
     if (argc <= argument + 1 || !parse_unsigned(argv[argument + 1], UINT32_MAX, &display_index) || display_index == 0) {
