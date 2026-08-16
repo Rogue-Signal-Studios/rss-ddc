@@ -11,7 +11,7 @@ extern "C" {
 
 /* Pre-1.0 API marker: source compatibility may evolve as provider coverage matures. */
 #define RSS_DDC_VERSION_MAJOR 0
-#define RSS_DDC_VERSION_MINOR 1
+#define RSS_DDC_VERSION_MINOR 2
 #define RSS_DDC_VERSION_PATCH 0
 
 /** Runtime provider classes derived from the macOS registry, never CPU generation. */
@@ -637,6 +637,169 @@ RSSDDCError rss_ddc_set_vcp_and_verify_with_diagnostics(uint32_t list_index, uin
                                                          uint16_t value, const RSSDDCVerifyPolicy *policy,
                                                          RSSDDCVCPResult *result,
                                                          const RSSDDCDiagnostics *diagnostics);
+
+/**
+ * Automatic monitor characterization. The object is opaque; callers receive an
+ * owned pointer from rss_ddc_characterize_display and release it with
+ * rss_ddc_characterization_destroy. Accessor pointers are borrowed from the
+ * owned object and remain valid until destroy. This API never SET/writes a
+ * monitor or mutates a profile store.
+ */
+typedef struct RSSDDCCharacterization RSSDDCCharacterization;
+
+typedef enum {
+    RSS_DDC_CHARACTERIZE_MODE_PASSIVE = 0,
+    RSS_DDC_CHARACTERIZE_MODE_DEFAULT,
+    RSS_DDC_CHARACTERIZE_MODE_DEEP
+} RSSDDCCharacterizeMode;
+
+/** v1 options: mode only. NULL options to rss_ddc_characterize_display means DEFAULT. */
+typedef struct {
+    RSSDDCCharacterizeMode mode;
+} RSSDDCCharacterizeOptions;
+
+typedef enum {
+    RSS_DDC_CHARACTERIZATION_VALUE_UNRESOLVED = 0,
+    RSS_DDC_CHARACTERIZATION_VALUE_RESOLVED,
+    RSS_DDC_CHARACTERIZATION_VALUE_CONFLICT
+} RSSDDCCharacterizationValueState;
+
+typedef enum {
+    RSS_DDC_CHARACTERIZATION_PROFILE_NONE = 0,
+    RSS_DDC_CHARACTERIZATION_PROFILE_MATCHED,
+    RSS_DDC_CHARACTERIZATION_PROFILE_CONFLICT
+} RSSDDCCharacterizationProfileStatus;
+
+typedef enum {
+    RSS_DDC_CHARACTERIZATION_SUFFICIENCY_SUFFICIENT = 0,
+    RSS_DDC_CHARACTERIZATION_SUFFICIENCY_INSUFFICIENT,
+    RSS_DDC_CHARACTERIZATION_SUFFICIENCY_UNAVAILABLE,
+    RSS_DDC_CHARACTERIZATION_SUFFICIENCY_CONFLICT
+} RSSDDCCharacterizationSufficiency;
+
+enum {
+    RSS_DDC_CHARACTERIZATION_REASON_NONE = 0,
+    RSS_DDC_CHARACTERIZATION_REASON_MISSING_CONTROL = 1u << 0,
+    RSS_DDC_CHARACTERIZATION_REASON_UNRESOLVED_METHOD = 1u << 1,
+    RSS_DDC_CHARACTERIZATION_REASON_CONFLICTING_METHOD = 1u << 2,
+    RSS_DDC_CHARACTERIZATION_REASON_VARIABLE_OBSERVATION = 1u << 3,
+    RSS_DDC_CHARACTERIZATION_REASON_NO_GET_SUPPORT = 1u << 4,
+    RSS_DDC_CHARACTERIZATION_REASON_PROFILE_CONFLICT = 1u << 5,
+    RSS_DDC_CHARACTERIZATION_REASON_PROBE_HELPFUL = 1u << 6
+};
+
+typedef struct {
+    RSSDDCCharacterizationSufficiency status;
+    uint32_t reasons;
+    bool extended_recommended;
+} RSSDDCCharacterizationSufficiencyResult;
+
+typedef struct {
+    size_t considered;
+    size_t promoted;
+    size_t skipped_capacity;
+    size_t skipped_nonpromotable;
+} RSSDDCCharacterizationPromotionSummary;
+
+/** DEFAULT mode, no profile mutation, read-only automatic characterization. */
+RSSDDCCharacterizeOptions rss_ddc_default_characterize_options(void);
+
+/**
+ * Characterizes the current 1-based `list_index` end-to-end.
+ *
+ * `profiles` is borrowed and may be NULL. The store is never mutated.
+ * `options` may be NULL, which selects rss_ddc_default_characterize_options().
+ *
+ * PASSIVE runs identity, profile match, transport bits, and passive MCCS.
+ * DEFAULT adds Alien Probe Quick Auto Probe, then Extended only when
+ * sufficiency recommends it. DEEP forces Extended when GET VCP is available,
+ * even if DEFAULT would already be sufficient. DEEP is still read-only and is
+ * not Guided Discovery or Experimental Validation.
+ *
+ * On success or safe degradation, `*out` is an owned characterization. On
+ * fatal failure (invalid arguments, allocation failure, or unresolvable
+ * display), `*out` is NULL. INSUFFICIENT or CONFLICT sufficiency is not a
+ * fatal API error.
+ *
+ * This entry point does not call SET VCP, set-and-verify, alternate-input
+ * write, picture-mode SET, profile persistence, Guided Discovery, or
+ * Experimental Validation.
+ */
+RSSDDCError rss_ddc_characterize_display(uint32_t list_index, const RSSDDCProfileStore *profiles,
+                                         const RSSDDCCharacterizeOptions *options,
+                                         RSSDDCCharacterization **out);
+void rss_ddc_characterization_destroy(RSSDDCCharacterization *characterization);
+
+/**
+ * Copies `semantic_id` into `out`, replacing a known profile/schema alias with
+ * its canonical dotted ID. Matching is exact and case-sensitive.
+ */
+RSSDDCError rss_ddc_characterization_normalize_semantic_id(const char *semantic_id, char *out,
+                                                           size_t capacity);
+
+/** Copied display snapshot, or NULL before a successful characterization. */
+const RSSDDCDisplay *rss_ddc_characterization_display(const RSSDDCCharacterization *characterization);
+/** Copied EDID decode, or NULL when EDID was not acquired. */
+const RSSDDCEDIDInfo *rss_ddc_characterization_edid(const RSSDDCCharacterization *characterization);
+/** Transport/platform bits from rss_ddc_provider_capabilities, not DECLARED MCCS facts. */
+uint32_t rss_ddc_characterization_provider_capabilities(const RSSDDCCharacterization *characterization);
+RSSDDCCharacterizationProfileStatus rss_ddc_characterization_profile_status(
+    const RSSDDCCharacterization *characterization);
+const RSSDDCProfileIdentity *rss_ddc_characterization_profile_identity(
+    const RSSDDCCharacterization *characterization);
+/** Effective matched profile, or NULL unless status is MATCHED. */
+const RSSDDCEffectiveProfile *rss_ddc_characterization_effective_profile(
+    const RSSDDCCharacterization *characterization);
+
+/** Borrowed accumulated knowledge; valid until destroy. */
+const RSSDDCMonitorKnowledge *rss_ddc_characterization_knowledge(
+    const RSSDDCCharacterization *characterization);
+/**
+ * Resolves effective read/write methods for `semantic_id` after alias
+ * normalization. Caller owns `*resolution` and must destroy it.
+ */
+RSSDDCError rss_ddc_characterization_resolve(const RSSDDCCharacterization *characterization,
+                                             const char *semantic_id,
+                                             RSSDDCMonitorKnowledgeResolution **resolution);
+/**
+ * Selects a live current OBSERVED UNSIGNED/STRING value independently of
+ * method resolution. UNKNOWN never wins.
+ */
+RSSDDCError rss_ddc_characterization_current_value(const RSSDDCCharacterization *characterization,
+                                                   const char *semantic_id,
+                                                   RSSDDCCharacterizationValueState *state,
+                                                   const RSSDDCKnowledgeRoute **route);
+
+bool rss_ddc_characterization_mccs_supported(const RSSDDCCharacterization *characterization);
+bool rss_ddc_characterization_mccs_attempted(const RSSDDCCharacterization *characterization);
+RSSDDCError rss_ddc_characterization_mccs_status(const RSSDDCCharacterization *characterization);
+/** Borrowed parsed MCCS model, or NULL when none was successfully applied. */
+const RSSDDCMCCSCapabilities *rss_ddc_characterization_mccs(
+    const RSSDDCCharacterization *characterization);
+
+bool rss_ddc_characterization_quick_supported(const RSSDDCCharacterization *characterization);
+bool rss_ddc_characterization_quick_attempted(const RSSDDCCharacterization *characterization);
+RSSDDCError rss_ddc_characterization_quick_status(const RSSDDCCharacterization *characterization);
+/** Borrowed Quick diagnostics; valid until destroy. NULL if Quick did not run. */
+const RSSDDCProbeDiagnostics *rss_ddc_characterization_quick_diagnostics(
+    const RSSDDCCharacterization *characterization);
+
+bool rss_ddc_characterization_extended_attempted(const RSSDDCCharacterization *characterization);
+RSSDDCError rss_ddc_characterization_extended_status(const RSSDDCCharacterization *characterization);
+/** Borrowed Extended diagnostics; valid until destroy. NULL if Extended did not copy diagnostics. */
+const RSSDDCProbeExtendedDiagnostics *rss_ddc_characterization_extended_diagnostics(
+    const RSSDDCCharacterization *characterization);
+const RSSDDCCharacterizationPromotionSummary *rss_ddc_characterization_extended_promotion(
+    const RSSDDCCharacterization *characterization);
+
+/**
+ * Pure DEFAULT-mode sufficiency over current evidence. PASSIVE reports the
+ * passive-only state without having probed. DEEP reports the post-Extended
+ * state when Extended ran. DEEP does not imply SUFFICIENT.
+ */
+RSSDDCError rss_ddc_characterization_sufficiency(
+    const RSSDDCCharacterization *characterization,
+    RSSDDCCharacterizationSufficiencyResult *result);
 
 #ifdef __cplusplus
 }

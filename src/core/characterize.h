@@ -9,30 +9,17 @@
 /*
  * Characterization orchestration. Internal, and hardware-free except
  * rss_ddc_characterization_prepare (display/EDID),
- * rss_ddc_characterization_collect_passive (MCCS retrieval), and
- * rss_ddc_characterization_collect_quick (Alien Probe Quick Auto Probe), and
- * rss_ddc_characterization_collect_extended (Alien Probe Extended Auto Probe).
+ * rss_ddc_characterization_collect_passive (MCCS retrieval),
+ * rss_ddc_characterization_collect_quick (Alien Probe Quick Auto Probe),
+ * rss_ddc_characterization_collect_extended (Alien Probe Extended Auto Probe),
+ * and the live ops used by rss_ddc_characterize_display.
  * It does not restore monitor-knowledge/v0.1 JSON or call SET VCP. Sufficiency
- * is a pure decision over current evidence. Extended runs only when recommended.
+ * is a pure decision over current evidence. DEFAULT Extended runs only when
+ * recommended; DEEP may force Extended when GET is available.
  */
-
-typedef struct RSSDDCCharacterization RSSDDCCharacterization;
-
-typedef enum {
-    RSS_DDC_CHARACTERIZATION_VALUE_UNRESOLVED = 0,
-    RSS_DDC_CHARACTERIZATION_VALUE_RESOLVED,
-    RSS_DDC_CHARACTERIZATION_VALUE_CONFLICT
-} RSSDDCCharacterizationValueState;
-
-typedef enum {
-    RSS_DDC_CHARACTERIZATION_PROFILE_NONE = 0,
-    RSS_DDC_CHARACTERIZATION_PROFILE_MATCHED,
-    RSS_DDC_CHARACTERIZATION_PROFILE_CONFLICT
-} RSSDDCCharacterizationProfileStatus;
 
 /** Allocates empty orchestration state that owns an empty knowledge object. */
 RSSDDCCharacterization *rss_ddc_characterization_create(void);
-void rss_ddc_characterization_destroy(RSSDDCCharacterization *characterization);
 
 /**
  * Copies `semantic_id` into `out`, replacing a known profile/schema alias with
@@ -211,30 +198,6 @@ RSSDDCError rss_ddc_characterization_quick_status(const RSSDDCCharacterization *
 const RSSDDCProbeDiagnostics *rss_ddc_characterization_quick_diagnostics(
     const RSSDDCCharacterization *characterization);
 
-typedef enum {
-    RSS_DDC_CHARACTERIZATION_SUFFICIENCY_SUFFICIENT = 0,
-    RSS_DDC_CHARACTERIZATION_SUFFICIENCY_INSUFFICIENT,
-    RSS_DDC_CHARACTERIZATION_SUFFICIENCY_UNAVAILABLE,
-    RSS_DDC_CHARACTERIZATION_SUFFICIENCY_CONFLICT
-} RSSDDCCharacterizationSufficiency;
-
-enum {
-    RSS_DDC_CHARACTERIZATION_REASON_NONE = 0,
-    RSS_DDC_CHARACTERIZATION_REASON_MISSING_CONTROL = 1u << 0,
-    RSS_DDC_CHARACTERIZATION_REASON_UNRESOLVED_METHOD = 1u << 1,
-    RSS_DDC_CHARACTERIZATION_REASON_CONFLICTING_METHOD = 1u << 2,
-    RSS_DDC_CHARACTERIZATION_REASON_VARIABLE_OBSERVATION = 1u << 3,
-    RSS_DDC_CHARACTERIZATION_REASON_NO_GET_SUPPORT = 1u << 4,
-    RSS_DDC_CHARACTERIZATION_REASON_PROFILE_CONFLICT = 1u << 5,
-    RSS_DDC_CHARACTERIZATION_REASON_PROBE_HELPFUL = 1u << 6
-};
-
-typedef struct {
-    RSSDDCCharacterizationSufficiency status;
-    uint32_t reasons;
-    bool extended_recommended;
-} RSSDDCCharacterizationSufficiencyResult;
-
 /**
  * Pure DEFAULT-mode sufficiency over current identity, profile, MCCS, Quick
  * Auto Probe diagnostics, and merged knowledge. Does not run Extended Probe,
@@ -243,13 +206,6 @@ typedef struct {
 RSSDDCError rss_ddc_characterization_sufficiency(
     const RSSDDCCharacterization *characterization,
     RSSDDCCharacterizationSufficiencyResult *result);
-
-typedef struct {
-    size_t considered;
-    size_t promoted;
-    size_t skipped_capacity;
-    size_t skipped_nonpromotable;
-} RSSDDCCharacterizationPromotionSummary;
 
 /**
  * Records a non-fatal Extended Auto Probe stage failure without promoting
@@ -288,5 +244,31 @@ const RSSDDCProbeExtendedDiagnostics *rss_ddc_characterization_extended_diagnost
 
 const RSSDDCCharacterizationPromotionSummary *rss_ddc_characterization_extended_promotion(
     const RSSDDCCharacterization *characterization);
+
+/*
+ * Private testability ops for rss_ddc_characterization_execute. Not a general
+ * dependency-injection framework. Live rss_ddc_characterize_display supplies
+ * the public display/EDID/MCCS/Quick/Extended functions. Tests supply mocks.
+ * There is no SET/write callback.
+ */
+typedef struct {
+    void *context;
+    RSSDDCError (*get_display)(void *context, uint32_t list_index, RSSDDCDisplay *display);
+    RSSDDCError (*read_edid)(void *context, uint32_t list_index, RSSDDCEDID *edid);
+    RSSDDCError (*parse_edid)(void *context, const RSSDDCEDID *edid, RSSDDCEDIDInfo *info);
+    RSSDDCError (*get_mccs_capabilities)(void *context, uint32_t list_index,
+                                         RSSDDCMCCSCapabilities *capabilities);
+    RSSDDCError (*probe_quick_for_display)(void *context, uint32_t list_index, RSSDDCProbe **probe);
+    RSSDDCError (*probe_extended_for_display)(void *context, uint32_t list_index, RSSDDCProbe **probe);
+} RSSDDCCharacterizationOps;
+
+/**
+ * Private end-to-end executor used by rss_ddc_characterize_display. Does not
+ * SET VCP or mutate `profiles`. On fatal failure `*out` is NULL.
+ */
+RSSDDCError rss_ddc_characterization_execute(uint32_t list_index, const RSSDDCProfileStore *profiles,
+                                             const RSSDDCCharacterizeOptions *options,
+                                             const RSSDDCCharacterizationOps *ops,
+                                             RSSDDCCharacterization **out);
 
 #endif

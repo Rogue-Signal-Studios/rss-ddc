@@ -1061,3 +1061,135 @@ const RSSDDCCharacterizationPromotionSummary *rss_ddc_characterization_extended_
                ? &characterization->extended_promotion
                : NULL;
 }
+
+RSSDDCCharacterizeOptions rss_ddc_default_characterize_options(void) {
+    RSSDDCCharacterizeOptions options = {.mode = RSS_DDC_CHARACTERIZE_MODE_DEFAULT};
+    return options;
+}
+
+static bool characterize_mode_valid(RSSDDCCharacterizeMode mode) {
+    return mode == RSS_DDC_CHARACTERIZE_MODE_PASSIVE || mode == RSS_DDC_CHARACTERIZE_MODE_DEFAULT ||
+           mode == RSS_DDC_CHARACTERIZE_MODE_DEEP;
+}
+
+static bool characterization_ops_valid(const RSSDDCCharacterizationOps *ops) {
+    return ops != NULL && ops->get_display != NULL && ops->read_edid != NULL &&
+           ops->parse_edid != NULL && ops->get_mccs_capabilities != NULL &&
+           ops->probe_quick_for_display != NULL && ops->probe_extended_for_display != NULL;
+}
+
+static RSSDDCError collect_passive_with_ops(RSSDDCCharacterization *characterization,
+                                            const RSSDDCCharacterizationOps *ops, uint32_t list_index) {
+    if (!rss_ddc_characterization_mccs_supported(characterization)) {
+        return rss_ddc_characterization_collect_passive_mccs_failed(
+            characterization, RSS_DDC_ERROR_UNSUPPORTED_CAPABILITY);
+    }
+    RSSDDCMCCSCapabilities parsed = {0};
+    RSSDDCError error = ops->get_mccs_capabilities(ops->context, list_index, &parsed);
+    if (error != RSS_DDC_OK) {
+        return rss_ddc_characterization_collect_passive_mccs_failed(characterization, error);
+    }
+    return rss_ddc_characterization_collect_passive_mccs(characterization, &parsed);
+}
+
+static RSSDDCError collect_quick_with_ops(RSSDDCCharacterization *characterization,
+                                          const RSSDDCCharacterizationOps *ops, uint32_t list_index) {
+    if (!rss_ddc_characterization_quick_supported(characterization)) {
+        return rss_ddc_characterization_collect_quick_probe_failed(
+            characterization, RSS_DDC_ERROR_UNSUPPORTED_CAPABILITY);
+    }
+    RSSDDCProbe *probe = NULL;
+    RSSDDCError error = ops->probe_quick_for_display(ops->context, list_index, &probe);
+    if (error != RSS_DDC_OK) {
+        return rss_ddc_characterization_collect_quick_probe_failed(characterization, error);
+    }
+    error = rss_ddc_characterization_collect_quick_probe(characterization, probe);
+    rss_ddc_probe_destroy(probe);
+    return error;
+}
+
+/*
+ * Forced Extended ingest used by DEEP (and by DEFAULT when recommended).
+ * Does not consult Slice 5 extended_recommended. Still requires GET VCP.
+ * Read-only: ops expose only probe_extended_for_display, never SET.
+ */
+static RSSDDCError collect_extended_with_ops(RSSDDCCharacterization *characterization,
+                                             const RSSDDCCharacterizationOps *ops, uint32_t list_index) {
+    if (!rss_ddc_characterization_quick_supported(characterization)) {
+        return rss_ddc_characterization_collect_extended_probe_failed(
+            characterization, RSS_DDC_ERROR_UNSUPPORTED_CAPABILITY);
+    }
+    RSSDDCProbe *probe = NULL;
+    RSSDDCError error = ops->probe_extended_for_display(ops->context, list_index, &probe);
+    if (error != RSS_DDC_OK) {
+        return rss_ddc_characterization_collect_extended_probe_failed(characterization, error);
+    }
+    error = rss_ddc_characterization_collect_extended_probe(characterization, probe);
+    rss_ddc_probe_destroy(probe);
+    return error;
+}
+
+static bool should_run_extended(RSSDDCCharacterizeMode mode, const RSSDDCCharacterization *characterization,
+                                const RSSDDCCharacterizationSufficiencyResult *sufficiency) {
+    if (!rss_ddc_characterization_quick_supported(characterization)) {
+        return false;
+    }
+    if (mode == RSS_DDC_CHARACTERIZE_MODE_DEEP) {
+        return true;
+    }
+    return mode == RSS_DDC_CHARACTERIZE_MODE_DEFAULT && sufficiency->extended_recommended &&
+           sufficiency->status != RSS_DDC_CHARACTERIZATION_SUFFICIENCY_CONFLICT;
+}
+
+RSSDDCError rss_ddc_characterization_execute(uint32_t list_index, const RSSDDCProfileStore *profiles,
+                                             const RSSDDCCharacterizeOptions *options,
+                                             const RSSDDCCharacterizationOps *ops,
+                                             RSSDDCCharacterization **out) {
+    if (out == NULL) {
+        return RSS_DDC_ERROR_ARGUMENT;
+    }
+    *out = NULL;
+    RSSDDCCharacterizeOptions resolved =
+        options != NULL ? *options : rss_ddc_default_characterize_options();
+    if (!characterize_mode_valid(resolved.mode) || !characterization_ops_valid(ops)) {
+        return RSS_DDC_ERROR_ARGUMENT;
+    }
+
+    RSSDDCDisplay display = {0};
+    RSSDDCError error = ops->get_display(ops->context, list_index, &display);
+    if (error != RSS_DDC_OK) {
+        return error;
+    }
+
+    RSSDDCCharacterization *characterization = rss_ddc_characterization_create();
+    if (characterization == NULL) {
+        return RSS_DDC_ERROR_SYSTEM;
+    }
+
+    RSSDDCEDID edid = {0};
+    RSSDDCEDIDInfo info = {0};
+    const RSSDDCEDIDInfo *edid_info = NULL;
+    if (ops->read_edid(ops->context, list_index, &edid) == RSS_DDC_OK &&
+        ops->parse_edid(ops->context, &edid, &info) == RSS_DDC_OK) {
+        edid_info = &info;
+    }
+
+    error = rss_ddc_characterization_assemble(characterization, &display, edid_info, profiles);
+    if (error != RSS_DDC_OK && error != RSS_DDC_ERROR_PROFILE_CONFLICT) {
+        rss_ddc_characterization_destroy(characterization);
+        return error;
+    }
+
+    (void)collect_passive_with_ops(characterization, ops, list_index);
+    if (resolved.mode != RSS_DDC_CHARACTERIZE_MODE_PASSIVE) {
+        (void)collect_quick_with_ops(characterization, ops, list_index);
+        RSSDDCCharacterizationSufficiencyResult sufficiency = {0};
+        if (rss_ddc_characterization_sufficiency(characterization, &sufficiency) == RSS_DDC_OK &&
+            should_run_extended(resolved.mode, characterization, &sufficiency)) {
+            (void)collect_extended_with_ops(characterization, ops, list_index);
+        }
+    }
+
+    *out = characterization;
+    return RSS_DDC_OK;
+}

@@ -1357,11 +1357,72 @@ writes.
 
 **Slice 7 boundary.** Stop before public `rss_ddc_characterize_display`.
 
-### Slice 7 — Public/internal characterization API
+### Slice 7 — Public characterization API
 
-- **Change:** API returns current C runtime knowledge + snapshot, preserving
-  compatibility with future v0.1 serialization. No second result type.
-- **Accept:** consumer-test still excludes research objects; no schema bump
+- **Files:** `include/rss_ddc.h`, `characterize.h`, `characterize.c`,
+  `characterize_prepare.c`, `tests/test_characterize.c`, README version note
+- **Reuse:** existing prepare / collect_passive / Quick / Extended ingest
+  stages; private `rss_ddc_characterization_execute` plus a small ops table
+- **Hardware:** none. Public tests drive execute with mocked display/EDID/MCCS/
+  Quick/Extended. Live `rss_ddc_characterize_display` wires the existing
+  public read APIs and is not invoked against hardware in this slice
+- **Accept:** opaque owned result; PASSIVE / DEFAULT / DEEP; borrowed
+  accessors; no SET; no profile mutation; no CLI command
+
+#### Slice 7 implementation (this branch)
+
+**Public entry point.**
+
+```c
+RSSDDCError rss_ddc_characterize_display(
+    uint32_t list_index,
+    const RSSDDCProfileStore *profiles,
+    const RSSDDCCharacterizeOptions *options,
+    RSSDDCCharacterization **out);
+```
+
+`list_index` uses the existing 1-based current-list convention.
+`rss_ddc_default_characterize_options()` and NULL `options` both select
+DEFAULT mode. `profiles` is borrowed and may be NULL.
+
+**Ownership.** On success or safe degradation the caller owns `*out` and
+releases it with `rss_ddc_characterization_destroy`. Accessor pointers are
+borrowed from that object and remain valid until destroy. On fatal failure
+`*out` is NULL and nothing is leaked.
+
+**PASSIVE.** Identity, profile match, transport bits, passive MCCS,
+merge/resolution. Does not run Alien Probe Quick or Extended.
+
+**DEFAULT.** PASSIVE plus Quick, then sufficiency. Extended runs only when
+Slice 5 `extended_recommended` is true and GET VCP is available. Slice 5
+policy is unchanged.
+
+**DEEP.** Same pipeline, but Extended is forced when GET VCP is available even
+if DEFAULT would already be sufficient. DEEP is still read-only. It is not
+Guided Discovery, Experimental Validation, or SET testing. If GET is
+unavailable, DEEP degrades and returns the best available characterization.
+DEEP does not imply SUFFICIENT.
+
+**Degraded vs fatal.** Unresolvable display, bad arguments, and allocation
+failure are fatal (no object). EDID/MCCS/Quick/Extended stage failures, missing
+profiles, and INSUFFICIENT or CONFLICT sufficiency return an owned
+characterization. Extended failure preserves pre-Extended knowledge.
+
+**Read-only guarantee.** The public entry point and private executor call only
+display/EDID/profile/MCCS/Get-VCP probe APIs. There is no SET VCP,
+set-and-verify, alternate-input write, picture-mode SET, or profile
+persistence path. The private ops table has no write callback.
+
+**Accessors.** Display snapshot, EDID, provider capability bits, profile
+status/identity/effective profile, merged knowledge, MCCS model/status, Quick
+and Extended diagnostics, promotion summary, sufficiency, semantic method
+resolution, and current observed value. Alias normalization
+(`brightness` / `display.brightness`) continues to work through resolve and
+current-value.
+
+**Slice 8 boundary.** Stop before a CLI `characterize` command or view. The
+public library API is the consumer contract for CLI, Rogue Display Control,
+and the macOS Stream Deck backend.
 
 ### Slice 8 — CLI characterization view
 

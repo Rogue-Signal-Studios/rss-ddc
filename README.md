@@ -227,7 +227,21 @@ The zero-capacity call is the first half of the documented two-call display
 snapshot pattern. It returns the observed count but does not open an IOAV
 client. GET, SET, EDID, and DPCD requests are explicit separate API calls.
 
-The public API is pre-1.0 (`0.1.0`), so source/API compatibility may evolve as
+Automatic characterization is a separate read-only entry point. It never SET
+writes a monitor or mutates a profile store:
+
+```c
+RSSDDCCharacterizeOptions options = rss_ddc_default_characterize_options();
+RSSDDCCharacterization *result = NULL;
+RSSDDCError error = rss_ddc_characterize_display(1, NULL, &options, &result);
+if (error == RSS_DDC_OK) {
+    const RSSDDCMonitorKnowledge *knowledge = rss_ddc_characterization_knowledge(result);
+    (void)knowledge;
+    rss_ddc_characterization_destroy(result);
+}
+```
+
+The public API is pre-1.0 (`0.2.0`), so source/API compatibility may evolve as
 provider coverage matures. Consumers should pin an exact release or commit;
 the planned external consumer will pin rss-ddc rather than track `main`. No
 stable ABI promise is made before 1.0.

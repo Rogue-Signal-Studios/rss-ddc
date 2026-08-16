@@ -1526,6 +1526,306 @@ static void test_extended_no_get_is_not_run(void) {
     rss_ddc_characterization_destroy(characterization);
 }
 
+typedef struct {
+    RSSDDCDisplay display;
+    RSSDDCError display_error;
+    RSSDDCError edid_error;
+    RSSDDCEDIDInfo edid;
+    RSSDDCError mccs_error;
+    const char *mccs_raw;
+    Slice4MockGet quick;
+    RSSDDCError quick_error;
+    Slice6MockGet extended;
+    RSSDDCError extended_error;
+    unsigned get_display_calls;
+    unsigned read_edid_calls;
+    unsigned get_mccs_calls;
+    unsigned quick_calls;
+    unsigned extended_calls;
+    unsigned set_calls;
+} Slice7Harness;
+
+static RSSDDCError slice7_get_display(void *context, uint32_t list_index, RSSDDCDisplay *display) {
+    Slice7Harness *harness = context;
+    ++harness->get_display_calls;
+    (void)list_index;
+    if (harness->display_error != RSS_DDC_OK) {
+        return harness->display_error;
+    }
+    *display = harness->display;
+    return RSS_DDC_OK;
+}
+
+static RSSDDCError slice7_read_edid(void *context, uint32_t list_index, RSSDDCEDID *edid) {
+    Slice7Harness *harness = context;
+    ++harness->read_edid_calls;
+    (void)list_index;
+    (void)edid;
+    return harness->edid_error == RSS_DDC_OK ? RSS_DDC_OK : harness->edid_error;
+}
+
+static RSSDDCError slice7_parse_edid(void *context, const RSSDDCEDID *edid, RSSDDCEDIDInfo *info) {
+    Slice7Harness *harness = context;
+    (void)edid;
+    *info = harness->edid;
+    return RSS_DDC_OK;
+}
+
+static RSSDDCError slice7_get_mccs(void *context, uint32_t list_index,
+                                   RSSDDCMCCSCapabilities *capabilities) {
+    Slice7Harness *harness = context;
+    ++harness->get_mccs_calls;
+    (void)list_index;
+    if (harness->mccs_error != RSS_DDC_OK) {
+        return harness->mccs_error;
+    }
+    if (harness->mccs_raw == NULL) {
+        return RSS_DDC_ERROR_UNSUPPORTED_CAPABILITY;
+    }
+    return rss_ddc_parse_mccs_capabilities(harness->mccs_raw, strlen(harness->mccs_raw), capabilities);
+}
+
+static RSSDDCError slice7_probe_quick(void *context, uint32_t list_index, RSSDDCProbe **probe) {
+    Slice7Harness *harness = context;
+    ++harness->quick_calls;
+    (void)list_index;
+    if (harness->quick_error != RSS_DDC_OK) {
+        if (probe != NULL) {
+            *probe = NULL;
+        }
+        return harness->quick_error;
+    }
+    *probe = slice4_run_quick(&harness->quick, &harness->display);
+    return RSS_DDC_OK;
+}
+
+static RSSDDCError slice7_probe_extended(void *context, uint32_t list_index, RSSDDCProbe **probe) {
+    Slice7Harness *harness = context;
+    ++harness->extended_calls;
+    (void)list_index;
+    if (harness->extended_error != RSS_DDC_OK) {
+        if (probe != NULL) {
+            *probe = NULL;
+        }
+        return harness->extended_error;
+    }
+    *probe = slice6_run_extended(&harness->extended, &harness->display);
+    return RSS_DDC_OK;
+}
+
+static RSSDDCCharacterizationOps slice7_ops(Slice7Harness *harness) {
+    RSSDDCCharacterizationOps ops = {
+        .context = harness,
+        .get_display = slice7_get_display,
+        .read_edid = slice7_read_edid,
+        .parse_edid = slice7_parse_edid,
+        .get_mccs_capabilities = slice7_get_mccs,
+        .probe_quick_for_display = slice7_probe_quick,
+        .probe_extended_for_display = slice7_probe_extended,
+    };
+    return ops;
+}
+
+static Slice7Harness slice7_harness(RSSDDCDisplay display) {
+    Slice7Harness harness = {.display = display};
+    slice6_fill_protocol_reported(&harness.extended);
+    return harness;
+}
+
+static void slice7_stable_quick(Slice7Harness *harness, uint16_t brightness) {
+    for (size_t index = 0; index < RSS_DDC_PROBE_QUICK_CONTROL_COUNT; ++index) {
+        slice4_set_stable(&harness->quick, index, 100, 1);
+    }
+    slice4_set_stable(&harness->quick, 0, 100, brightness);
+}
+
+static RSSDDCError slice7_run(Slice7Harness *harness, const RSSDDCProfileStore *profiles,
+                              const RSSDDCCharacterizeOptions *options,
+                              RSSDDCCharacterization **out) {
+    RSSDDCCharacterizationOps ops = slice7_ops(harness);
+    RSSDDCError error = rss_ddc_characterization_execute(harness->display.list_index, profiles,
+                                                         options, &ops, out);
+    assert(harness->set_calls == 0);
+    return error;
+}
+
+static void test_public_invalid_display_returns_no_object(void) {
+    Slice7Harness harness = slice7_harness(slice2_display());
+    RSSDDCCharacterization *result = (RSSDDCCharacterization *)0x1;
+    RSSDDCCharacterizeOptions options = rss_ddc_default_characterize_options();
+    RSSDDCCharacterizationOps ops = slice7_ops(&harness);
+    harness.display_error = RSS_DDC_ERROR_NOT_FOUND;
+    assert(rss_ddc_characterization_execute(3, NULL, &options, &ops, &result) ==
+           RSS_DDC_ERROR_NOT_FOUND);
+    assert(result == NULL);
+    assert(harness.quick_calls == 0);
+    assert(harness.extended_calls == 0);
+    assert(harness.set_calls == 0);
+    assert(rss_ddc_characterization_execute(3, NULL, &options, &ops, NULL) == RSS_DDC_ERROR_ARGUMENT);
+}
+
+static void test_public_passive_skips_probes(void) {
+    Slice7Harness harness = slice7_harness(slice2_display());
+    RSSDDCCharacterizeOptions options = {.mode = RSS_DDC_CHARACTERIZE_MODE_PASSIVE};
+    RSSDDCCharacterization *result = NULL;
+    RSSDDCCharacterizationSufficiencyResult sufficiency = {0};
+    harness.mccs_raw = "vcp(10 12 15 60)";
+    assert(slice7_run(&harness, NULL, &options, &result) == RSS_DDC_OK);
+    assert(result != NULL);
+    assert(harness.get_mccs_calls == 1);
+    assert(harness.quick_calls == 0);
+    assert(harness.extended_calls == 0);
+    assert(!rss_ddc_characterization_quick_attempted(result));
+    assert(!rss_ddc_characterization_extended_attempted(result));
+    assert(rss_ddc_characterization_mccs(result) != NULL);
+    assert(count_fact_kind(rss_ddc_characterization_knowledge(result), "display.brightness",
+                           RSS_DDC_KNOWLEDGE_FACT_DECLARED) == 1);
+    assert(rss_ddc_characterization_sufficiency(result, &sufficiency) == RSS_DDC_OK);
+    assert(sufficiency.status != RSS_DDC_CHARACTERIZATION_SUFFICIENCY_UNAVAILABLE);
+    rss_ddc_characterization_destroy(result);
+}
+
+static void test_public_default_sufficient_after_quick_skips_extended(void) {
+    Slice7Harness harness = slice7_harness(slice3_ps190_display());
+    RSSDDCCharacterization *result = NULL;
+    RSSDDCCharacterizationSufficiencyResult sufficiency = {0};
+    slice7_stable_quick(&harness, 42);
+    assert(slice7_run(&harness, NULL, NULL, &result) == RSS_DDC_OK);
+    assert(harness.quick_calls == 1);
+    assert(harness.extended_calls == 0);
+    assert(rss_ddc_characterization_quick_attempted(result));
+    assert(!rss_ddc_characterization_extended_attempted(result));
+    assert(rss_ddc_characterization_sufficiency(result, &sufficiency) == RSS_DDC_OK);
+    assert(sufficiency.status == RSS_DDC_CHARACTERIZATION_SUFFICIENCY_SUFFICIENT);
+    assert(!sufficiency.extended_recommended);
+    rss_ddc_characterization_destroy(result);
+}
+
+static void test_public_deep_forces_extended_when_get_available(void) {
+    Slice7Harness harness = slice7_harness(slice3_ps190_display());
+    RSSDDCCharacterizeOptions options = {.mode = RSS_DDC_CHARACTERIZE_MODE_DEEP};
+    RSSDDCCharacterization *result = NULL;
+    RSSDDCCharacterizationSufficiencyResult sufficiency = {0};
+    slice7_stable_quick(&harness, 42);
+    assert(slice7_run(&harness, NULL, &options, &result) == RSS_DDC_OK);
+    assert(harness.quick_calls == 1);
+    assert(harness.extended_calls == 1);
+    assert(rss_ddc_characterization_extended_attempted(result));
+    assert(rss_ddc_characterization_extended_diagnostics(result) != NULL);
+    assert(rss_ddc_characterization_sufficiency(result, &sufficiency) == RSS_DDC_OK);
+    assert(sufficiency.status == RSS_DDC_CHARACTERIZATION_SUFFICIENCY_SUFFICIENT);
+    rss_ddc_characterization_destroy(result);
+}
+
+static void test_public_deep_without_get_skips_extended(void) {
+    Slice7Harness harness = slice7_harness(slice4_no_get_display());
+    RSSDDCCharacterizeOptions options = {.mode = RSS_DDC_CHARACTERIZE_MODE_DEEP};
+    RSSDDCCharacterization *result = NULL;
+    assert(slice7_run(&harness, NULL, &options, &result) == RSS_DDC_OK);
+    assert(result != NULL);
+    assert(harness.quick_calls == 0);
+    assert(harness.extended_calls == 0);
+    assert(!rss_ddc_characterization_extended_attempted(result));
+    assert(rss_ddc_characterization_display(result) != NULL);
+    rss_ddc_characterization_destroy(result);
+}
+
+static void test_public_default_extended_when_recommended(void) {
+    Slice7Harness harness = slice7_harness(slice2_display());
+    RSSDDCCharacterization *result = NULL;
+    RSSDDCCharacterizationSufficiencyResult sufficiency = {0};
+    const RSSDDCProbeDiagnostics *quick = NULL;
+    RSSDDCMonitorKnowledgeResolution *resolution = NULL;
+    RSSDDCCharacterizationValueState value_state = RSS_DDC_CHARACTERIZATION_VALUE_UNRESOLVED;
+    const RSSDDCKnowledgeRoute *current = NULL;
+    RSSDDCProfileStore *store = rss_ddc_profile_store_create();
+    const char *pack = slice2_profile_pack();
+    harness.edid.manufacturer_id[0] = 'G';
+    harness.edid.manufacturer_id[1] = 'S';
+    harness.edid.manufacturer_id[2] = 'M';
+    harness.edid.manufacturer_id[3] = '\0';
+    harness.mccs_raw = "vcp(10 12 15 60)";
+    slice7_stable_quick(&harness, 42);
+    slice6_set_stable(&harness.extended, 0x15, 255, 0x31);
+    slice6_set_stable(&harness.extended, 0x60, 18, 0x11);
+    assert(store != NULL);
+    assert(rss_ddc_profile_store_load_pack_data(store, pack, strlen(pack)) == RSS_DDC_OK);
+    assert(slice7_run(&harness, store, NULL, &result) == RSS_DDC_OK);
+    assert(harness.quick_calls == 1);
+    assert(harness.extended_calls == 1);
+    assert(rss_ddc_characterization_edid(result) != NULL);
+    assert(count_fact_kind(rss_ddc_characterization_knowledge(result), "display.brightness",
+                           RSS_DDC_KNOWLEDGE_FACT_PROFILE) == 1);
+    assert(count_fact_kind(rss_ddc_characterization_knowledge(result), "display.brightness",
+                           RSS_DDC_KNOWLEDGE_FACT_DECLARED) == 1);
+    assert(count_fact_kind(rss_ddc_characterization_knowledge(result), "display.brightness",
+                           RSS_DDC_KNOWLEDGE_FACT_OBSERVED) == 1);
+    assert(route_with_kind(rss_ddc_characterization_knowledge(result), "inputs.switching",
+                           RSS_DDC_KNOWLEDGE_FACT_OBSERVED) != NULL);
+    assert(route_with_kind(rss_ddc_characterization_knowledge(result), "display.picture_mode",
+                           RSS_DDC_KNOWLEDGE_FACT_OBSERVED) != NULL);
+    assert(rss_ddc_characterization_resolve(result, "brightness", &resolution) == RSS_DDC_OK);
+    assert(rss_ddc_monitor_knowledge_resolution_state(resolution) == RSS_DDC_KNOWLEDGE_RESOLUTION_RESOLVED);
+    rss_ddc_monitor_knowledge_resolution_destroy(resolution);
+    assert(rss_ddc_characterization_current_value(result, "brightness", &value_state, &current) ==
+           RSS_DDC_OK);
+    assert(value_state == RSS_DDC_CHARACTERIZATION_VALUE_RESOLVED);
+    assert(current->value.unsigned_value == 42);
+    quick = rss_ddc_characterization_quick_diagnostics(result);
+    assert(quick != NULL);
+    assert(quick->observation_count == RSS_DDC_PROBE_QUICK_CONTROL_COUNT);
+    assert(rss_ddc_characterization_sufficiency(result, &sufficiency) == RSS_DDC_OK);
+    assert(sufficiency.status == RSS_DDC_CHARACTERIZATION_SUFFICIENCY_SUFFICIENT);
+    rss_ddc_characterization_destroy(result);
+    rss_ddc_profile_store_destroy(store);
+}
+
+static void test_public_null_store_and_stage_degradation(void) {
+    Slice7Harness harness = slice7_harness(slice3_ps190_display());
+    RSSDDCCharacterization *result = NULL;
+    RSSDDCCharacterizeOptions passive = {.mode = RSS_DDC_CHARACTERIZE_MODE_PASSIVE};
+    harness.edid_error = RSS_DDC_ERROR_READ;
+    slice7_stable_quick(&harness, 42);
+    assert(slice7_run(&harness, NULL, NULL, &result) == RSS_DDC_OK);
+    assert(rss_ddc_characterization_edid(result) == NULL);
+    assert(rss_ddc_characterization_profile_status(result) == RSS_DDC_CHARACTERIZATION_PROFILE_NONE);
+    rss_ddc_characterization_destroy(result);
+
+    harness = slice7_harness(slice2_display());
+    harness.mccs_error = RSS_DDC_ERROR_READ;
+    assert(slice7_run(&harness, NULL, &passive, &result) == RSS_DDC_OK);
+    assert(rss_ddc_characterization_mccs_attempted(result));
+    assert(rss_ddc_characterization_mccs_status(result) == RSS_DDC_ERROR_READ);
+    assert(rss_ddc_characterization_mccs(result) == NULL);
+    assert(!rss_ddc_characterization_quick_attempted(result));
+    rss_ddc_characterization_destroy(result);
+
+    harness = slice7_harness(slice2_display());
+    harness.quick_error = RSS_DDC_ERROR_READ;
+    harness.extended_error = RSS_DDC_ERROR_READ;
+    assert(slice7_run(&harness, NULL, NULL, &result) == RSS_DDC_OK);
+    assert(rss_ddc_characterization_quick_attempted(result));
+    assert(rss_ddc_characterization_quick_status(result) == RSS_DDC_ERROR_READ);
+    assert(rss_ddc_characterization_display(result) != NULL);
+    rss_ddc_characterization_destroy(result);
+
+    harness = slice7_harness(slice2_display());
+    slice7_stable_quick(&harness, 42);
+    slice4_set_reply(&harness.quick, 1, 0, RSS_DDC_ERROR_READ, 0, 0, 0);
+    slice4_set_reply(&harness.quick, 1, 1, RSS_DDC_ERROR_READ, 0, 0, 0);
+    harness.extended_error = RSS_DDC_ERROR_READ;
+    assert(slice7_run(&harness, NULL, NULL, &result) == RSS_DDC_OK);
+    assert(rss_ddc_characterization_quick_attempted(result));
+    assert(rss_ddc_characterization_quick_diagnostics(result) != NULL);
+    assert(count_fact_kind(rss_ddc_characterization_knowledge(result), "display.brightness",
+                           RSS_DDC_KNOWLEDGE_FACT_OBSERVED) == 1);
+    assert(rss_ddc_characterization_extended_attempted(result));
+    assert(rss_ddc_characterization_extended_status(result) == RSS_DDC_ERROR_READ);
+    assert(route_with_kind(rss_ddc_characterization_knowledge(result), "inputs.switching",
+                           RSS_DDC_KNOWLEDGE_FACT_OBSERVED) == NULL);
+    rss_ddc_characterization_destroy(result);
+}
+
 int main(void) {
     test_semantic_normalization();
     test_composition_retains_competing_facts();
@@ -1568,5 +1868,12 @@ int main(void) {
     test_extended_advertised_before_unknown_and_still_insufficient();
     test_extended_abort_preserves_prior_knowledge();
     test_extended_no_get_is_not_run();
+    test_public_invalid_display_returns_no_object();
+    test_public_passive_skips_probes();
+    test_public_default_sufficient_after_quick_skips_extended();
+    test_public_deep_forces_extended_when_get_available();
+    test_public_deep_without_get_skips_extended();
+    test_public_default_extended_when_recommended();
+    test_public_null_store_and_stage_degradation();
     puts("test_characterize: passed");
 }

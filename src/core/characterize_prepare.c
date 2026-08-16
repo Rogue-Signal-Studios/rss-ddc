@@ -84,3 +84,49 @@ RSSDDCError rss_ddc_characterization_collect_extended(RSSDDCCharacterization *ch
     rss_ddc_probe_destroy(probe);
     return error;
 }
+
+static RSSDDCError live_get_display(void *context, uint32_t list_index, RSSDDCDisplay *display) {
+    (void)context;
+    return rss_ddc_get_display(list_index, display);
+}
+
+static RSSDDCError live_read_edid(void *context, uint32_t list_index, RSSDDCEDID *edid) {
+    (void)context;
+    return rss_ddc_read_edid(list_index, edid);
+}
+
+static RSSDDCError live_parse_edid(void *context, const RSSDDCEDID *edid, RSSDDCEDIDInfo *info) {
+    (void)context;
+    return rss_ddc_parse_edid(edid, info);
+}
+
+static RSSDDCError live_get_mccs_capabilities(void *context, uint32_t list_index,
+                                              RSSDDCMCCSCapabilities *capabilities) {
+    (void)context;
+    return rss_ddc_get_mccs_capabilities(list_index, capabilities);
+}
+
+static RSSDDCError live_probe_quick_for_display(void *context, uint32_t list_index, RSSDDCProbe **probe) {
+    (void)context;
+    return rss_ddc_probe_quick_for_display(list_index, probe);
+}
+
+static RSSDDCError live_probe_extended_for_display(void *context, uint32_t list_index,
+                                                   RSSDDCProbe **probe) {
+    (void)context;
+    return rss_ddc_probe_extended_for_display(list_index, probe);
+}
+
+RSSDDCError rss_ddc_characterize_display(uint32_t list_index, const RSSDDCProfileStore *profiles,
+                                         const RSSDDCCharacterizeOptions *options,
+                                         RSSDDCCharacterization **out) {
+    static const RSSDDCCharacterizationOps live_ops = {
+        .get_display = live_get_display,
+        .read_edid = live_read_edid,
+        .parse_edid = live_parse_edid,
+        .get_mccs_capabilities = live_get_mccs_capabilities,
+        .probe_quick_for_display = live_probe_quick_for_display,
+        .probe_extended_for_display = live_probe_extended_for_display,
+    };
+    return rss_ddc_characterization_execute(list_index, profiles, options, &live_ops, out);
+}
