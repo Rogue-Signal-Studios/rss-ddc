@@ -95,7 +95,15 @@ Guided Discovery / Experimental Validation. It never writes a profile store.
 ./rss-ddc characterize 1 --mode default
 ./rss-ddc characterize 1 --mode deep
 ./rss-ddc characterize 1 --mode deep --no-profiles
+./rss-ddc characterize 1 --mode deep --no-profiles --json
+./rss-ddc characterize 1 --mode default --json --output /tmp/monitor.json
 ```
+
+`--json` prints canonical `monitor-knowledge/v0.1` discovery JSON to stdout
+instead of the human report. `--output <file>` writes the same JSON
+atomically (an existing file is replaced only after a complete write) and
+implies JSON mode. Discovery JSON never includes prior PARTIAL PROFILE
+augmentation. Human-readable output remains the default.
 
 `--no-profiles` is a diagnostic true-alien path: the same characterization
 pipeline with monitor-specific profile/structured prior knowledge disabled.

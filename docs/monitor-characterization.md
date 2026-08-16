@@ -24,8 +24,9 @@ in `include/rss_ddc.h`, plus `RSSDDCDisplay` / optional EDID snapshots. This
 is a recovery-scope subset (`3f922f9`), not a competing schema and not a
 repeal of v0.1.
 
-Characterization populates the current C subset now. A future serializer, if
-restored, must emit v0.1, not a new `CharacterizationResult` type.
+Characterization populates the current C subset and emits
+`monitor-knowledge/v0.1` JSON from discovery-only knowledge. Do not invent a
+new `CharacterizationResult` type.
 
 ## 1. Purpose
 
@@ -64,7 +65,7 @@ native C representation  ↔  deterministic monitor-knowledge/v0.1 JSON
 | Layer | What it is | Status on this branch |
 | --- | --- | --- |
 | Characterization | Process / orchestrator combining identity, profile, passive MCCS, Alien Probe™ Quick and Extended Auto Probe, and sufficiency | Slice 6 Extended Auto Probe ingest/promotion implemented internally; Guided Discovery and Experimental Validation deferred |
-| `monitor-knowledge/v0.1` | Canonical durable document: identity, capabilities, methods, values, input routes, relationships, evidence | Implemented historically (`38cf0b1`); **not present** on current main; serializer deferred |
+| `monitor-knowledge/v0.1` | Canonical durable discovery/evidence document: identity, capabilities, methods, values, empty input routes/relationships, evidence | Restored as a serialization mapping from the current route bag (`src/core/monitor_knowledge_json.c`) |
 | Current `RSSDDCMonitorKnowledge` | Reconstructed subset: copied `RSSDDCKnowledgeRoute` facts, max 128 | Implemented (`src/core/monitor_knowledge.c`) |
 | `RSSDDCDisplay` / `RSSDDCEDIDInfo` / `RSSDDCProfileIdentity` | Identity and connection evidence (historically also inside the v0.1 document) | Implemented beside knowledge |
 | Profile packs `schemaVersion` 1 | Narrower persistable mappings; evidence source / gated update target | Implemented; distinct from v0.1 |
@@ -82,8 +83,12 @@ validated operational subset
 profile schemaVersion 1         ← durable reusable validated control knowledge
 ```
 
-Restoring v0.1 JSON is an explicit later knowledge-model task. Profile update
-is not that artifact.
+Restoring v0.1 JSON is implemented as a deterministic mapping from discovery
+knowledge plus identity. Profile update is not that artifact.
+
+`monitor-knowledge/v0.1` MAY serialize observed current/max values.
+`profile schemaVersion` 1 MUST NOT persist transient current state.
+PROFILE augmentation is not part of discovery JSON.
 
 ## 3. Terminology
 
@@ -301,10 +306,10 @@ Profile load already rejects writable controls unless
 
 ## 6. Schema gaps
 
-No profile-pack `schemaVersion` bump. Current C knowledge has no schema
-version field because reconstruction omitted the v0.1 document. Restoring
-`RSS_DDC_MONITOR_KNOWLEDGE_SCHEMA "monitor-knowledge/v0.1"` is deferred
-knowledge-model work, not a characterization convenience extension.
+No profile-pack `schemaVersion` bump. `RSS_DDC_MONITOR_KNOWLEDGE_SCHEMA`
+is `"monitor-knowledge/v0.1"`. JSON parse/serialize map the current 128-route
+bag plus an identity snapshot; they do not restore the historical heap
+capability/relationship graph as a second source of truth.
 
 Fields the current C subset cannot represent (historically present at
 `38cf0b1`): identity-in-document, capability availability/conditions, method
@@ -400,9 +405,9 @@ the source of current value (G3).
 
 - MCCS ranges: parser is evidence-only by design.
 - `reported_maximum` is not a write range: already documented.
-- No knowledge JSON serialization on this branch: reconstruction Slice 6
-  (`docs/monitor-knowledge.md`) deferred it; restoring v0.1 JSON remains
-  deferred.
+- Knowledge JSON serialization: restored as monitor-knowledge/v0.1 mapping
+  from discovery-only `RSSDDCMonitorKnowledge` plus identity. Bounds:
+  256 KiB document, 128 capabilities, 32 methods/values per capability.
 
 ## 7. Locked pipeline
 
@@ -964,9 +969,9 @@ MCCS model if present, Quick/Extended diagnostics if that stage ran, stage
 error/warning bits, sufficiency flag.
 
 `RSSDDCCharacterization` is **runtime pipeline state**. Downstream products
-consume `rss_ddc_characterization_knowledge()` plus the display snapshot
-(current C subset). That return shape must stay compatible with a future
-v0.1 serializer of the same facts. Do not add a second public result schema.
+consume `rss_ddc_characterization_discovered_knowledge()` serialized as
+`monitor-knowledge/v0.1`, or the effective runtime view via
+`rss_ddc_characterization_knowledge()`. Do not add a second public result schema.
 
 Do not implement this header in the design commit.
 
@@ -1482,12 +1487,15 @@ rss-ddc characterize 1 --mode default
 rss-ddc characterize 1 --mode deep
 rss-ddc characterize 1 --no-profiles
 rss-ddc characterize 1 --mode deep --no-profiles
+rss-ddc characterize 1 --json
+rss-ddc characterize 1 --mode default --json --output /tmp/monitor.json
 ```
 
-The command parses the display index, optional `--mode`, and optional
-`--no-profiles`. Unless `--no-profiles` is set, it loads the builtin profile
+The command parses the display index, optional `--mode`, optional
+`--no-profiles`, optional `--json`, and optional `--output <file>`. Unless `--no-profiles` is set, it loads the builtin profile
 store if available (read-only; never saved). It calls
-`rss_ddc_characterize_display`, renders the owned result, and destroys it.
+`rss_ddc_characterize_display`. Default output is the human report.
+`--json` / `--output` emit discovery-only `monitor-knowledge/v0.1`.
 It does not call MCCS, Quick, or Extended APIs directly.
 
 `--no-profiles` selects `IGNORE_KNOWN`: identity is still discovered, but
@@ -1605,8 +1613,7 @@ write support.
 
 - No competing characterization schema and no `CharacterizationResult` JSON
   type
-- No restoring v0.1 JSON parse/serialize in characterization slices
-  (deferred knowledge-model work)
+- Guided Discovery and Experimental Validation remain deferred
 - No automatic unsafe writes; characterization is read-only toward the monitor
 - No mandatory Extended Probe
 - No Guided Discovery or Experimental Validation in production characterization

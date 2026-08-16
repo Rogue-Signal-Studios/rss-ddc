@@ -1616,3 +1616,57 @@ RSSDDCError rss_ddc_characterization_execute(uint32_t list_index, const RSSDDCPr
     *out = characterization;
     return RSS_DDC_OK;
 }
+
+static void fill_discovery_identity(const RSSDDCCharacterization *characterization,
+                                    RSSDDCMonitorKnowledgeIdentity *identity) {
+    const RSSDDCDisplay *display = rss_ddc_characterization_display(characterization);
+    const RSSDDCEDIDInfo *edid = rss_ddc_characterization_edid(characterization);
+    *identity = (RSSDDCMonitorKnowledgeIdentity){0};
+    if (display != NULL) {
+        (void)snprintf(identity->manufacturer, sizeof(identity->manufacturer), "%s",
+                       display->manufacturer);
+        (void)snprintf(identity->model, sizeof(identity->model), "%s", display->product_name);
+        (void)snprintf(identity->serial, sizeof(identity->serial), "%s", display->serial);
+        (void)snprintf(identity->provider, sizeof(identity->provider), "%s",
+                       rss_ddc_provider_string(display->provider));
+        (void)snprintf(identity->transport, sizeof(identity->transport), "%s", display->transport);
+        (void)snprintf(identity->branch, sizeof(identity->branch), "%s", display->branch_device_id);
+    }
+    if (edid != NULL) {
+        (void)snprintf(identity->edid_manufacturer, sizeof(identity->edid_manufacturer), "%s",
+                       edid->manufacturer_id);
+        identity->edid_product_code = edid->product_code;
+        identity->edid_product_code_present = true;
+        if (identity->serial[0] == '\0' && edid->serial_text[0] != '\0') {
+            (void)snprintf(identity->serial, sizeof(identity->serial), "%s", edid->serial_text);
+        }
+        if (identity->model[0] == '\0' && edid->monitor_name[0] != '\0') {
+            (void)snprintf(identity->model, sizeof(identity->model), "%s", edid->monitor_name);
+        }
+    }
+}
+
+RSSDDCError rss_ddc_characterization_serialize_discovered_json(
+    const RSSDDCCharacterization *characterization, char *buffer, size_t capacity,
+    size_t *required) {
+    const RSSDDCMonitorKnowledge *discovered =
+        rss_ddc_characterization_discovered_knowledge(characterization);
+    RSSDDCMonitorKnowledgeIdentity identity = {0};
+    if (discovered == NULL) {
+        return RSS_DDC_ERROR_ARGUMENT;
+    }
+    fill_discovery_identity(characterization, &identity);
+    return rss_ddc_monitor_knowledge_serialize_json(discovered, &identity, buffer, capacity, required);
+}
+
+RSSDDCError rss_ddc_characterization_write_discovered_json_file(
+    const RSSDDCCharacterization *characterization, const char *path) {
+    const RSSDDCMonitorKnowledge *discovered =
+        rss_ddc_characterization_discovered_knowledge(characterization);
+    RSSDDCMonitorKnowledgeIdentity identity = {0};
+    if (discovered == NULL || path == NULL || path[0] == '\0') {
+        return RSS_DDC_ERROR_ARGUMENT;
+    }
+    fill_discovery_identity(characterization, &identity);
+    return rss_ddc_monitor_knowledge_write_json_file(discovered, &identity, path);
+}

@@ -90,11 +90,12 @@ bool rss_ddc_cli_parse_characterize_mode(const char *text, RSSDDCCharacterizeMod
 }
 
 bool rss_ddc_cli_parse_characterize_options(int argc, char **argv, int first_option,
-                                            RSSDDCCharacterizeOptions *options) {
+                                            RSSDDCCliCharacterizeOptions *options) {
     if (options == NULL) {
         return false;
     }
-    *options = rss_ddc_default_characterize_options();
+    memset(options, 0, sizeof(*options));
+    options->options = rss_ddc_default_characterize_options();
     if (argv == NULL || first_option >= argc) {
         return true;
     }
@@ -108,7 +109,29 @@ bool rss_ddc_cli_parse_characterize_options(int argc, char **argv, int first_opt
             return false;
         }
         if (strcmp(argument, "--no-profiles") == 0) {
-            options->knowledge_policy = RSS_DDC_CHARACTERIZE_KNOWLEDGE_IGNORE_KNOWN;
+            options->options.knowledge_policy = RSS_DDC_CHARACTERIZE_KNOWLEDGE_IGNORE_KNOWN;
+            continue;
+        }
+        if (strcmp(argument, "--json") == 0) {
+            options->json = true;
+            continue;
+        }
+        if (strncmp(argument, "--output=", 9) == 0) {
+            value = argument + 9;
+            if (value[0] == '\0' || options->output_path != NULL) {
+                return false;
+            }
+            options->output_path = value;
+            options->json = true;
+            continue;
+        }
+        if (strcmp(argument, "--output") == 0) {
+            if (index + 1 >= argc || argv[index + 1] == NULL || argv[index + 1][0] == '\0' ||
+                options->output_path != NULL) {
+                return false;
+            }
+            options->output_path = argv[++index];
+            options->json = true;
             continue;
         }
         if (strncmp(argument, "--mode=", 7) == 0) {
@@ -121,7 +144,7 @@ bool rss_ddc_cli_parse_characterize_options(int argc, char **argv, int first_opt
         } else {
             return false;
         }
-        if (!rss_ddc_cli_parse_characterize_mode(value, &options->mode)) {
+        if (!rss_ddc_cli_parse_characterize_mode(value, &options->options.mode)) {
             return false;
         }
     }

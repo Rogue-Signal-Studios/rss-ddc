@@ -74,5 +74,23 @@ route reachable through an existing transport API.
 
 Each knowledge object retains at most 128 facts. The limit is explicit so
 merging and resolving stay bounded and allocation failure cannot publish a
-partial object. No serialization is included in this slice; malformed external
-model data therefore has no parser entry point.
+partial object.
+
+## monitor-knowledge/v0.1 JSON
+
+`rss_ddc_monitor_knowledge_serialize_json` / `parse_json` restore the
+historical durable contract as a serialization DTO over the current route bag
+plus an optional identity snapshot. Characterization export
+(`rss_ddc_characterization_serialize_discovered_json`) uses discovery-only
+knowledge and never prior PROFILE augmentation.
+
+v0.1 is an evidence-bearing discovery artifact: observed current/max values
+are serialized when present. They are not operational profile defaults and
+do not create write authority. Profile schemaVersion 1 continues to exclude
+transient current state.
+
+COMPLETE cache-hit export is identity plus empty `capabilities`; it does not
+claim fresh Alien Probe observations. Bounds: 256 KiB document, 128
+capabilities, 32 methods and 32 values per capability, 8 evidence records
+per object. Unknown JSON keys are ignored. Malformed or oversized input is
+rejected without publishing a partial object.

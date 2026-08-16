@@ -2193,6 +2193,133 @@ static void test_lg_partial_matches_profile_free_then_augments(void) {
     rss_ddc_profile_store_destroy(store);
 }
 
+static char *serialize_discovered(const RSSDDCCharacterization *characterization) {
+    size_t required = 0;
+    char *json = NULL;
+    assert(rss_ddc_characterization_serialize_discovered_json(characterization, NULL, 0, &required) ==
+           RSS_DDC_OK);
+    json = malloc(required);
+    assert(json != NULL);
+    assert(rss_ddc_characterization_serialize_discovered_json(characterization, json, required, &required) ==
+           RSS_DDC_OK);
+    return json;
+}
+
+static void assert_discovery_json_has_no_prior_authority(const char *json) {
+    assert(strstr(json, "lg-alt") == NULL);
+    assert(strstr(json, "profile_known") == NULL);
+    assert(strstr(json, "\"writable\":true") == NULL);
+    assert(strstr(json, "\"vcpCode\":244") == NULL);
+}
+
+static void test_discovery_json_excludes_partial_profile_and_matches_profile_free(void) {
+    Slice7Harness with_profile = slice7_harness(lg_hdr_qhd_display());
+    Slice7Harness no_profile = slice7_harness(lg_hdr_qhd_display());
+    RSSDDCProfileStore *store = rss_ddc_profile_store_create();
+    RSSDDCCharacterization *partial = NULL;
+    RSSDDCCharacterization *alien = NULL;
+    RSSDDCCharacterizeOptions ignore = {.mode = RSS_DDC_CHARACTERIZE_MODE_DEFAULT,
+                                        .knowledge_policy = RSS_DDC_CHARACTERIZE_KNOWLEDGE_IGNORE_KNOWN};
+    char *partial_json = NULL;
+    char *alien_json = NULL;
+    RSSDDCMonitorKnowledgeResolution *resolution = NULL;
+    const RSSDDCKnowledgeRoute *write = NULL;
+    assert(store != NULL);
+    assert(rss_ddc_profile_store_load_builtin(store) == RSS_DDC_OK);
+    prepare_lg_discovery_harness(&with_profile);
+    prepare_lg_discovery_harness(&no_profile);
+    assert(slice7_run(&with_profile, store, NULL, &partial) == RSS_DDC_OK);
+    assert(slice7_run(&no_profile, store, &ignore, &alien) == RSS_DDC_OK);
+    partial_json = serialize_discovered(partial);
+    alien_json = serialize_discovered(alien);
+    assert_discovery_json_has_no_prior_authority(partial_json);
+    assert_discovery_json_has_no_prior_authority(alien_json);
+    assert(strcmp(partial_json, alien_json) == 0);
+    assert(strstr(partial_json, "\"schemaVersion\":\"monitor-knowledge/v0.1\"") != NULL);
+    assert(strstr(partial_json, "\"model\":\"LG HDR QHD\"") != NULL);
+    assert(strstr(partial_json, "\"vcpCode\":96") != NULL);
+    assert(strstr(partial_json, "\"vcpCode\":21") != NULL);
+    assert(strstr(partial_json, "\"type\":\"unsigned\"") != NULL);
+    assert(strstr(partial_json, "observedRange") != NULL);
+    assert(rss_ddc_characterization_resolve(partial, "inputs.switching", &resolution) == RSS_DDC_OK);
+    write = rss_ddc_monitor_knowledge_resolution_preferred_write(resolution);
+    assert(write != NULL && write->kind == RSS_DDC_KNOWLEDGE_ROUTE_LG_ALT_INPUT);
+    assert(write->write_authorized);
+    rss_ddc_monitor_knowledge_resolution_destroy(resolution);
+    free(partial_json);
+    free(alien_json);
+    rss_ddc_characterization_destroy(partial);
+    rss_ddc_characterization_destroy(alien);
+    rss_ddc_profile_store_destroy(store);
+}
+
+static void test_odyssey_discovery_json_has_no_profile_facts(void) {
+    Slice7Harness harness = slice7_harness(odyssey_g75f_display());
+    RSSDDCProfileStore *store = rss_ddc_profile_store_create();
+    RSSDDCCharacterization *result = NULL;
+    RSSDDCCharacterizeOptions options = {.mode = RSS_DDC_CHARACTERIZE_MODE_DEEP};
+    char *json = NULL;
+    assert(store != NULL);
+    assert(rss_ddc_profile_store_load_builtin(store) == RSS_DDC_OK);
+    slice7_stable_quick(&harness, 80);
+    slice6_set_stable(&harness.extended, 0x42, 4, 99);
+    slice6_set_reply(&harness.extended, 0xee, 0, RSS_DDC_OK, 0xee, 255, 1);
+    slice6_set_reply(&harness.extended, 0xee, 1, RSS_DDC_OK, 0xee, 255, 2);
+    assert(slice7_run(&harness, store, &options, &result) == RSS_DDC_OK);
+    json = serialize_discovered(result);
+    assert(strstr(json, "\"model\":\"Odyssey G75F\"") != NULL);
+    assert(strstr(json, "vendor.unknown.vcp.42") != NULL);
+    assert(strstr(json, "vendor.unknown.vcp.ee") != NULL);
+    assert(strstr(json, "\"reference\":\"variable\"") != NULL);
+    assert(strstr(json, "\"reference\":\"stable\"") != NULL);
+    assert_discovery_json_has_no_prior_authority(json);
+    free(json);
+    rss_ddc_characterization_destroy(result);
+    rss_ddc_profile_store_destroy(store);
+}
+
+static void test_complete_cache_hit_json_is_identity_only(void) {
+    Slice7Harness harness = slice7_harness(slice2_display());
+    RSSDDCProfileStore *store = store_from_pack(slice5_actionable_pack_dcpdp13());
+    RSSDDCCharacterization *result = NULL;
+    RSSDDCCharacterizeOptions options = rss_ddc_default_characterize_options();
+    char *json = NULL;
+    assert(slice7_run(&harness, store, &options, &result) == RSS_DDC_OK);
+    assert(!rss_ddc_characterization_discovery_performed(result));
+    json = serialize_discovered(result);
+    assert(strstr(json, "\"model\":\"Test\"") != NULL);
+    assert(strstr(json, "\"capabilities\":[]") != NULL);
+    assert(strstr(json, "alien-probe-live-read") == NULL);
+    assert(strstr(json, "stable_get") == NULL);
+    assert(strstr(json, "profile_known") == NULL);
+    assert(count_fact_kind(rss_ddc_characterization_knowledge(result), "display.brightness",
+                           RSS_DDC_KNOWLEDGE_FACT_PROFILE) == 1);
+    free(json);
+    rss_ddc_characterization_destroy(result);
+    rss_ddc_profile_store_destroy(store);
+}
+
+static void test_deep_complete_json_serializes_fresh_discovery(void) {
+    Slice7Harness harness = slice7_harness(slice2_display());
+    RSSDDCProfileStore *store = store_from_pack(slice5_actionable_pack_dcpdp13());
+    RSSDDCCharacterization *result = NULL;
+    RSSDDCCharacterizeOptions options = {.mode = RSS_DDC_CHARACTERIZE_MODE_DEEP};
+    char *json = NULL;
+    slice7_stable_quick(&harness, 42);
+    slice6_set_stable(&harness.extended, 0x15, 255, 0x31);
+    slice6_set_stable(&harness.extended, 0x60, 18, 0x11);
+    assert(slice7_run(&harness, store, &options, &result) == RSS_DDC_OK);
+    assert(rss_ddc_characterization_discovery_performed(result));
+    json = serialize_discovered(result);
+    assert(strstr(json, "display.brightness") != NULL);
+    assert(strstr(json, "\"type\":\"unsigned\",\"value\":42") != NULL);
+    assert(strstr(json, "profile_known") == NULL);
+    assert(strstr(json, "\"writable\":true") == NULL);
+    free(json);
+    rss_ddc_characterization_destroy(result);
+    rss_ddc_profile_store_destroy(store);
+}
+
 static void test_profile_and_mccs_remain_distinct(void) {
     RSSDDCCharacterization *characterization = rss_ddc_characterization_create();
     RSSDDCDisplay display = lg_hdr_qhd_display();
@@ -2489,6 +2616,10 @@ int main(void) {
     test_ignore_known_has_no_profile_facts();
     test_partial_prior_is_quarantined_from_discovery();
     test_lg_partial_matches_profile_free_then_augments();
+    test_discovery_json_excludes_partial_profile_and_matches_profile_free();
+    test_odyssey_discovery_json_has_no_profile_facts();
+    test_complete_cache_hit_json_is_identity_only();
+    test_deep_complete_json_serializes_fresh_discovery();
     test_profile_and_mccs_remain_distinct();
     test_profile_update_explicit_and_does_not_mutate_characterize();
     test_profile_update_persists_lg_alt_not_vcp60();

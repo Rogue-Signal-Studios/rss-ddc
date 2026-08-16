@@ -26,12 +26,21 @@ bool rss_ddc_cli_parse_characterize_mode(const char *text, RSSDDCCharacterizeMod
 /** Returns a static lowercase mode label for help and reports. */
 const char *rss_ddc_cli_characterize_mode_name(RSSDDCCharacterizeMode mode);
 
+/** Parsed options for `characterize <index> [--mode ...] [--no-profiles] [--json] [--output <file>]`. */
+typedef struct {
+    RSSDDCCharacterizeOptions options;
+    bool json;
+    const char *output_path;
+} RSSDDCCliCharacterizeOptions;
+
 /**
- * Parses optional `--mode <name>`, `--mode=<name>`, and `--no-profiles` after
- * `characterize <index>`. No extra arguments leaves DEFAULT + NORMAL knowledge.
+ * Parses optional `--mode <name>`, `--mode=<name>`, `--no-profiles`, `--json`,
+ * and `--output <file>` / `--output=<file>` after `characterize <index>`.
+ * `--output` implies JSON and overwrites `file` atomically after a complete
+ * write. No extra arguments leaves DEFAULT + NORMAL knowledge and human output.
  */
 bool rss_ddc_cli_parse_characterize_options(int argc, char **argv, int first_option,
-                                            RSSDDCCharacterizeOptions *options);
+                                            RSSDDCCliCharacterizeOptions *options);
 
 /** Parsed options for `profile update <index> --output <file>`. */
 typedef struct {

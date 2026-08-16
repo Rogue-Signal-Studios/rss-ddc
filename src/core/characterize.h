@@ -16,7 +16,8 @@
  * Known production methods are not injected from product-name gates.
  * Monitor-specific write methods come from structured profile data. Optional
  * profile update is a separate explicit API and
- * is not part of execute. It does not restore monitor-knowledge/v0.1 JSON or
+ * is not part of execute. Discovery JSON uses
+ * rss_ddc_characterization_serialize_discovered_json. It does not
  * call SET VCP. Discovery-only sufficiency decides Alien Probe depth.
  * DEFAULT Extended runs only when discovery-only sufficiency recommends it
  * unless a COMPLETE structured match already short-circuited discovery; DEEP

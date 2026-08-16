@@ -232,38 +232,48 @@ static void test_global_args(void) {
 }
 
 static void test_characterize_args(void) {
-    RSSDDCCharacterizeOptions options = {};
+    RSSDDCCliCharacterizeOptions options = {};
     char *none[] = {(char *)"rss-ddc", (char *)"characterize", (char *)"1"};
     assert(rss_ddc_cli_parse_characterize_options(3, none, 3, &options));
-    assert(options.mode == RSS_DDC_CHARACTERIZE_MODE_DEFAULT);
-    assert(options.knowledge_policy == RSS_DDC_CHARACTERIZE_KNOWLEDGE_NORMAL);
+    assert(options.options.mode == RSS_DDC_CHARACTERIZE_MODE_DEFAULT);
+    assert(options.options.knowledge_policy == RSS_DDC_CHARACTERIZE_KNOWLEDGE_NORMAL);
+    assert(!options.json && options.output_path == NULL);
     char *passive[] = {(char *)"rss-ddc", (char *)"characterize", (char *)"1", (char *)"--mode",
                        (char *)"passive"};
     assert(rss_ddc_cli_parse_characterize_options(5, passive, 3, &options));
-    assert(options.mode == RSS_DDC_CHARACTERIZE_MODE_PASSIVE);
+    assert(options.options.mode == RSS_DDC_CHARACTERIZE_MODE_PASSIVE);
     char *def[] = {(char *)"rss-ddc", (char *)"characterize", (char *)"1", (char *)"--mode=default"};
     assert(rss_ddc_cli_parse_characterize_options(4, def, 3, &options));
-    assert(options.mode == RSS_DDC_CHARACTERIZE_MODE_DEFAULT);
+    assert(options.options.mode == RSS_DDC_CHARACTERIZE_MODE_DEFAULT);
     char *deep[] = {(char *)"rss-ddc", (char *)"characterize", (char *)"1", (char *)"--mode", (char *)"deep"};
     assert(rss_ddc_cli_parse_characterize_options(5, deep, 3, &options));
-    assert(options.mode == RSS_DDC_CHARACTERIZE_MODE_DEEP);
+    assert(options.options.mode == RSS_DDC_CHARACTERIZE_MODE_DEEP);
     char *bad[] = {(char *)"rss-ddc", (char *)"characterize", (char *)"1", (char *)"--mode", (char *)"unsafe"};
     assert(!rss_ddc_cli_parse_characterize_options(5, bad, 3, &options));
-    char *extra[] = {(char *)"rss-ddc", (char *)"characterize", (char *)"1", (char *)"--mode", (char *)"passive",
-                     (char *)"--json"};
-    assert(!rss_ddc_cli_parse_characterize_options(6, extra, 3, &options));
+    char *json[] = {(char *)"rss-ddc", (char *)"characterize", (char *)"1", (char *)"--mode", (char *)"passive",
+                    (char *)"--json"};
+    assert(rss_ddc_cli_parse_characterize_options(6, json, 3, &options));
+    assert(options.json && options.output_path == NULL);
+    assert(options.options.mode == RSS_DDC_CHARACTERIZE_MODE_PASSIVE);
     char *output[] = {(char *)"rss-ddc", (char *)"characterize", (char *)"1", (char *)"--output",
                       (char *)"/tmp/x.json"};
-    assert(!rss_ddc_cli_parse_characterize_options(5, output, 3, &options));
+    assert(rss_ddc_cli_parse_characterize_options(5, output, 3, &options));
+    assert(options.json && strcmp(options.output_path, "/tmp/x.json") == 0);
+    char *json_output[] = {(char *)"rss-ddc", (char *)"characterize", (char *)"1", (char *)"--json",
+                           (char *)"--output=/tmp/y.json"};
+    assert(rss_ddc_cli_parse_characterize_options(5, json_output, 3, &options));
+    assert(options.json && strcmp(options.output_path, "/tmp/y.json") == 0);
+    char *empty_output[] = {(char *)"rss-ddc", (char *)"characterize", (char *)"1", (char *)"--output="};
+    assert(!rss_ddc_cli_parse_characterize_options(4, empty_output, 3, &options));
     char *no_profiles[] = {(char *)"rss-ddc", (char *)"characterize", (char *)"1", (char *)"--no-profiles"};
     assert(rss_ddc_cli_parse_characterize_options(4, no_profiles, 3, &options));
-    assert(options.knowledge_policy == RSS_DDC_CHARACTERIZE_KNOWLEDGE_IGNORE_KNOWN);
-    assert(options.mode == RSS_DDC_CHARACTERIZE_MODE_DEFAULT);
+    assert(options.options.knowledge_policy == RSS_DDC_CHARACTERIZE_KNOWLEDGE_IGNORE_KNOWN);
+    assert(options.options.mode == RSS_DDC_CHARACTERIZE_MODE_DEFAULT);
     char *deep_no_profiles[] = {(char *)"rss-ddc", (char *)"characterize", (char *)"1", (char *)"--mode",
                                 (char *)"deep", (char *)"--no-profiles"};
     assert(rss_ddc_cli_parse_characterize_options(6, deep_no_profiles, 3, &options));
-    assert(options.mode == RSS_DDC_CHARACTERIZE_MODE_DEEP);
-    assert(options.knowledge_policy == RSS_DDC_CHARACTERIZE_KNOWLEDGE_IGNORE_KNOWN);
+    assert(options.options.mode == RSS_DDC_CHARACTERIZE_MODE_DEEP);
+    assert(options.options.knowledge_policy == RSS_DDC_CHARACTERIZE_KNOWLEDGE_IGNORE_KNOWN);
     assert(strcmp(rss_ddc_cli_characterize_mode_name(RSS_DDC_CHARACTERIZE_MODE_PASSIVE), "passive") == 0);
     assert(strcmp(rss_ddc_cli_characterize_mode_name(RSS_DDC_CHARACTERIZE_MODE_DEFAULT), "default") == 0);
     assert(strcmp(rss_ddc_cli_characterize_mode_name(RSS_DDC_CHARACTERIZE_MODE_DEEP), "deep") == 0);

@@ -22,7 +22,7 @@ static void usage(const char *program) {
             "  %s [--help|-h]\n"
             "  %s [--color=yes|no|auto] [--table=yes|no|auto] [--unicode=yes|no|auto] list\n"
             "  %s [--verbose] [--color=yes|no|auto] [--table=yes|no|auto] [--unicode=yes|no|auto] info <display-index>\n"
-            "  %s [--color=yes|no|auto] [--table=yes|no|auto] [--unicode=yes|no|auto] characterize <display-index> [--mode passive|default|deep] [--no-profiles]\n"
+            "  %s [--color=yes|no|auto] [--table=yes|no|auto] [--unicode=yes|no|auto] characterize <display-index> [--mode passive|default|deep] [--no-profiles] [--json] [--output <file>]\n"
             "  %s [--color=yes|no|auto] [--table=yes|no|auto] [--unicode=yes|no|auto] profile update <display-index> --output <file>\n"
             "  %s [--verbose] edid <display-index> [--decode|--hex|--raw <file>]\n"
             "  %s [--verbose] dpcd <display-index> <address> <length>\n"
@@ -282,11 +282,12 @@ int main(int argc, char **argv) {
         return EXIT_SUCCESS;
     }
     if (strcmp(argv[argument], "characterize") == 0) {
-        RSSDDCCharacterizeOptions options = rss_ddc_default_characterize_options();
-        if (!rss_ddc_cli_parse_characterize_options(argc, argv, argument + 2, &options)) {
+        RSSDDCCliCharacterizeOptions parsed_options = {};
+        if (!rss_ddc_cli_parse_characterize_options(argc, argv, argument + 2, &parsed_options)) {
             usage(argv[0]);
             return EXIT_FAILURE;
         }
+        RSSDDCCharacterizeOptions options = parsed_options.options;
         RSSDDCProfileStore *store = NULL;
         if (options.knowledge_policy != RSS_DDC_CHARACTERIZE_KNOWLEDGE_IGNORE_KNOWN) {
             store = rss_ddc_profile_store_create();
@@ -302,6 +303,42 @@ int main(int argc, char **argv) {
             fprintf(stderr, "rss-ddc: %s\n", rss_ddc_error_string(error));
             rss_ddc_characterization_destroy(result);
             return EXIT_FAILURE;
+        }
+        if (parsed_options.json) {
+            if (parsed_options.output_path != NULL) {
+                error = rss_ddc_characterization_write_discovered_json_file(result,
+                                                                            parsed_options.output_path);
+                rss_ddc_characterization_destroy(result);
+                if (error != RSS_DDC_OK) {
+                    fprintf(stderr, "rss-ddc: %s\n", rss_ddc_error_string(error));
+                    return EXIT_FAILURE;
+                }
+                return EXIT_SUCCESS;
+            }
+            size_t required = 0;
+            error = rss_ddc_characterization_serialize_discovered_json(result, NULL, 0, &required);
+            if (error != RSS_DDC_OK) {
+                fprintf(stderr, "rss-ddc: %s\n", rss_ddc_error_string(error));
+                rss_ddc_characterization_destroy(result);
+                return EXIT_FAILURE;
+            }
+            char *json = malloc(required);
+            if (json == NULL) {
+                rss_ddc_characterization_destroy(result);
+                fprintf(stderr, "rss-ddc: %s\n", rss_ddc_error_string(RSS_DDC_ERROR_SYSTEM));
+                return EXIT_FAILURE;
+            }
+            error = rss_ddc_characterization_serialize_discovered_json(result, json, required, &required);
+            rss_ddc_characterization_destroy(result);
+            if (error != RSS_DDC_OK) {
+                free(json);
+                fprintf(stderr, "rss-ddc: %s\n", rss_ddc_error_string(error));
+                return EXIT_FAILURE;
+            }
+            fputs(json, stdout);
+            fputc('\n', stdout);
+            free(json);
+            return EXIT_SUCCESS;
         }
         RSSDDCCliEffectiveOutput output = resolve_presentation(&parsed, true);
         rss_ddc_cli_render_characterization(stdout, result, options.mode, &output);

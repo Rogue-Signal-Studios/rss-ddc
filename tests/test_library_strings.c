@@ -21,7 +21,7 @@ static void assert_plain_library_string(const char *label, const char *text) {
 }
 
 static void test_error_strings(void) {
-    for (int code = RSS_DDC_OK; code <= RSS_DDC_ERROR_PROFILE_UNSAFE; ++code) {
+    for (int code = RSS_DDC_OK; code <= RSS_DDC_ERROR_MONITOR_KNOWLEDGE_TOO_LARGE; ++code) {
         assert_plain_library_string("error", rss_ddc_error_string((RSSDDCError)code));
     }
     assert_plain_library_string("error-unknown", rss_ddc_error_string((RSSDDCError)9999));

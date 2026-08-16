@@ -94,7 +94,10 @@ column each for current Unicode table borders.
 
 `profile update` prints a compact report rather than a table. `characterize`
 never writes a profile file; `profile update --output` is the explicit LOCAL
-overlay save path and still performs no monitor writes. `characterize --no-profiles`
+overlay save path and still performs no monitor writes. `characterize --json`
+and `characterize --output <file>` emit the same `monitor-knowledge/v0.1`
+discovery JSON (stdout vs atomic file). That JSON is discovery evidence, not
+the effective/augmented runtime view. `characterize --no-profiles`
 is the diagnostic true-alien path and remains read-only.
 
 Interactive table mode also prints concise probe summaries using the exact

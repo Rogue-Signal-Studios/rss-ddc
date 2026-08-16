@@ -41,6 +41,9 @@ const char *rss_ddc_error_string(RSSDDCError error) {
         case RSS_DDC_ERROR_PROFILE_VERSION: return "monitor profile requires a newer rss-ddc version";
         case RSS_DDC_ERROR_PROFILE_CONFLICT: return "monitor profile data is ambiguous or conflicting";
         case RSS_DDC_ERROR_PROFILE_UNSAFE: return "monitor profile requests an unsafe unauthorized operation";
+        case RSS_DDC_ERROR_MONITOR_KNOWLEDGE_MALFORMED: return "monitor knowledge data is malformed";
+        case RSS_DDC_ERROR_MONITOR_KNOWLEDGE_SCHEMA: return "monitor knowledge schema is unsupported";
+        case RSS_DDC_ERROR_MONITOR_KNOWLEDGE_TOO_LARGE: return "monitor knowledge data exceeds its supported bound";
     }
     return "unknown error";
 }

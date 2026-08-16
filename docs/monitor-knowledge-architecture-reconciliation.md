@@ -39,9 +39,9 @@ Intended relationship:
 native C representation  ↔  deterministic monitor-knowledge/v0.1 JSON
 ```
 
-of the same semantic knowledge. Current C is a lossy subset. A serializer is
-**explicitly deferred**; characterization must not invent a second document
-type.
+of the same semantic knowledge. Current C is a lossy subset. A serializer now
+maps that subset to `monitor-knowledge/v0.1` JSON. Characterization must not
+invent a second document type.
 
 ## Historical sources inspected
 
@@ -132,7 +132,7 @@ These remain authoritative:
 
 | Historical piece | Current subset |
 | --- | --- |
-| v0.1 document (identity, capabilities, methods, values, routes, relationships, evidence records) | `RSSDDCKnowledgeRoute` bag, max 128 facts, no JSON, no identity inside knowledge |
+| v0.1 document (identity, capabilities, methods, values, routes, relationships, evidence records) | `RSSDDCKnowledgeRoute` bag, max 128 facts, plus v0.1 JSON mapping; identity is a serialization snapshot beside knowledge |
 | `resolve_capability` / `resolve_value` / `resolve_range` / `resolve_input_route` | one route resolver |
 | `RSSDDCEvidenceType`, `RSSDDCRisk`, `RSSDDCValidation`, `RSSDDCConfidence` | folded into `RSSDDCKnowledgeProvenance` + `RSSDDCProfileSource` / `RSSDDCProfileConfidence` |
 | Probe → v0.1 document including identity | Probe → route facts + separate `RSSDDCDisplay` / diagnostics |
@@ -142,7 +142,6 @@ These remain authoritative:
 
 ## Intentionally deferred (do not implement in characterization Slice 1)
 
-- v0.1 JSON parser/serializer restoration
 - Relationships, condition evaluation, structured input-route graph
 - Guided Discovery and Experimental Validation (not production
   characterization; future interactive / write-validation workflows)
@@ -156,11 +155,11 @@ These remain authoritative:
 ### Q1 — C model ↔ v0.1
 
 Same semantic contract. Current C is the native subset to populate now.
-Future serialization, if restored, must emit `monitor-knowledge/v0.1`, not a
-`CharacterizationResult` schema. Fields the current C cannot represent:
-identity-in-document, capability availability/conditions, method risk,
-per-value validation, advertised/observed/validated ranges, input routes,
-relationships, typed raw aliases, evidence records with timestamps/scope.
+Serialization emits `monitor-knowledge/v0.1`, not a `CharacterizationResult`
+schema. Fields the current C cannot represent remain omitted or empty:
+capability availability/conditions, structured input routes, relationships,
+typed raw aliases, timestamped evidence. Identity is attached at serialize
+time from the characterization display/EDID snapshot.
 
 ### Q2 — Method authority vs current value
 

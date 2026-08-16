@@ -94,6 +94,12 @@ typedef enum {
     RSS_DDC_ERROR_PROFILE_VERSION,
     RSS_DDC_ERROR_PROFILE_CONFLICT,
     RSS_DDC_ERROR_PROFILE_UNSAFE,
+    /** monitor-knowledge/v0.1 JSON is syntactically invalid or missing required fields. */
+    RSS_DDC_ERROR_MONITOR_KNOWLEDGE_MALFORMED,
+    /** schemaVersion is absent or is not monitor-knowledge/v0.1. */
+    RSS_DDC_ERROR_MONITOR_KNOWLEDGE_SCHEMA,
+    /** JSON document, capability, or string bounds were exceeded. */
+    RSS_DDC_ERROR_MONITOR_KNOWLEDGE_TOO_LARGE,
 } RSSDDCError;
 
 enum {
@@ -119,6 +125,16 @@ enum {
     RSS_DDC_PROFILE_MAX_ENUM_VALUES = 32,
     RSS_DDC_PROFILE_ID_MAX = 64,
     RSS_DDC_PROFILE_VERSION_MAX = 64,
+    /** Largest accepted or emitted monitor-knowledge/v0.1 document, including NUL. */
+    RSS_DDC_MONITOR_KNOWLEDGE_JSON_MAX_BYTES = 262144,
+    /** Unique capability ids in one v0.1 document; matches the 128-route runtime cap. */
+    RSS_DDC_MONITOR_KNOWLEDGE_JSON_MAX_CAPABILITIES = 128,
+    /** Methods retained per capability when parsing v0.1 JSON. */
+    RSS_DDC_MONITOR_KNOWLEDGE_JSON_MAX_METHODS = 32,
+    /** Values retained per capability when parsing v0.1 JSON. */
+    RSS_DDC_MONITOR_KNOWLEDGE_JSON_MAX_VALUES = 32,
+    /** Evidence records retained per object when parsing v0.1 JSON. */
+    RSS_DDC_MONITOR_KNOWLEDGE_JSON_MAX_EVIDENCE = 8,
 };
 
 /**
@@ -346,6 +362,26 @@ typedef struct { char semantic_id[RSS_DDC_TEXT_MAX], route_id[RSS_DDC_PROFILE_ID
 typedef struct RSSDDCMonitorKnowledge RSSDDCMonitorKnowledge;
 typedef struct RSSDDCMonitorKnowledgeResolution RSSDDCMonitorKnowledgeResolution;
 
+/** Canonical durable discovery schema. Not profile schemaVersion 1. */
+#define RSS_DDC_MONITOR_KNOWLEDGE_SCHEMA "monitor-knowledge/v0.1"
+
+/**
+ * Identity snapshot for monitor-knowledge/v0.1 JSON only. Not a second
+ * runtime knowledge model. Process-local list_index and cg_display_id are
+ * intentionally absent. Empty strings are omitted on emit.
+ */
+typedef struct {
+    char manufacturer[RSS_DDC_TEXT_MAX];
+    char model[RSS_DDC_TEXT_MAX];
+    char edid_manufacturer[RSS_DDC_TEXT_MAX];
+    char serial[RSS_DDC_TEXT_MAX];
+    char provider[RSS_DDC_TEXT_MAX];
+    char transport[RSS_DDC_TEXT_MAX];
+    char branch[RSS_DDC_TEXT_MAX];
+    uint16_t edid_product_code;
+    bool edid_product_code_present;
+} RSSDDCMonitorKnowledgeIdentity;
+
 /** Returns a static, human-readable name for an error or provider. */
 const char *rss_ddc_error_string(RSSDDCError error);
 const char *rss_ddc_provider_string(RSSDDCProvider provider);
@@ -432,6 +468,30 @@ RSSDDCError rss_ddc_monitor_knowledge_add_profile_control(RSSDDCMonitorKnowledge
 size_t rss_ddc_monitor_knowledge_route_count(const RSSDDCMonitorKnowledge *knowledge);
 /** Returns a borrowed immutable route valid until `knowledge` is changed or destroyed. */
 const RSSDDCKnowledgeRoute *rss_ddc_monitor_knowledge_route_at(const RSSDDCMonitorKnowledge *knowledge, size_t index);
+/**
+ * Deterministic monitor-knowledge/v0.1 JSON from the current route bag plus
+ * optional identity. NULL/0 queries required bytes including NUL. Does not
+ * invent write authority. PROFILE routes are included only if present in
+ * `knowledge`; characterization export uses discovered knowledge instead.
+ */
+RSSDDCError rss_ddc_monitor_knowledge_serialize_json(const RSSDDCMonitorKnowledge *knowledge,
+                                                     const RSSDDCMonitorKnowledgeIdentity *identity,
+                                                     char *buffer, size_t capacity, size_t *required);
+/**
+ * Bounded parse of monitor-knowledge/v0.1 into the current route bag.
+ * Failure leaves `*knowledge` NULL and does not write `identity`. Unknown
+ * keys are ignored. Parsed GET/DECLARED methods never set write_authorized.
+ */
+RSSDDCError rss_ddc_monitor_knowledge_parse_json(const char *data, size_t length,
+                                                 RSSDDCMonitorKnowledge **knowledge,
+                                                 RSSDDCMonitorKnowledgeIdentity *identity);
+/**
+ * Atomically writes v0.1 JSON to `path` (temporary file + rename). An existing
+ * destination is replaced only after the complete document is on disk.
+ */
+RSSDDCError rss_ddc_monitor_knowledge_write_json_file(const RSSDDCMonitorKnowledge *knowledge,
+                                                      const RSSDDCMonitorKnowledgeIdentity *identity,
+                                                      const char *path);
 /** Transactionally creates a deep-copied union retaining every non-identical source route. */
 RSSDDCError rss_ddc_monitor_knowledge_merge(const RSSDDCMonitorKnowledge *first,
                                             const RSSDDCMonitorKnowledge *second,
@@ -812,6 +872,23 @@ const RSSDDCMonitorKnowledge *rss_ddc_characterization_knowledge(
  */
 const RSSDDCMonitorKnowledge *rss_ddc_characterization_discovered_knowledge(
     const RSSDDCCharacterization *characterization);
+/**
+ * Emits monitor-knowledge/v0.1 from discovery-only knowledge and hardware
+ * identity. Never serializes prior PROFILE augmentation, LG_ALT profile
+ * authority, or effective/augmented knowledge. COMPLETE cache-hits emit
+ * identity with empty capabilities (no fabricated Alien Probe observations).
+ * NULL/0 queries required bytes including NUL.
+ */
+RSSDDCError rss_ddc_characterization_serialize_discovered_json(
+    const RSSDDCCharacterization *characterization, char *buffer, size_t capacity,
+    size_t *required);
+/**
+ * Atomically writes the discovery v0.1 document to `path`. Same JSON as
+ * rss_ddc_characterization_serialize_discovered_json. Overwrites `path` only
+ * after a complete temporary file is fsynced.
+ */
+RSSDDCError rss_ddc_characterization_write_discovered_json_file(
+    const RSSDDCCharacterization *characterization, const char *path);
 /**
  * Resolves effective read/write methods for `semantic_id` after alias
  * normalization, using effective/augmented knowledge. Caller owns

@@ -53,7 +53,8 @@ CONNECTED / UNKNOWN MONITOR
         ▼
 7. EMIT CANONICAL MACHINE-READABLE JSON
    Historical contract: monitor-knowledge/v0.1
-   (serialization is a later slice; this is the durable artifact)
+   Serializer consumes discovery-only knowledge, never effective/augmented
+   knowledge. Observed current/max values are discovery evidence.
         │
         ▼
 8. OPTIONAL PRIOR-KNOWLEDGE AUGMENTATION
@@ -109,13 +110,32 @@ validated operational subset
 profile schemaVersion 1         ← durable reusable validated control knowledge
 ```
 
-These are not the same artifact. Profile update persists only the operational
-subset the current profile schema can represent. It is not the canonical
-discovery document. `rss-ddc characterize` remains read-only and never mutates
-profiles.
+These are not the same artifact.
 
-JSON restoration of `monitor-knowledge/v0.1` is the next slice. Do not invent
-a competing characterization JSON schema.
+`monitor-knowledge/v0.1` is an evidence-bearing characterization / discovery
+artifact. It MAY and SHOULD serialize transient observed current/max values
+when they were actually observed. Those values are not profile defaults, not
+write authority, and not guaranteed durable capabilities.
+
+`profile schemaVersion` 1 is reusable operational knowledge. It continues to
+exclude transient current state.
+
+PROFILE augmentation is not part of discovery JSON. A future augmented export
+must be explicit and separate.
+
+`rss-ddc characterize --json` / `--output <file>` emit discovery v0.1 only.
+`--output` overwrites the destination atomically after a complete write.
+Human-readable output remains the default.
+
+COMPLETE cache-hit JSON (DEFAULT/PASSIVE + exact COMPLETE structured match)
+is a valid v0.1 document with hardware-derived identity and empty
+`capabilities`. It does not dump loaded PROFILE facts as if Alien Probe
+observed them. Fresh discovery JSON for a COMPLETE-known monitor requires
+DEEP (or `--no-profiles`).
+
+JSON restoration of `monitor-knowledge/v0.1` is implemented as a deterministic
+mapping from `RSSDDCMonitorKnowledge` plus identity. Do not invent a competing
+characterization JSON schema.
 
 ## Protocol code vs monitor-specific knowledge
 
@@ -204,8 +224,9 @@ Read-only. Proves a true alien encounter.
    Probe depth.
 8. Alien Probe™ discovery must be independently testable with monitor profiles
    and monitor-specific structured knowledge disabled.
-9. Characterization must ultimately produce `monitor-knowledge/v0.1`. Runtime
-   population happens now; JSON restore is the next slice.
+9. Characterization produces `monitor-knowledge/v0.1` from discovery-only
+   knowledge. Runtime `RSSDDCMonitorKnowledge` remains the bounded native
+   subset; JSON is a serialization mapping, not a second source of truth.
 10. Core characterization must not contain monitor-specific capability
     branches such as `if product == "LG HDR QHD"`.
 11. Identity itself is discovered generically. Product strings are data, not
