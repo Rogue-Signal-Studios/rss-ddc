@@ -133,7 +133,7 @@ $(BUILD)/test_profile_store: tests/test_profile_store.c src/core/profile_store.c
 $(BUILD)/test_monitor_knowledge: tests/test_monitor_knowledge.c src/core/monitor_knowledge.c src/core/profile_store.c src/core/provider.c | $(BUILD)
 	$(CC) $(CFLAGS) -pthread $^ -o $@
 
-$(BUILD)/test_characterize: tests/test_characterize.c src/core/characterize.c src/core/monitor_knowledge.c src/core/profile_store.c src/core/provider.c src/core/mccs_capabilities.c src/core/probe.c | $(BUILD)
+$(BUILD)/test_characterize: tests/test_characterize.c src/core/characterize.c src/core/monitor_knowledge.c src/core/profile_store.c src/core/provider.c src/core/mccs_capabilities.c src/core/probe.c src/ddc/input_switch.c src/ddc/protocol.c | $(BUILD)
 	$(CC) $(CFLAGS) -pthread $^ -o $@
 
 $(BUILD)/test_probe: tests/test_probe.c src/core/probe.c src/core/monitor_knowledge.c src/core/profile_store.c src/core/provider.c src/core/mccs_capabilities.c | $(BUILD)
@@ -145,7 +145,7 @@ $(BUILD)/test_probe_extended: tests/test_probe_extended.c src/core/probe.c src/c
 $(BUILD)/test_cli_presentation: tests/test_cli_presentation.c tests/cli_presentation_support.c $(CLI_PRESENTATION_SOURCES) src/core/provider.c | $(BUILD)
 	$(CC) $(CLI_CFLAGS) $^ -o $@
 
-$(BUILD)/test_cli_characterize: tests/test_cli_characterize.c $(CLI_PRESENTATION_SOURCES) $(CLI_CHARACTERIZE_RENDER) src/core/characterize.c src/core/monitor_knowledge.c src/core/profile_store.c src/core/provider.c src/core/mccs_capabilities.c src/core/probe.c | $(BUILD)
+$(BUILD)/test_cli_characterize: tests/test_cli_characterize.c $(CLI_PRESENTATION_SOURCES) $(CLI_CHARACTERIZE_RENDER) src/core/characterize.c src/core/monitor_knowledge.c src/core/profile_store.c src/core/provider.c src/core/mccs_capabilities.c src/core/probe.c src/ddc/input_switch.c src/ddc/protocol.c | $(BUILD)
 	$(CC) $(CLI_CFLAGS) -pthread $^ -o $@
 
 $(BUILD)/test_library_strings: tests/test_library_strings.c $(LIBRARY) | $(BUILD)

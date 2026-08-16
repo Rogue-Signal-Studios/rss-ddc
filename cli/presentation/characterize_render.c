@@ -161,7 +161,7 @@ static void format_method(char *buffer, size_t capacity, const RSSDDCKnowledgeRo
         return;
     }
     if (route->kind == RSS_DDC_KNOWLEDGE_ROUTE_LG_ALT_INPUT) {
-        snprintf(buffer, capacity, "lg-alt");
+        snprintf(buffer, capacity, "LG_ALT");
         return;
     }
     if (route->kind == RSS_DDC_KNOWLEDGE_ROUTE_STANDARD_VCP ||

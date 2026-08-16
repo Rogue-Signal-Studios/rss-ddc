@@ -13,9 +13,11 @@
  * rss_ddc_characterization_collect_quick (Alien Probe Quick Auto Probe),
  * rss_ddc_characterization_collect_extended (Alien Probe Extended Auto Probe),
  * and the live ops used by rss_ddc_characterize_display.
- * It does not restore monitor-knowledge/v0.1 JSON or call SET VCP. Sufficiency
- * is a pure decision over current evidence. DEFAULT Extended runs only when
- * recommended; DEEP may force Extended when GET is available.
+ * Known production methods are merged after identity/transport assemble and
+ * do not perform I/O. It does not restore monitor-knowledge/v0.1 JSON or call
+ * SET VCP. Sufficiency is a pure decision over current evidence. DEFAULT
+ * Extended runs only when recommended; DEEP may force Extended when GET is
+ * available.
  */
 
 /** Allocates empty orchestration state that owns an empty knowledge object. */
@@ -75,6 +77,18 @@ RSSDDCError rss_ddc_characterization_assemble(RSSDDCCharacterization *characteri
                                               const RSSDDCDisplay *display,
                                               const RSSDDCEDIDInfo *edid,
                                               const RSSDDCProfileStore *store);
+
+/**
+ * Pure production-method ingest: if the assembled display already satisfies an
+ * existing hardware-validated production gate, merge that known write method
+ * into knowledge. Does not GET, SET, probe, or weaken the production gate.
+ * Identity/transport must already be assembled. Independent of Alien Probe
+ * and MCCS. Currently injects write-only LG_ALT for inputs.switching when
+ * rss_ddc_validate_lg_alt_input_target succeeds. Picture Mode remains the
+ * existing profile/CAP_PICTURE_MODE representation and is not duplicated.
+ */
+RSSDDCError rss_ddc_characterization_add_production_methods(
+    RSSDDCCharacterization *characterization);
 
 /**
  * Platform Slice 2 entry: resolves `list_index` with rss_ddc_get_display,
@@ -263,8 +277,10 @@ typedef struct {
 } RSSDDCCharacterizationOps;
 
 /**
- * Private end-to-end executor used by rss_ddc_characterize_display. Does not
- * SET VCP or mutate `profiles`. On fatal failure `*out` is NULL.
+ * Private end-to-end executor used by rss_ddc_characterize_display. After
+ * assemble, injects known production methods, then passive MCCS / Quick /
+ * sufficiency / optional Extended. Does not SET VCP or mutate `profiles`.
+ * On fatal failure `*out` is NULL.
  */
 RSSDDCError rss_ddc_characterization_execute(uint32_t list_index, const RSSDDCProfileStore *profiles,
                                              const RSSDDCCharacterizeOptions *options,

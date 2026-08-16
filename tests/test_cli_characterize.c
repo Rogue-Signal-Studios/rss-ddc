@@ -383,12 +383,28 @@ static void test_passive_omits_extended_and_write_is_not_implied(void) {
     free(plain);
 }
 
+static void test_lg_alt_write_label_from_production_method(void) {
+    RSSDDCCharacterization *characterization = rss_ddc_characterization_create();
+    RSSDDCDisplay display = dcpdp13_display();
+    char *plain = NULL;
+    assert(characterization != NULL);
+    assert(rss_ddc_characterization_assemble(characterization, &display, NULL, NULL) == RSS_DDC_OK);
+    assert(rss_ddc_characterization_add_production_methods(characterization) == RSS_DDC_OK);
+    plain = render_text(characterization, RSS_DDC_CHARACTERIZE_MODE_PASSIVE, false);
+    assert(strstr(plain, "id=inputs.switching") != NULL);
+    assert(strstr(plain, "write=LG_ALT") != NULL);
+    assert(strstr(plain, "authorized=yes") != NULL);
+    rss_ddc_characterization_destroy(characterization);
+    free(plain);
+}
+
 int main(void) {
     test_public_api_path_is_presentation_only();
     test_sufficient_and_extended_omitted();
     test_insufficient_conflict_and_controls();
     test_extended_summary_and_deep_not_attempted();
     test_passive_omits_extended_and_write_is_not_implied();
+    test_lg_alt_write_label_from_production_method();
     puts("test_cli_characterize: passed");
     return 0;
 }

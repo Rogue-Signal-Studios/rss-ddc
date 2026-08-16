@@ -4,6 +4,8 @@
 #include <stdlib.h>
 #include <string.h>
 
+#include "input_switch.h"
+
 struct RSSDDCCharacterization {
     RSSDDCMonitorKnowledge *knowledge;
     bool has_display;
@@ -320,6 +322,63 @@ RSSDDCError rss_ddc_characterization_assemble(RSSDDCCharacterization *characteri
     characterization->effective_profile = effective;
     characterization->profile_status = RSS_DDC_CHARACTERIZATION_PROFILE_MATCHED;
     return RSS_DDC_OK;
+}
+
+static bool knowledge_has_authorized_lg_alt_write(const RSSDDCMonitorKnowledge *knowledge) {
+    if (knowledge == NULL) {
+        return false;
+    }
+    for (size_t index = 0; index < rss_ddc_monitor_knowledge_route_count(knowledge); ++index) {
+        const RSSDDCKnowledgeRoute *route = rss_ddc_monitor_knowledge_route_at(knowledge, index);
+        if (route != NULL && strcmp(route->semantic_id, "inputs.switching") == 0 &&
+            route->kind == RSS_DDC_KNOWLEDGE_ROUTE_LG_ALT_INPUT && route->writable &&
+            route->write_authorized) {
+            return true;
+        }
+    }
+    return false;
+}
+
+RSSDDCError rss_ddc_characterization_add_production_methods(
+    RSSDDCCharacterization *characterization) {
+    const RSSDDCDisplay *display = rss_ddc_characterization_display(characterization);
+    if (characterization == NULL || characterization->knowledge == NULL || display == NULL) {
+        return RSS_DDC_ERROR_ARGUMENT;
+    }
+
+    /*
+     * Characterization cannot observe the live IOKit safety correlation.
+     * Identity predicates are the same function the SET path uses; the
+     * write-time dp_safety_gate remains fail-closed on the real SET.
+     */
+    if (rss_ddc_validate_lg_alt_input_target(display->provider, true, display->product_name,
+                                             display->transport) != RSS_DDC_OK) {
+        return RSS_DDC_OK;
+    }
+    if (knowledge_has_authorized_lg_alt_write(characterization->knowledge)) {
+        return RSS_DDC_OK;
+    }
+
+    RSSDDCMonitorKnowledge *production = rss_ddc_monitor_knowledge_create();
+    RSSDDCProfileControl control = {.id = RSS_DDC_PROFILE_CONTROL_INPUT,
+                                    .method = RSS_DDC_PROFILE_METHOD_LG_ALT_INPUT,
+                                    .address = RSS_DDC_LG_ALT_INPUT_VCP,
+                                    .readable = false,
+                                    .writable = true,
+                                    .write_authorized = true,
+                                    .source = RSS_DDC_PROFILE_SOURCE_BUILTIN,
+                                    .confidence = RSS_DDC_PROFILE_CONFIDENCE_HARDWARE_VALIDATED};
+    RSSDDCError error = RSS_DDC_ERROR_SYSTEM;
+    if (production == NULL) {
+        return RSS_DDC_ERROR_SYSTEM;
+    }
+    error = rss_ddc_monitor_knowledge_add_profile_control(production, "inputs.switching",
+                                                          "production-lg-alt-input", &control);
+    if (error == RSS_DDC_OK) {
+        error = rss_ddc_characterization_add_knowledge(characterization, production);
+    }
+    rss_ddc_monitor_knowledge_destroy(production);
+    return error;
 }
 
 const RSSDDCDisplay *rss_ddc_characterization_display(const RSSDDCCharacterization *characterization) {
@@ -1176,6 +1235,12 @@ RSSDDCError rss_ddc_characterization_execute(uint32_t list_index, const RSSDDCPr
 
     error = rss_ddc_characterization_assemble(characterization, &display, edid_info, profiles);
     if (error != RSS_DDC_OK && error != RSS_DDC_ERROR_PROFILE_CONFLICT) {
+        rss_ddc_characterization_destroy(characterization);
+        return error;
+    }
+
+    error = rss_ddc_characterization_add_production_methods(characterization);
+    if (error != RSS_DDC_OK) {
         rss_ddc_characterization_destroy(characterization);
         return error;
     }

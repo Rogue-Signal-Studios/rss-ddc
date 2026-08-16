@@ -667,6 +667,20 @@ consumers are given:
 - optional probe diagnostics for developer views
 - resolution accessors for a semantic ID
 
+**Known production mechanisms** are characterization evidence. After identity
+and transport are resolved, characterization injects already hardware-validated
+production write methods without I/O, Alien Probe, or MCCS. Probe observation
+and production methods are independent facts: effective read and write may
+differ. The concrete case is LG HDR QHD `inputs.switching`: live GET of VCP
+`0x60` may be the effective read, while production `LG_ALT` is the effective
+write and is write-authorized only because that SET path is already gated and
+hardware-validated. MCCS advertisement and successful GET still never authorize
+the write. This slice does not validate new hardware; it exposes existing
+production knowledge. Bounded `RSSDDCKnowledgeRoute` still cannot attach a
+separate LG_ALT value domain (`0x90` / `0x91` / `0xd0`) beside MCCS `0x60`
+enums; the write method is represented now, and those value spaces remain
+distinct.
+
 They do not receive a second document type.
 
 Raw probe observations stay in diagnostics even when not promoted to knowledge
@@ -1457,9 +1471,44 @@ SUMMARY, MCCS SUMMARY, Alien Probe Quick summary, and Extended summary only
 when Extended ran or DEEP was requested. Observed GET never implies write
 authorization.
 
-**Slice 9 boundary.** Stop before optional profile update policy.
+**Slice 9 boundary.** Stop before injecting known production write methods
+that rss-ddc already hardware-validates outside characterization.
 
-### Slice 9 — Optional profile update policy
+### Slice 9 — Validated production methods
+
+- **Files:** `characterize.h`, `characterize.c`, `tests/test_characterize.c`,
+  `cli/presentation/characterize_render.c`, this document
+- **Reuse:** `rss_ddc_validate_lg_alt_input_target`,
+  `rss_ddc_lg_alt_input_value_is_supported`, existing
+  `add_profile_control` / resolver, builtin Picture Mode profile
+- **Hardware:** none in implementation; targeted read-only characterize smoke
+  after commit
+- **Accept:** matching LG identity receives write-only authorized `LG_ALT` for
+  `inputs.switching`; nonmatching monitors do not; VCP `0x60` GET remains
+  read-only; Picture Mode is not duplicated; Odyssey is not write-authorized
+
+#### Slice 9 implementation (this branch)
+
+`rss_ddc_characterization_add_production_methods` runs after assemble and
+before passive MCCS. It performs no I/O. LG_ALT is injected only when
+`rss_ddc_validate_lg_alt_input_target(provider, true, product, transport)`
+succeeds: `DCPDP13`, product `LG HDR QHD`, transport `DCPEXT0`. The live
+DCPDP13 safety correlation remains fail-closed on the real SET path;
+characterization cannot observe that IOKit gate.
+
+The injected route is write-only, writable, write-authorized, hardware-validated
+builtin production knowledge. It does not claim LG_ALT is readable. Observed
+VCP `0x60` may remain the effective read. MCCS `0x60` enums stay on the MCCS
+model and do not become LG_ALT values. Picture Mode continues to come from the
+existing builtin profile / `CAP_PICTURE_MODE` gate and is not injected again.
+
+Slice 5 sufficiency is unchanged. A known LG_ALT write method can make
+`inputs.switching` usable before Extended. If another in-scope control still
+lacks a method, Extended may still run.
+
+**Slice 10 boundary.** Stop before optional profile update policy.
+
+### Slice 10 — Optional profile update policy
 
 Unchanged: gated; never automatic from advertisement or stable GET.
 
