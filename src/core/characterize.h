@@ -14,8 +14,9 @@
  * rss_ddc_characterization_collect_extended (Alien Probe Extended Auto Probe),
  * and the live ops used by rss_ddc_characterize_display.
  * Known production methods are merged after identity/transport assemble and
- * do not perform I/O. It does not restore monitor-knowledge/v0.1 JSON or call
- * SET VCP. Sufficiency is a pure decision over current evidence. DEFAULT
+ * do not perform I/O. Optional profile update is a separate explicit API and
+ * is not part of execute. It does not restore monitor-knowledge/v0.1 JSON or
+ * call SET VCP. Sufficiency is a pure decision over current evidence. DEFAULT
  * Extended runs only when recommended; DEEP may force Extended when GET is
  * available.
  */

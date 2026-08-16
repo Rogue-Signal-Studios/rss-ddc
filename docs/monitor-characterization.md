@@ -841,7 +841,12 @@ Knowledge-only (do not persist): unknown semantics, advertised-only enums,
 variable observations, research facts, protocol-valid-but-unlabeled VCPs.
 
 Update is **policy-driven / user-approved**, never automatic in default
-characterization. This design does not implement mutation.
+characterization. `rss_ddc_characterization_update_profile` mutates only an
+explicitly supplied in-memory store. It does not SET, does not save to disk,
+and does not rewrite builtin packs. Compatible additions become LOCAL
+overlays. Live current values are not stored. Schema v1 persists LG_ALT as
+`method=lg-alt-input` with production enums `0x90`/`0x91`/`0xd0`; it does not
+store LG_ALT as VCP `0x60`.
 
 Characterized `inputs.switching` maps to a local INPUT control only for
 validated enum mappings (e.g. LG_ALT `0x90/0x91/0xd0` already in production
@@ -1510,7 +1515,48 @@ lacks a method, Extended may still run.
 
 ### Slice 10 — Optional profile update policy
 
-Unchanged: gated; never automatic from advertisement or stable GET.
+- **Files:** `rss_ddc.h`, `characterize.c`, `profile_store.c`,
+  `tests/test_characterize.c`, this document, `docs/monitor-profiles.md`
+- **Reuse:** existing schema v1 pack format, `put_local_profile` overlay,
+  production LG_ALT enums, builtin Picture Mode
+- **Hardware:** none for implementation tests; optional temp-store smoke after
+  commit
+- **Accept:** explicit mutation only; no authority escalation; no disk write
+  inside the update call; CLI `characterize` remains read-only
+
+#### Slice 10 implementation (this branch)
+
+`rss_ddc_characterization_update_profile` is an explicit caller action. It is
+not invoked by `rss_ddc_characterize_display`. It performs no monitor I/O and
+does not save files. Builtin/pack/research records are never rewritten; new
+facts are LOCAL overlays via `rss_ddc_profile_store_put_local_profile`. Disk
+persistence remains `rss_ddc_profile_store_save_file`.
+
+**Eligible (authoritative).** Hardware-validated PROFILE or production write
+methods the current schema can represent: Picture Mode VCP `0x15` with its
+existing enums; LG_ALT input method `lg-alt-input` with production enums
+`0x90` / `0x91` / `0xd0`. Persistence copies or preserves that authority; it
+never increases it.
+
+**Not persisted.** Live current values; MCCS advertisement; DECLARED facts;
+Quick/Extended GET observations; vendor-unknown VCPs; variable diagnostics;
+VCP `0x60` as a substitute for LG_ALT. Observed reads do not create writable
+or write-authorized profile controls.
+
+**LG_ALT.** Schema v1 can represent both the method (`lg-alt-input`) and the
+validated value domain (`enums`). Those enum values come from existing
+production support (`rss_ddc_lg_alt_input_value_is_supported`), not from MCCS
+`0x60` or live GET. Equal-authority conflict with an existing non-equivalent
+INPUT control fails closed.
+
+**Outcomes.** `created` (no prior match, persistable facts exist);
+`updated` (match existed, compatible LOCAL overlay added); `unchanged`
+(everything persistable already present); `conflict` (equal-authority
+non-identical write method, or bounds); `unsupported` (identity incomplete or
+nothing safely representable — Odyssey DEFAULT).
+
+No `rss-ddc profile` CLI command exists; CLI work is deferred. `rss-ddc
+characterize` does not mutate stores.
 
 ## 20. Non-goals
 

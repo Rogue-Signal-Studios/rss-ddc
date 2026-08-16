@@ -83,3 +83,119 @@ void rss_ddc_profile_identity_from_display(const RSSDDCDisplay*d,RSSDDCProfileId
 
 static const char builtin[] = "{\"schemaVersion\":1,\"databaseVersion\":\"2026.08.14.2\",\"minimumRSSDDCVersion\":\"0.1.0\",\"packId\":\"rogue-builtin\",\"profiles\":[{\"id\":\"lg-hdr-qhd-dcpdp13-dcpext0\",\"identity\":{\"productName\":\"LG HDR QHD\",\"provider\":\"DCPDP13Service\",\"transport\":\"DCPEXT0\",\"external\":true},\"confidence\":\"hardware-validated\",\"controls\":[{\"id\":\"picture-mode\",\"method\":\"vcp\",\"address\":21,\"readable\":true,\"writable\":true,\"confidence\":\"hardware-validated\",\"enums\":[{\"id\":\"vivid\",\"name\":\"Vivid\",\"value\":49},{\"id\":\"reader\",\"name\":\"Reader\",\"value\":1}]}]}]}";
 RSSDDCError rss_ddc_profile_store_load_builtin(RSSDDCProfileStore *s) { if (!s) return RSS_DDC_ERROR_ARGUMENT; RSSDDCProfileStore *p = rss_ddc_profile_store_create(); if (!p) return RSS_DDC_ERROR_SYSTEM; RSSDDCError z = parse_pack(builtin, sizeof(builtin)-1, RSS_DDC_PROFILE_SOURCE_VALIDATED_PACK, p); if (!z) { for (size_t i=0;i<p->profile_count;i++) p->profiles[i].source = RSS_DDC_PROFILE_SOURCE_BUILTIN; z=add(s,p); } rss_ddc_profile_store_destroy(p); return z; }
+
+static RSSDDCError validate_local_control(const RSSDDCProfileControl *q) {
+    if (q == NULL || q->id == RSS_DDC_PROFILE_CONTROL_UNKNOWN || q->method == RSS_DDC_PROFILE_METHOD_UNKNOWN ||
+        q->address == 0 || q->confidence == RSS_DDC_PROFILE_CONFIDENCE_UNKNOWN ||
+        q->enum_value_count > RSS_DDC_PROFILE_MAX_ENUM_VALUES) {
+        return RSS_DDC_ERROR_PROFILE_MALFORMED;
+    }
+    if (q->method == RSS_DDC_PROFILE_METHOD_VCP && q->address > UINT8_MAX) {
+        return RSS_DDC_ERROR_PROFILE_MALFORMED;
+    }
+    if (q->method == RSS_DDC_PROFILE_METHOD_LG_ALT_INPUT && q->id != RSS_DDC_PROFILE_CONTROL_INPUT) {
+        return RSS_DDC_ERROR_PROFILE_UNSAFE;
+    }
+    if (q->id == RSS_DDC_PROFILE_CONTROL_INPUT && q->method == RSS_DDC_PROFILE_METHOD_VCP &&
+        q->address != 0x60) {
+        return RSS_DDC_ERROR_PROFILE_UNSAFE;
+    }
+    if (q->id == RSS_DDC_PROFILE_CONTROL_PICTURE_MODE && q->enum_value_count == 0) {
+        return RSS_DDC_ERROR_PROFILE_MALFORMED;
+    }
+    if (q->writable && q->confidence != RSS_DDC_PROFILE_CONFIDENCE_HARDWARE_VALIDATED) {
+        return RSS_DDC_ERROR_PROFILE_UNSAFE;
+    }
+    for (size_t index = 0; index < q->enum_value_count; ++index) {
+        if (q->enum_values[index].id[0] == '\0') {
+            return RSS_DDC_ERROR_PROFILE_MALFORMED;
+        }
+        for (size_t other = 0; other < index; ++other) {
+            if (strcmp(q->enum_values[index].id, q->enum_values[other].id) == 0 ||
+                q->enum_values[index].raw_value == q->enum_values[other].raw_value) {
+                return RSS_DDC_ERROR_PROFILE_CONFLICT;
+            }
+        }
+    }
+    return RSS_DDC_OK;
+}
+
+static bool identity_complete(const RSSDDCProfileIdentity *identity) {
+    return identity != NULL && identity->product_name[0] != '\0' && identity->transport[0] != '\0' &&
+           identity->provider != RSS_DDC_PROVIDER_UNKNOWN;
+}
+
+RSSDDCError rss_ddc_profile_store_put_local_profile(RSSDDCProfileStore *store, const char *id,
+                                                    const RSSDDCProfileIdentity *identity,
+                                                    RSSDDCProfileConfidence confidence,
+                                                    const RSSDDCProfileControl *controls,
+                                                    size_t control_count) {
+    if (store == NULL || id == NULL || id[0] == '\0' || strlen(id) >= RSS_DDC_PROFILE_ID_MAX ||
+        !identity_complete(identity) || controls == NULL || control_count == 0 ||
+        control_count > RSS_DDC_PROFILE_MAX_CONTROLS ||
+        confidence == RSS_DDC_PROFILE_CONFIDENCE_UNKNOWN) {
+        return RSS_DDC_ERROR_ARGUMENT;
+    }
+
+    ProfileRecord incoming = {.source = RSS_DDC_PROFILE_SOURCE_LOCAL, .confidence = confidence,
+                              .control_count = control_count, .identity = *identity};
+    if (snprintf(incoming.id, sizeof(incoming.id), "%s", id) < 0) {
+        return RSS_DDC_ERROR_SYSTEM;
+    }
+    for (size_t index = 0; index < control_count; ++index) {
+        RSSDDCError error = validate_local_control(&controls[index]);
+        if (error != RSS_DDC_OK) {
+            return error;
+        }
+        if ((unsigned)controls[index].confidence > (unsigned)confidence) {
+            return RSS_DDC_ERROR_PROFILE_MALFORMED;
+        }
+        for (size_t other = 0; other < index; ++other) {
+            if (controls[other].id == controls[index].id) {
+                return RSS_DDC_ERROR_PROFILE_CONFLICT;
+            }
+        }
+        incoming.controls[index] = controls[index];
+        incoming.controls[index].source = RSS_DDC_PROFILE_SOURCE_LOCAL;
+        incoming.controls[index].write_authorized = false;
+    }
+
+    size_t local_matches = 0;
+    size_t replace_index = store->profile_count;
+    for (size_t index = 0; index < store->profile_count; ++index) {
+        if (store->profiles[index].source == RSS_DDC_PROFILE_SOURCE_LOCAL &&
+            equal_id(&store->profiles[index].identity, identity)) {
+            ++local_matches;
+            replace_index = index;
+        }
+    }
+    if (local_matches > 1) {
+        return RSS_DDC_ERROR_PROFILE_CONFLICT;
+    }
+    if (local_matches == 0 && store->profile_count == RSS_DDC_PROFILE_MAX_PROFILES) {
+        return RSS_DDC_ERROR_PROFILE_CONFLICT;
+    }
+
+    RSSDDCProfileStore *copy = rss_ddc_profile_store_create();
+    if (copy == NULL) {
+        return RSS_DDC_ERROR_SYSTEM;
+    }
+    memcpy(copy, store, sizeof(*copy));
+    if (local_matches == 1) {
+        copy->profiles[replace_index] = incoming;
+    } else {
+        copy->profiles[copy->profile_count++] = incoming;
+    }
+    if (!copy->has_info) {
+        copy->info.schema_version = RSS_DDC_PROFILE_SCHEMA_VERSION;
+        (void)snprintf(copy->info.database_version, sizeof(copy->info.database_version), "%s",
+                       "local-export");
+        (void)snprintf(copy->info.minimum_rss_ddc_version, sizeof(copy->info.minimum_rss_ddc_version),
+                       "%s", "0.1.0");
+        (void)snprintf(copy->info.pack_id, sizeof(copy->info.pack_id), "%s", "local-export");
+        copy->has_info = true;
+    }
+    memcpy(store, copy, sizeof(*store));
+    rss_ddc_profile_store_destroy(copy);
+    return RSS_DDC_OK;
+}

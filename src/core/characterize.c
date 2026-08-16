@@ -1,5 +1,6 @@
 #include "characterize.h"
 
+#include <ctype.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -1198,6 +1199,266 @@ static bool should_run_extended(RSSDDCCharacterizeMode mode, const RSSDDCCharact
     }
     return mode == RSS_DDC_CHARACTERIZE_MODE_DEFAULT && sufficiency->extended_recommended &&
            sufficiency->status != RSS_DDC_CHARACTERIZATION_SUFFICIENCY_CONFLICT;
+}
+
+static RSSDDCProfileControlID control_id_for_semantic(const char *semantic_id) {
+    if (strcmp(semantic_id, "display.picture_mode") == 0) {
+        return RSS_DDC_PROFILE_CONTROL_PICTURE_MODE;
+    }
+    if (strcmp(semantic_id, "inputs.switching") == 0) {
+        return RSS_DDC_PROFILE_CONTROL_INPUT;
+    }
+    if (strcmp(semantic_id, "display.brightness") == 0) {
+        return RSS_DDC_PROFILE_CONTROL_BRIGHTNESS;
+    }
+    if (strcmp(semantic_id, "display.contrast") == 0) {
+        return RSS_DDC_PROFILE_CONTROL_CONTRAST;
+    }
+    if (strcmp(semantic_id, "display.color_preset") == 0) {
+        return RSS_DDC_PROFILE_CONTROL_COLOR_PRESET;
+    }
+    return RSS_DDC_PROFILE_CONTROL_UNKNOWN;
+}
+
+static bool persistable_authorized_write(const RSSDDCKnowledgeRoute *route) {
+    return route != NULL && route->provenance.fact_kind == RSS_DDC_KNOWLEDGE_FACT_PROFILE &&
+           route->provenance.confidence == RSS_DDC_PROFILE_CONFIDENCE_HARDWARE_VALIDATED &&
+           route->provenance.source != RSS_DDC_PROFILE_SOURCE_RESEARCH && route->writable &&
+           route->write_authorized &&
+           (route->kind == RSS_DDC_KNOWLEDGE_ROUTE_LG_ALT_INPUT ||
+            route->kind == RSS_DDC_KNOWLEDGE_ROUTE_STANDARD_VCP);
+}
+
+static const RSSDDCProfileControl *effective_control_by_id(const RSSDDCEffectiveProfile *effective,
+                                                           RSSDDCProfileControlID id) {
+    if (effective == NULL) {
+        return NULL;
+    }
+    for (size_t index = 0; index < effective->control_count; ++index) {
+        if (effective->controls[index].id == id) {
+            return &effective->controls[index];
+        }
+    }
+    return NULL;
+}
+
+static RSSDDCError attach_lg_alt_production_enums(RSSDDCProfileControl *control) {
+    static const struct {
+        const char *id;
+        const char *name;
+        uint16_t value;
+    } values[] = {{"hdmi-1", "HDMI 1", 0x90u}, {"hdmi-2", "HDMI 2", 0x91u}, {"dp-1", "DisplayPort 1", 0xd0u}};
+    control->enum_value_count = 0;
+    for (size_t index = 0; index < sizeof(values) / sizeof(values[0]); ++index) {
+        if (!rss_ddc_lg_alt_input_value_is_supported(values[index].value)) {
+            return RSS_DDC_ERROR_SYSTEM;
+        }
+        RSSDDCProfileEnumValue *value = &control->enum_values[control->enum_value_count++];
+        *value = (RSSDDCProfileEnumValue){.raw_value = values[index].value};
+        if (snprintf(value->id, sizeof(value->id), "%s", values[index].id) < 0 ||
+            snprintf(value->name, sizeof(value->name), "%s", values[index].name) < 0) {
+            return RSS_DDC_ERROR_SYSTEM;
+        }
+    }
+    return RSS_DDC_OK;
+}
+
+static bool build_persistable_control(const RSSDDCCharacterization *characterization,
+                                      const RSSDDCKnowledgeRoute *route, RSSDDCProfileControl *control) {
+    RSSDDCProfileControlID id = control_id_for_semantic(route->semantic_id);
+    const RSSDDCEffectiveProfile *source_effective =
+        rss_ddc_characterization_effective_profile(characterization);
+    const RSSDDCProfileControl *source_control = effective_control_by_id(source_effective, id);
+    *control = (RSSDDCProfileControl){0};
+    if (id == RSS_DDC_PROFILE_CONTROL_UNKNOWN) {
+        return false;
+    }
+    if (route->kind == RSS_DDC_KNOWLEDGE_ROUTE_LG_ALT_INPUT) {
+        if (id != RSS_DDC_PROFILE_CONTROL_INPUT) {
+            return false;
+        }
+        control->id = id;
+        control->method = RSS_DDC_PROFILE_METHOD_LG_ALT_INPUT;
+        control->address = route->address;
+        control->readable = false;
+        control->writable = true;
+        control->confidence = RSS_DDC_PROFILE_CONFIDENCE_HARDWARE_VALIDATED;
+        return attach_lg_alt_production_enums(control) == RSS_DDC_OK;
+    }
+    if (route->kind != RSS_DDC_KNOWLEDGE_ROUTE_STANDARD_VCP || id == RSS_DDC_PROFILE_CONTROL_INPUT) {
+        return false;
+    }
+    control->id = id;
+    control->method = RSS_DDC_PROFILE_METHOD_VCP;
+    control->address = route->address;
+    control->readable = route->readable;
+    control->writable = route->writable;
+    control->confidence = RSS_DDC_PROFILE_CONFIDENCE_HARDWARE_VALIDATED;
+    if (source_control != NULL && source_control->method == RSS_DDC_PROFILE_METHOD_VCP &&
+        source_control->address == route->address) {
+        control->enum_value_count = source_control->enum_value_count;
+        memcpy(control->enum_values, source_control->enum_values, sizeof(control->enum_values));
+    }
+    return id != RSS_DDC_PROFILE_CONTROL_PICTURE_MODE || control->enum_value_count > 0;
+}
+
+static void make_local_profile_id(char *out, size_t capacity, const RSSDDCProfileIdentity *identity) {
+    char raw[RSS_DDC_PROFILE_ID_MAX * 2];
+    size_t used = 0;
+    if (snprintf(raw, sizeof(raw), "local-%s-%s-%s", identity->product_name,
+                 rss_ddc_provider_string(identity->provider), identity->transport) < 0) {
+        raw[0] = '\0';
+    }
+    for (size_t index = 0; raw[index] != '\0' && used + 1 < capacity; ++index) {
+        unsigned char character = (unsigned char)raw[index];
+        if (isalnum(character)) {
+            out[used++] = (char)tolower(character);
+        } else if (used > 0 && out[used - 1] != '-') {
+            out[used++] = '-';
+        }
+    }
+    while (used > 0 && out[used - 1] == '-') {
+        --used;
+    }
+    if (used == 0) {
+        (void)snprintf(out, capacity, "%s", "local-profile");
+        return;
+    }
+    out[used] = '\0';
+}
+
+static bool controls_equivalent(const RSSDDCProfileControl *left, const RSSDDCProfileControl *right) {
+    return left != NULL && right != NULL && left->id == right->id && left->method == right->method &&
+           left->address == right->address && left->readable == right->readable &&
+           left->writable == right->writable && left->enum_value_count == right->enum_value_count &&
+           memcmp(left->enum_values, right->enum_values,
+                  left->enum_value_count * sizeof(left->enum_values[0])) == 0;
+}
+
+static bool identity_ready(const RSSDDCProfileIdentity *identity) {
+    return identity != NULL && identity->product_name[0] != '\0' && identity->transport[0] != '\0' &&
+           identity->provider != RSS_DDC_PROVIDER_UNKNOWN;
+}
+
+RSSDDCError rss_ddc_characterization_update_profile(
+    const RSSDDCCharacterization *characterization, RSSDDCProfileStore *store,
+    RSSDDCCharacterizationProfileUpdateResult *result) {
+    const RSSDDCProfileIdentity *identity = rss_ddc_characterization_profile_identity(characterization);
+    RSSDDCEffectiveProfile target_effective = {0};
+    RSSDDCProfileControl overlay[RSS_DDC_PROFILE_MAX_CONTROLS];
+    size_t overlay_count = 0;
+    size_t added = 0;
+    size_t preserved = 0;
+    bool matched = false;
+    char profile_id[RSS_DDC_PROFILE_ID_MAX];
+    static const char *const semantics[] = {
+        "display.brightness", "display.contrast", "display.color_preset", "display.picture_mode",
+        "inputs.switching",
+    };
+
+    if (result == NULL) {
+        return RSS_DDC_ERROR_ARGUMENT;
+    }
+    *result = (RSSDDCCharacterizationProfileUpdateResult){
+        .status = RSS_DDC_CHARACTERIZATION_PROFILE_UPDATE_UNSUPPORTED,
+    };
+    if (characterization == NULL || store == NULL || rss_ddc_characterization_display(characterization) == NULL) {
+        return RSS_DDC_ERROR_ARGUMENT;
+    }
+    if (!identity_ready(identity)) {
+        return RSS_DDC_OK;
+    }
+
+    RSSDDCError error = rss_ddc_profile_store_resolve(store, identity, &target_effective);
+    if (error == RSS_DDC_ERROR_PROFILE_CONFLICT) {
+        result->status = RSS_DDC_CHARACTERIZATION_PROFILE_UPDATE_CONFLICT;
+        return RSS_DDC_ERROR_PROFILE_CONFLICT;
+    }
+    if (error != RSS_DDC_OK && error != RSS_DDC_ERROR_NOT_FOUND) {
+        return error;
+    }
+    matched = error == RSS_DDC_OK;
+
+    for (size_t index = 0; matched && index < target_effective.control_count; ++index) {
+        if (target_effective.controls[index].source != RSS_DDC_PROFILE_SOURCE_LOCAL) {
+            ++preserved;
+            continue;
+        }
+        if (overlay_count == RSS_DDC_PROFILE_MAX_CONTROLS) {
+            result->status = RSS_DDC_CHARACTERIZATION_PROFILE_UPDATE_CONFLICT;
+            return RSS_DDC_ERROR_PROFILE_CONFLICT;
+        }
+        overlay[overlay_count++] = target_effective.controls[index];
+        ++preserved;
+    }
+
+    for (size_t index = 0; index < sizeof(semantics) / sizeof(semantics[0]); ++index) {
+        RSSDDCMonitorKnowledgeResolution *resolution = NULL;
+        const RSSDDCKnowledgeRoute *write = NULL;
+        RSSDDCProfileControl candidate = {0};
+        const RSSDDCProfileControl *existing = NULL;
+        error = rss_ddc_characterization_resolve(characterization, semantics[index], &resolution);
+        if (error == RSS_DDC_ERROR_NOT_FOUND) {
+            continue;
+        }
+        if (error != RSS_DDC_OK) {
+            rss_ddc_monitor_knowledge_resolution_destroy(resolution);
+            return error;
+        }
+        write = rss_ddc_monitor_knowledge_resolution_preferred_write(resolution);
+        if (!rss_ddc_monitor_knowledge_resolution_write_authorized(resolution) ||
+            !persistable_authorized_write(write) ||
+            !build_persistable_control(characterization, write, &candidate)) {
+            rss_ddc_monitor_knowledge_resolution_destroy(resolution);
+            continue;
+        }
+        rss_ddc_monitor_knowledge_resolution_destroy(resolution);
+        existing = matched ? effective_control_by_id(&target_effective, candidate.id) : NULL;
+        if (existing != NULL && controls_equivalent(existing, &candidate)) {
+            continue;
+        }
+        if (existing != NULL) {
+            result->status = RSS_DDC_CHARACTERIZATION_PROFILE_UPDATE_CONFLICT;
+            return RSS_DDC_ERROR_PROFILE_CONFLICT;
+        }
+        for (size_t overlay_index = 0; overlay_index < overlay_count; ++overlay_index) {
+            if (overlay[overlay_index].id == candidate.id) {
+                result->status = RSS_DDC_CHARACTERIZATION_PROFILE_UPDATE_CONFLICT;
+                return RSS_DDC_ERROR_PROFILE_CONFLICT;
+            }
+        }
+        if (overlay_count == RSS_DDC_PROFILE_MAX_CONTROLS) {
+            result->status = RSS_DDC_CHARACTERIZATION_PROFILE_UPDATE_CONFLICT;
+            return RSS_DDC_ERROR_PROFILE_CONFLICT;
+        }
+        overlay[overlay_count++] = candidate;
+        ++added;
+    }
+
+    if (added == 0) {
+        result->status = matched ? RSS_DDC_CHARACTERIZATION_PROFILE_UPDATE_UNCHANGED
+                                 : RSS_DDC_CHARACTERIZATION_PROFILE_UPDATE_UNSUPPORTED;
+        result->controls_preserved = preserved;
+        return RSS_DDC_OK;
+    }
+
+    make_local_profile_id(profile_id, sizeof(profile_id), identity);
+    error = rss_ddc_profile_store_put_local_profile(store, profile_id, identity,
+                                                    RSS_DDC_PROFILE_CONFIDENCE_HARDWARE_VALIDATED, overlay,
+                                                    overlay_count);
+    if (error != RSS_DDC_OK) {
+        if (error == RSS_DDC_ERROR_PROFILE_CONFLICT || error == RSS_DDC_ERROR_PROFILE_UNSAFE ||
+            error == RSS_DDC_ERROR_PROFILE_MALFORMED) {
+            result->status = RSS_DDC_CHARACTERIZATION_PROFILE_UPDATE_CONFLICT;
+        }
+        return error;
+    }
+    result->status = matched ? RSS_DDC_CHARACTERIZATION_PROFILE_UPDATE_UPDATED
+                             : RSS_DDC_CHARACTERIZATION_PROFILE_UPDATE_CREATED;
+    (void)snprintf(result->profile_id, sizeof(result->profile_id), "%s", profile_id);
+    result->controls_added = added;
+    result->controls_preserved = preserved;
+    return RSS_DDC_OK;
 }
 
 RSSDDCError rss_ddc_characterization_execute(uint32_t list_index, const RSSDDCProfileStore *profiles,

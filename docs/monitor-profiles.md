@@ -28,6 +28,11 @@ values per control, 64-byte IDs/version strings, and 128-byte display text.
 File saves export to a complete temporary file, `fsync` it, then rename it over
 the target; failed writes remove only the temporary file.
 
+`rss_ddc_profile_store_put_local_profile` inserts or replaces one LOCAL overlay
+in memory. It never rewrites builtin, validated-pack, or research records and
+does not write disk. Characterization profile update uses that primitive;
+callers who want a file must call `rss_ddc_profile_store_save_file` separately.
+
 The historical `fc48972` bug arose when the multi-megabyte bounded store was
 copied as a stack local during parsing/appending/builtin resolution. This
 implementation allocates every store, parse candidate, append replacement, and
