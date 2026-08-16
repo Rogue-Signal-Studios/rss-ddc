@@ -75,7 +75,8 @@ static void test_observed_current_max_and_no_write_authority(void) {
     json = serialize_all(knowledge, NULL);
     assert(strstr(json, "\"id\":\"display.brightness\"") != NULL);
     assert(strstr(json, "\"type\":\"unsigned\",\"value\":100") != NULL);
-    assert(strstr(json, "\"observedRange\":{\"min\":100,\"max\":100}") != NULL);
+    assert(strstr(json, "\"reportedMaximum\":{\"type\":\"unsigned\",\"value\":100}") != NULL);
+    assert(strstr(json, "observedRange") == NULL);
     assert(strstr(json, "\"vcpCode\":96") != NULL);
     assert(strstr(json, "\"vcpCode\":21") != NULL);
     assert(strstr(json, "\"writable\":true") == NULL);
@@ -129,6 +130,11 @@ static void test_round_trip(void) {
     route = rss_ddc_monitor_knowledge_route_at(parsed, 0);
     assert(route != NULL);
     assert(!route->writable && !route->write_authorized);
+    assert(route->value.state == RSS_DDC_KNOWLEDGE_VALUE_UNSIGNED);
+    assert(route->value.unsigned_value == 80);
+    assert(route->reported_maximum_present && route->reported_maximum == 100);
+    assert(strstr(first, "observedRange") == NULL);
+    assert(strstr(first, "\"reportedMaximum\":{\"type\":\"unsigned\",\"value\":100}") != NULL);
     second = serialize_all(parsed, &parsed_identity);
     assert(strcmp(first, second) == 0);
     rss_ddc_monitor_knowledge_destroy(parsed);
@@ -195,10 +201,90 @@ static void test_skips_unknown_keys(void) {
     rss_ddc_monitor_knowledge_destroy(parsed);
 }
 
+static void test_current_is_not_observed_minimum(void) {
+    RSSDDCMonitorKnowledge *knowledge = rss_ddc_monitor_knowledge_create();
+    RSSDDCKnowledgeRoute brightness = make_observed("display.brightness", "mccs-vcp-10", 0x10, 50, 100, true);
+    char *json = NULL;
+    assert(knowledge != NULL);
+    assert(rss_ddc_monitor_knowledge_add_route(knowledge, &brightness) == RSS_DDC_OK);
+    json = serialize_all(knowledge, NULL);
+    assert(strstr(json, "\"type\":\"unsigned\",\"value\":50") != NULL);
+    assert(strstr(json, "\"reportedMaximum\":{\"type\":\"unsigned\",\"value\":100}") != NULL);
+    assert(strstr(json, "observedRange") == NULL);
+    assert(strstr(json, "\"min\":50") == NULL);
+    assert(strstr(json, "\"writable\":true") == NULL);
+    free(json);
+    rss_ddc_monitor_knowledge_destroy(knowledge);
+}
+
+static void test_equal_current_and_max_is_not_a_range(void) {
+    RSSDDCMonitorKnowledge *knowledge = rss_ddc_monitor_knowledge_create();
+    RSSDDCKnowledgeRoute brightness = make_observed("display.brightness", "mccs-vcp-10", 0x10, 100, 100, true);
+    char *json = NULL;
+    assert(knowledge != NULL);
+    assert(rss_ddc_monitor_knowledge_add_route(knowledge, &brightness) == RSS_DDC_OK);
+    json = serialize_all(knowledge, NULL);
+    assert(strstr(json, "\"type\":\"unsigned\",\"value\":100") != NULL);
+    assert(strstr(json, "\"reportedMaximum\":{\"type\":\"unsigned\",\"value\":100}") != NULL);
+    assert(strstr(json, "observedRange") == NULL);
+    assert(strstr(json, "{\"min\":100,\"max\":100}") == NULL);
+    free(json);
+    rss_ddc_monitor_knowledge_destroy(knowledge);
+}
+
+static void test_variable_and_unknown_follow_the_same_range_rule(void) {
+    RSSDDCMonitorKnowledge *knowledge = rss_ddc_monitor_knowledge_create();
+    RSSDDCKnowledgeRoute variable = make_observed("vendor.unknown.vcp.ee", "mccs-vcp-ee", 0xee, 7, 255, false);
+    RSSDDCMonitorKnowledge *parsed = NULL;
+    char *json = NULL;
+    const RSSDDCKnowledgeRoute *route = NULL;
+    assert(knowledge != NULL);
+    assert(rss_ddc_monitor_knowledge_add_route(knowledge, &variable) == RSS_DDC_OK);
+    json = serialize_all(knowledge, NULL);
+    assert(strstr(json, "\"id\":\"vendor.unknown.vcp.ee\"") != NULL);
+    assert(strstr(json, "\"type\":\"unsigned\",\"value\":7") != NULL);
+    assert(strstr(json, "\"reportedMaximum\":{\"type\":\"unsigned\",\"value\":255}") != NULL);
+    assert(strstr(json, "\"reference\":\"variable\"") != NULL);
+    assert(strstr(json, "observedRange") == NULL);
+    assert(strstr(json, "\"min\":7") == NULL);
+    assert(strstr(json, "\"writable\":true") == NULL);
+    assert(rss_ddc_monitor_knowledge_parse_json(json, strlen(json), &parsed, NULL) == RSS_DDC_OK);
+    route = rss_ddc_monitor_knowledge_route_at(parsed, 0);
+    assert(route != NULL);
+    assert(route->value.unsigned_value == 7);
+    assert(route->reported_maximum_present && route->reported_maximum == 255);
+    assert(!route->writable && !route->write_authorized);
+    rss_ddc_monitor_knowledge_destroy(parsed);
+    free(json);
+    rss_ddc_monitor_knowledge_destroy(knowledge);
+}
+
+static void test_observed_range_in_input_is_not_reported_maximum(void) {
+    const char *text =
+        "{\"schemaVersion\":\"monitor-knowledge/v0.1\",\"identity\":{},\"capabilities\":[{"
+        "\"id\":\"display.brightness\",\"observedRange\":{\"min\":50,\"max\":100},\"methods\":[{"
+        "\"id\":\"mccs-vcp-10\",\"type\":\"mccs_vcp\",\"readable\":true,\"writable\":false,"
+        "\"risk\":\"read_standard\",\"vcpCode\":16,\"evidence\":[{\"type\":\"stable_get\","
+        "\"reference\":\"stable\"}]}],\"values\":[{\"id\":\"mccs-vcp-10\",\"raw\":{\"type\":"
+        "\"unsigned\",\"value\":50}}]}]}";
+    RSSDDCMonitorKnowledge *parsed = NULL;
+    const RSSDDCKnowledgeRoute *route = NULL;
+    assert(rss_ddc_monitor_knowledge_parse_json(text, strlen(text), &parsed, NULL) == RSS_DDC_OK);
+    route = rss_ddc_monitor_knowledge_route_at(parsed, 0);
+    assert(route != NULL);
+    assert(route->value.unsigned_value == 50);
+    assert(!route->reported_maximum_present);
+    rss_ddc_monitor_knowledge_destroy(parsed);
+}
+
 int main(void) {
     test_schema_and_empty_capabilities();
     test_observed_current_max_and_no_write_authority();
     test_variable_distinct_from_stable();
+    test_current_is_not_observed_minimum();
+    test_equal_current_and_max_is_not_a_range();
+    test_variable_and_unknown_follow_the_same_range_rule();
+    test_observed_range_in_input_is_not_reported_maximum();
     test_round_trip();
     test_bounds_and_file();
     test_skips_unknown_keys();

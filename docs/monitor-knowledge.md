@@ -84,10 +84,13 @@ plus an optional identity snapshot. Characterization export
 (`rss_ddc_characterization_serialize_discovered_json`) uses discovery-only
 knowledge and never prior PROFILE augmentation.
 
-v0.1 is an evidence-bearing discovery artifact: observed current/max values
-are serialized when present. They are not operational profile defaults and
-do not create write authority. Profile schemaVersion 1 continues to exclude
-transient current state.
+v0.1 is an evidence-bearing discovery artifact. An observed current value is a
+point observation in `values[]`. A GET reply's protocol-reported maximum is
+serialized separately as capability `reportedMaximum` (historical Alien Probe
+v0.1 field). `observedRange` is omitted unless a true observed min/max range
+was established; current is never used as minimum. These values are not
+operational profile defaults and do not create write authority. Profile
+schemaVersion 1 continues to exclude transient current state.
 
 COMPLETE cache-hit export is identity plus empty `capabilities`; it does not
 claim fresh Alien Probe observations. Bounds: 256 KiB document, 128

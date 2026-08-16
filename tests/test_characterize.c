@@ -2240,7 +2240,8 @@ static void test_discovery_json_excludes_partial_profile_and_matches_profile_fre
     assert(strstr(partial_json, "\"vcpCode\":96") != NULL);
     assert(strstr(partial_json, "\"vcpCode\":21") != NULL);
     assert(strstr(partial_json, "\"type\":\"unsigned\"") != NULL);
-    assert(strstr(partial_json, "observedRange") != NULL);
+    assert(strstr(partial_json, "reportedMaximum") != NULL);
+    assert(strstr(partial_json, "observedRange") == NULL);
     assert(rss_ddc_characterization_resolve(partial, "inputs.switching", &resolution) == RSS_DDC_OK);
     write = rss_ddc_monitor_knowledge_resolution_preferred_write(resolution);
     assert(write != NULL && write->kind == RSS_DDC_KNOWLEDGE_ROUTE_LG_ALT_INPUT);

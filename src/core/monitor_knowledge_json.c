@@ -298,10 +298,9 @@ static bool observed_value(const RSSDDCKnowledgeRoute *route) {
 }
 
 static void emit_capability(Writer *w, const RSSDDCKnowledgeRoute *const *routes, size_t count) {
-    bool has_current = false;
-    bool has_max = false;
-    unsigned long min_current = 0;
-    unsigned long max_reported = 0;
+    bool has_reported = false;
+    bool reported_conflict = false;
+    unsigned long reported = 0;
     const char *confidence = confidence_json(routes[0]->provenance.confidence);
     put(w, "{\"id\":\"");
     put(w, json_safe(routes[0]->semantic_id) ? routes[0]->semantic_id : "unknown");
@@ -316,24 +315,19 @@ static void emit_capability(Writer *w, const RSSDDCKnowledgeRoute *const *routes
     }
     for (size_t index = 0; index < count; ++index) {
         const RSSDDCKnowledgeRoute *route = routes[index];
-        if (observed_value(route) && route->value.state == RSS_DDC_KNOWLEDGE_VALUE_UNSIGNED) {
-            if (!has_current || route->value.unsigned_value < min_current) {
-                min_current = route->value.unsigned_value;
-            }
-            has_current = true;
+        if (!route->reported_maximum_present) {
+            continue;
         }
-        if (route->reported_maximum_present) {
-            if (!has_max || route->reported_maximum > max_reported) {
-                max_reported = route->reported_maximum;
-            }
-            has_max = true;
+        if (!has_reported) {
+            reported = route->reported_maximum;
+            has_reported = true;
+        } else if (route->reported_maximum != reported) {
+            reported_conflict = true;
         }
     }
-    if (has_current && has_max) {
-        put(w, ",\"observedRange\":{\"min\":");
-        putn(w, min_current);
-        put(w, ",\"max\":");
-        putn(w, max_reported);
+    if (has_reported && !reported_conflict) {
+        put(w, ",\"reportedMaximum\":{\"type\":\"unsigned\",\"value\":");
+        putn(w, reported);
         put(w, "}");
     }
     put(w, ",\"methods\":[");
@@ -899,36 +893,6 @@ static RSSDDCError parse_value_item(Cursor *c, void *slot, size_t *count) {
     return error;
 }
 
-static RSSDDCError parse_range_max(Cursor *c, bool *present, uint16_t *maximum) {
-    if (!take(c, '{')) {
-        return RSS_DDC_ERROR_MONITOR_KNOWLEDGE_MALFORMED;
-    }
-    for (;;) {
-        char key[16] = {0};
-        if (!parse_string(c, key, sizeof(key)) || !take(c, ':')) {
-            return RSS_DDC_ERROR_MONITOR_KNOWLEDGE_MALFORMED;
-        }
-        if (strcmp(key, "max") == 0) {
-            uint32_t number = 0;
-            if (!parse_number(c, &number) || number > UINT16_MAX) {
-                return RSS_DDC_ERROR_MONITOR_KNOWLEDGE_MALFORMED;
-            }
-            *maximum = (uint16_t)number;
-            *present = true;
-        } else if (!skip_value(c, 1)) {
-            return RSS_DDC_ERROR_MONITOR_KNOWLEDGE_MALFORMED;
-        }
-        ws(c);
-        if (c->p < c->end && *c->p == '}') {
-            ++c->p;
-            return RSS_DDC_OK;
-        }
-        if (!take(c, ',')) {
-            return RSS_DDC_ERROR_MONITOR_KNOWLEDGE_MALFORMED;
-        }
-    }
-}
-
 static RSSDDCError parse_capability(Cursor *c, RSSDDCMonitorKnowledge *knowledge) {
     char id[RSS_DDC_TEXT_MAX] = {0};
     ParsedMethod methods[RSS_DDC_MONITOR_KNOWLEDGE_JSON_MAX_METHODS];
@@ -963,10 +927,19 @@ static RSSDDCError parse_capability(Cursor *c, RSSDDCMonitorKnowledge *knowledge
             if (error != RSS_DDC_OK) {
                 return error;
             }
-        } else if (strcmp(key, "observedRange") == 0) {
-            RSSDDCError error = parse_range_max(c, &has_max, &reported_max);
+        } else if (strcmp(key, "reportedMaximum") == 0) {
+            ParsedValue raw = {0};
+            RSSDDCError error = parse_raw(c, &raw);
             if (error != RSS_DDC_OK) {
                 return error;
+            }
+            if (raw.has_unsigned) {
+                has_max = true;
+                reported_max = raw.unsigned_value;
+            }
+        } else if (strcmp(key, "observedRange") == 0) {
+            if (!skip_value(c, 1)) {
+                return RSS_DDC_ERROR_MONITOR_KNOWLEDGE_MALFORMED;
             }
         } else if (!skip_value(c, 1)) {
             return RSS_DDC_ERROR_MONITOR_KNOWLEDGE_MALFORMED;
