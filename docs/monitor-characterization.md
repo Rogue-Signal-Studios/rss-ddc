@@ -1,5 +1,10 @@
 # Monitor characterization architecture
 
+**Normative execution and knowledge boundaries:**
+[Canonical Alien Probe™ architecture](alien-probe-architecture.md).
+If code and that architecture disagree, the implementation must be corrected
+or the architectural conflict must be explicitly reviewed before proceeding.
+
 This document defines characterization as the **process** that collects evidence,
 enriches the existing monitor-knowledge model, merges competing facts, and
 resolves effective read/write methods. It does not introduce a second knowledge
@@ -65,8 +70,20 @@ native C representation  ↔  deterministic monitor-knowledge/v0.1 JSON
 | Profile packs `schemaVersion` 1 | Narrower persistable mappings; evidence source / gated update target | Implemented; distinct from v0.1 |
 
 Characterization **populates, merges, and resolves** the current C subset.
-It does not invent a parallel result schema. Restoring v0.1 JSON is an
-explicit later knowledge-model task, not a characterization Slice 1 task.
+It does not invent a parallel result schema.
+
+```text
+characterization runtime model
+        ↓ deterministic mapping
+monitor-knowledge/v0.1 JSON     ← discovery / evidence artifact
+
+validated operational subset
+        ↓
+profile schemaVersion 1         ← durable reusable validated control knowledge
+```
+
+Restoring v0.1 JSON is an explicit later knowledge-model task. Profile update
+is not that artifact.
 
 ## 3. Terminology
 
@@ -1457,16 +1474,26 @@ and the macOS Stream Deck backend.
 #### Slice 8 implementation (this branch)
 
 ```sh
+rss-ddc --help
+rss-ddc -h
 rss-ddc characterize 1
 rss-ddc characterize 1 --mode passive
 rss-ddc characterize 1 --mode default
 rss-ddc characterize 1 --mode deep
+rss-ddc characterize 1 --no-profiles
+rss-ddc characterize 1 --mode deep --no-profiles
 ```
 
-The command parses the display index and optional `--mode`, loads the builtin
-profile store if available (read-only; never saved), calls
+The command parses the display index, optional `--mode`, and optional
+`--no-profiles`. Unless `--no-profiles` is set, it loads the builtin profile
+store if available (read-only; never saved). It calls
 `rss_ddc_characterize_display`, renders the owned result, and destroys it.
 It does not call MCCS, Quick, or Extended APIs directly.
+
+`--no-profiles` selects `IGNORE_KNOWN`: identity is still discovered, but
+monitor-specific structured prior knowledge is not loaded. Canonical
+pipeline, COMPLETE vs PARTIAL lookup, and DEEP-never-skips semantics are
+in [Canonical Alien Probe™ architecture](alien-probe-architecture.md).
 
 Exit 0 when the public API returns a characterization, including INSUFFICIENT
 or CONFLICT. Fatal API failure exits non-zero.
@@ -1492,24 +1519,15 @@ that rss-ddc already hardware-validates outside characterization.
   `inputs.switching`; nonmatching monitors do not; VCP `0x60` GET remains
   read-only; Picture Mode is not duplicated; Odyssey is not write-authorized
 
-#### Slice 9 implementation (this branch)
+#### Slice 9 implementation (superseded)
 
-`rss_ddc_characterization_add_production_methods` runs after assemble and
-before passive MCCS. It performs no I/O. LG_ALT is injected only when
-`rss_ddc_validate_lg_alt_input_target(provider, true, product, transport)`
-succeeds: `DCPDP13`, product `LG HDR QHD`, transport `DCPEXT0`. The live
-DCPDP13 safety correlation remains fail-closed on the real SET path;
-characterization cannot observe that IOKit gate.
-
-The injected route is write-only, writable, write-authorized, hardware-validated
-builtin production knowledge. It does not claim LG_ALT is readable. Observed
-VCP `0x60` may remain the effective read. MCCS `0x60` enums stay on the MCCS
-model and do not become LG_ALT values. Picture Mode continues to come from the
-existing builtin profile / `CAP_PICTURE_MODE` gate and is not injected again.
-
-Slice 5 sufficiency is unchanged. A known LG_ALT write method can make
-`inputs.switching` usable before Extended. If another in-scope control still
-lacks a method, Extended may still run.
+Slice 9 injected LG_ALT from `rss_ddc_validate_lg_alt_input_target` product/transport
+gates inside characterization. That is **architectural drift** and has been
+removed. Monitor-specific LG_ALT applicability and values now live in the
+builtin profile pack (`lg-hdr-qhd-dcpdp13-dcpext0`). See
+[Canonical Alien Probe™ architecture](alien-probe-architecture.md).
+The SET path may still fail closed on the same identity predicates as write
+safety; characterization must not use them to inject methods.
 
 **Slice 10 boundary.** Stop before optional profile update policy.
 

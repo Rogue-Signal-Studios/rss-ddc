@@ -1,5 +1,11 @@
 #include "rss_ddc.h"
 
+RSSDDCCharacterizeOptions rss_ddc_default_characterize_options(void) {
+    RSSDDCCharacterizeOptions options = {.mode = RSS_DDC_CHARACTERIZE_MODE_DEFAULT,
+                                         .knowledge_policy = RSS_DDC_CHARACTERIZE_KNOWLEDGE_NORMAL};
+    return options;
+}
+
 const char *rss_ddc_probe_result_category_name(RSSDDCProbeResultCategory category) {
     switch (category) {
     case RSS_DDC_PROBE_RESULT_STABLE: return "stable";

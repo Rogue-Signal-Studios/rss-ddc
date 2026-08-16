@@ -31,6 +31,11 @@ bool rss_ddc_cli_parse_global_args(int argc, char **argv, RSSDDCCliParsedArgs *p
             parsed->command_index = index + 1;
             continue;
         }
+        if (strcmp(argument, "--help") == 0 || strcmp(argument, "-h") == 0) {
+            parsed->help = true;
+            parsed->command_index = index + 1;
+            continue;
+        }
         if (parse_tri_flag(argument, "--color", &parsed->overrides.color, &parsed->overrides.has_color)) {
             parsed->command_index = index + 1;
             continue;
@@ -85,33 +90,42 @@ bool rss_ddc_cli_parse_characterize_mode(const char *text, RSSDDCCharacterizeMod
 }
 
 bool rss_ddc_cli_parse_characterize_options(int argc, char **argv, int first_option,
-                                            RSSDDCCharacterizeMode *mode) {
-    if (mode == NULL) {
+                                            RSSDDCCharacterizeOptions *options) {
+    if (options == NULL) {
         return false;
     }
-    *mode = RSS_DDC_CHARACTERIZE_MODE_DEFAULT;
+    *options = rss_ddc_default_characterize_options();
     if (argv == NULL || first_option >= argc) {
         return true;
     }
-    if (first_option < 0 || argv[first_option] == NULL) {
+    if (first_option < 0) {
         return false;
     }
-    const char *argument = argv[first_option];
-    const char *value = NULL;
-    if (strncmp(argument, "--mode=", 7) == 0) {
-        value = argument + 7;
-        if (first_option + 1 != argc) {
+    for (int index = first_option; index < argc; ++index) {
+        const char *argument = argv[index];
+        const char *value = NULL;
+        if (argument == NULL) {
             return false;
         }
-    } else if (strcmp(argument, "--mode") == 0) {
-        if (first_option + 1 >= argc || first_option + 2 != argc) {
+        if (strcmp(argument, "--no-profiles") == 0) {
+            options->knowledge_policy = RSS_DDC_CHARACTERIZE_KNOWLEDGE_IGNORE_KNOWN;
+            continue;
+        }
+        if (strncmp(argument, "--mode=", 7) == 0) {
+            value = argument + 7;
+        } else if (strcmp(argument, "--mode") == 0) {
+            if (index + 1 >= argc) {
+                return false;
+            }
+            value = argv[++index];
+        } else {
             return false;
         }
-        value = argv[first_option + 1];
-    } else {
-        return false;
+        if (!rss_ddc_cli_parse_characterize_mode(value, &options->mode)) {
+            return false;
+        }
     }
-    return rss_ddc_cli_parse_characterize_mode(value, mode);
+    return true;
 }
 
 bool rss_ddc_cli_parse_profile_update_options(int argc, char **argv, int first_option,

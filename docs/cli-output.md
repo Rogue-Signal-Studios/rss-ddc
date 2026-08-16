@@ -94,7 +94,8 @@ column each for current Unicode table borders.
 
 `profile update` prints a compact report rather than a table. `characterize`
 never writes a profile file; `profile update --output` is the explicit LOCAL
-overlay save path and still performs no monitor writes.
+overlay save path and still performs no monitor writes. `characterize --no-profiles`
+is the diagnostic true-alien path and remains read-only.
 
 Interactive table mode also prints concise probe summaries using the exact
 underlying Slice 8 counters. `characterize` does not dump every Quick or

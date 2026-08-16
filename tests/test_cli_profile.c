@@ -119,14 +119,25 @@ static void test_lg_local_overlay_roundtrip(void) {
         RSSDDCDisplay display = lg_display();
         assert(rss_ddc_characterization_assemble(characterization, &display, NULL, store) == RSS_DDC_OK);
     }
-    assert(rss_ddc_characterization_add_production_methods(characterization) == RSS_DDC_OK);
     assert(rss_ddc_characterization_update_profile(characterization, store, &update) == RSS_DDC_OK);
-    assert(update.status == RSS_DDC_CHARACTERIZATION_PROFILE_UPDATE_UPDATED);
+    assert(update.status == RSS_DDC_CHARACTERIZATION_PROFILE_UPDATE_UNCHANGED);
     assert(rss_ddc_profile_store_resolve(store, rss_ddc_characterization_profile_identity(characterization),
                                          &effective) == RSS_DDC_OK);
     assert(rss_ddc_cli_profile_update_save_if_needed(store, update.status, path, &written) == RSS_DDC_OK);
-    assert(written);
-    json = read_path(path);
+    assert(!written);
+    assert(access(path, F_OK) != 0);
+    {
+        RSSDDCProfileStore *empty = rss_ddc_profile_store_create();
+        RSSDDCCharacterizationProfileUpdateResult created = {0};
+        assert(empty != NULL);
+        assert(rss_ddc_characterization_update_profile(characterization, empty, &created) == RSS_DDC_OK);
+        assert(created.status == RSS_DDC_CHARACTERIZATION_PROFILE_UPDATE_CREATED);
+        written = false;
+        assert(rss_ddc_cli_profile_update_save_if_needed(empty, created.status, path, &written) == RSS_DDC_OK);
+        assert(written);
+        json = read_path(path);
+        rss_ddc_profile_store_destroy(empty);
+    }
     assert(strstr(json, "lg-alt-input") != NULL);
     assert(strstr(json, "\"address\":244") != NULL);
     assert(strstr(json, "\"value\":144") != NULL);
@@ -135,7 +146,7 @@ static void test_lg_local_overlay_roundtrip(void) {
     assert(strstr(json, "\"value\":17") == NULL);
     assert(strstr(json, "\"value\":18") == NULL);
     assert(strstr(json, "\"value\":15") == NULL);
-    assert(strstr(json, "picture-mode") == NULL);
+    assert(strstr(json, "picture-mode") != NULL);
     assert(strstr(json, "rogue-builtin") == NULL);
     assert(strstr(json, "\"packId\":\"local-export\"") != NULL);
     assert(strstr(json, "current") == NULL);
@@ -152,19 +163,13 @@ static void test_lg_local_overlay_roundtrip(void) {
             input = control;
         }
     }
-    assert(picture.source == RSS_DDC_PROFILE_SOURCE_BUILTIN);
     assert(picture.method == RSS_DDC_PROFILE_METHOD_VCP);
     assert(picture.address == 0x15);
-    assert(input.source == RSS_DDC_PROFILE_SOURCE_LOCAL);
     assert(input.method == RSS_DDC_PROFILE_METHOD_LG_ALT_INPUT);
     assert(input.address == 0xf4);
-    report = capture_update_render(characterization, &update, &effective, path);
+    report = capture_update_render(characterization, &update, &effective, NULL);
     assert(strstr(report, "Display: LG HDR QHD") != NULL);
-    assert(strstr(report, "Profile update: UPDATED") != NULL);
-    assert(strstr(report, "method: LG_ALT") != NULL);
-    assert(strstr(report, "address: 0xf4") != NULL);
-    assert(strstr(report, "HDMI 1") != NULL);
-    assert(strstr(report, "Saved:") != NULL);
+    assert(strstr(report, "Profile update: UNCHANGED") != NULL);
     unlink(path);
     rss_ddc_characterization_destroy(characterization);
     rss_ddc_profile_store_destroy(store);
@@ -185,7 +190,6 @@ static void test_odyssey_unsupported_writes_no_file(void) {
     (void)snprintf(path, sizeof(path), "/private/tmp/rss-ddc-cli-profile-odyssey-%d.json", (int)getpid());
     unlink(path);
     assert(rss_ddc_characterization_assemble(characterization, &display, NULL, store) == RSS_DDC_OK);
-    assert(rss_ddc_characterization_add_production_methods(characterization) == RSS_DDC_OK);
     assert(rss_ddc_characterization_update_profile(characterization, store, &update) == RSS_DDC_OK);
     assert(update.status == RSS_DDC_CHARACTERIZATION_PROFILE_UPDATE_UNSUPPORTED);
     assert(rss_ddc_cli_profile_update_save_if_needed(store, update.status, path, &written) == RSS_DDC_OK);
@@ -211,16 +215,17 @@ static void test_conflict_leaves_file_unchanged(void) {
     bool written = true;
     int fd = mkstemp(path);
     FILE *file = NULL;
-    assert(characterization != NULL && store != NULL && fd >= 0);
+    RSSDDCProfileStore *builtin = rss_ddc_profile_store_create();
+    assert(characterization != NULL && store != NULL && builtin != NULL && fd >= 0);
     close(fd);
     file = fopen(path, "wb");
     assert(file != NULL);
     assert(fwrite(sentinel, 1, strlen(sentinel), file) == strlen(sentinel));
     fclose(file);
+    assert(rss_ddc_profile_store_load_builtin(builtin) == RSS_DDC_OK);
     assert(rss_ddc_profile_store_load_pack_data(store, lg_vcp_input_pack(), strlen(lg_vcp_input_pack())) ==
            RSS_DDC_OK);
-    assert(rss_ddc_characterization_assemble(characterization, &display, NULL, NULL) == RSS_DDC_OK);
-    assert(rss_ddc_characterization_add_production_methods(characterization) == RSS_DDC_OK);
+    assert(rss_ddc_characterization_assemble(characterization, &display, NULL, builtin) == RSS_DDC_OK);
     assert(rss_ddc_characterization_update_profile(characterization, store, &update) ==
            RSS_DDC_ERROR_PROFILE_CONFLICT);
     assert(update.status == RSS_DDC_CHARACTERIZATION_PROFILE_UPDATE_CONFLICT);
@@ -231,6 +236,7 @@ static void test_conflict_leaves_file_unchanged(void) {
     unlink(path);
     rss_ddc_characterization_destroy(characterization);
     rss_ddc_profile_store_destroy(store);
+    rss_ddc_profile_store_destroy(builtin);
     free(after);
 }
 
@@ -249,10 +255,6 @@ static void test_unchanged_does_not_rewrite(void) {
     close(fd);
     assert(rss_ddc_profile_store_load_builtin(store) == RSS_DDC_OK);
     assert(rss_ddc_characterization_assemble(characterization, &display, NULL, store) == RSS_DDC_OK);
-    assert(rss_ddc_characterization_add_production_methods(characterization) == RSS_DDC_OK);
-    assert(rss_ddc_characterization_update_profile(characterization, store, &update) == RSS_DDC_OK);
-    assert(update.status == RSS_DDC_CHARACTERIZATION_PROFILE_UPDATE_UPDATED);
-    update = (RSSDDCCharacterizationProfileUpdateResult){0};
     assert(rss_ddc_characterization_update_profile(characterization, store, &update) == RSS_DDC_OK);
     assert(update.status == RSS_DDC_CHARACTERIZATION_PROFILE_UPDATE_UNCHANGED);
     file = fopen(path, "wb");

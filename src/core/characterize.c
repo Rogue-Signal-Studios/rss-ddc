@@ -5,8 +5,6 @@
 #include <stdlib.h>
 #include <string.h>
 
-#include "input_switch.h"
-
 struct RSSDDCCharacterization {
     RSSDDCMonitorKnowledge *knowledge;
     bool has_display;
@@ -16,6 +14,7 @@ struct RSSDDCCharacterization {
     bool has_profile_identity;
     RSSDDCProfileIdentity profile_identity;
     RSSDDCCharacterizationProfileStatus profile_status;
+    RSSDDCCharacterizationStructuredMatch structured_match;
     RSSDDCEffectiveProfile effective_profile;
     uint32_t provider_capabilities;
     bool mccs_attempted;
@@ -275,6 +274,8 @@ static RSSDDCError add_matched_profile_knowledge(RSSDDCCharacterization *charact
     return error;
 }
 
+static RSSDDCError refresh_structured_match(RSSDDCCharacterization *characterization);
+
 RSSDDCError rss_ddc_characterization_assemble(RSSDDCCharacterization *characterization,
                                               const RSSDDCDisplay *display,
                                               const RSSDDCEDIDInfo *edid,
@@ -296,6 +297,7 @@ RSSDDCError rss_ddc_characterization_assemble(RSSDDCCharacterization *characteri
     rss_ddc_profile_identity_from_display(display, &characterization->profile_identity);
     characterization->has_profile_identity = true;
     characterization->profile_status = RSS_DDC_CHARACTERIZATION_PROFILE_NONE;
+    characterization->structured_match = RSS_DDC_CHARACTERIZATION_STRUCTURED_NONE;
     characterization->effective_profile = (RSSDDCEffectiveProfile){0};
 
     if (store == NULL) {
@@ -310,6 +312,7 @@ RSSDDCError rss_ddc_characterization_assemble(RSSDDCCharacterization *characteri
     }
     if (error == RSS_DDC_ERROR_PROFILE_CONFLICT) {
         characterization->profile_status = RSS_DDC_CHARACTERIZATION_PROFILE_CONFLICT;
+        (void)refresh_structured_match(characterization);
         return error;
     }
     if (error != RSS_DDC_OK) {
@@ -322,64 +325,32 @@ RSSDDCError rss_ddc_characterization_assemble(RSSDDCCharacterization *characteri
     }
     characterization->effective_profile = effective;
     characterization->profile_status = RSS_DDC_CHARACTERIZATION_PROFILE_MATCHED;
+    return refresh_structured_match(characterization);
+}
+
+static RSSDDCError refresh_structured_match(RSSDDCCharacterization *characterization) {
+    RSSDDCCharacterizationSufficiencyResult sufficiency = {0};
+    RSSDDCError error = RSS_DDC_OK;
+    characterization->structured_match = RSS_DDC_CHARACTERIZATION_STRUCTURED_NONE;
+    if (characterization->profile_status == RSS_DDC_CHARACTERIZATION_PROFILE_CONFLICT) {
+        characterization->structured_match = RSS_DDC_CHARACTERIZATION_STRUCTURED_CONFLICT;
+        return RSS_DDC_OK;
+    }
+    if (characterization->profile_status != RSS_DDC_CHARACTERIZATION_PROFILE_MATCHED) {
+        return RSS_DDC_OK;
+    }
+    error = rss_ddc_characterization_sufficiency(characterization, &sufficiency);
+    if (error != RSS_DDC_OK) {
+        return error;
+    }
+    if (sufficiency.status == RSS_DDC_CHARACTERIZATION_SUFFICIENCY_CONFLICT) {
+        characterization->structured_match = RSS_DDC_CHARACTERIZATION_STRUCTURED_CONFLICT;
+    } else if (sufficiency.status == RSS_DDC_CHARACTERIZATION_SUFFICIENCY_SUFFICIENT) {
+        characterization->structured_match = RSS_DDC_CHARACTERIZATION_STRUCTURED_COMPLETE;
+    } else {
+        characterization->structured_match = RSS_DDC_CHARACTERIZATION_STRUCTURED_PARTIAL;
+    }
     return RSS_DDC_OK;
-}
-
-static bool knowledge_has_authorized_lg_alt_write(const RSSDDCMonitorKnowledge *knowledge) {
-    if (knowledge == NULL) {
-        return false;
-    }
-    for (size_t index = 0; index < rss_ddc_monitor_knowledge_route_count(knowledge); ++index) {
-        const RSSDDCKnowledgeRoute *route = rss_ddc_monitor_knowledge_route_at(knowledge, index);
-        if (route != NULL && strcmp(route->semantic_id, "inputs.switching") == 0 &&
-            route->kind == RSS_DDC_KNOWLEDGE_ROUTE_LG_ALT_INPUT && route->writable &&
-            route->write_authorized) {
-            return true;
-        }
-    }
-    return false;
-}
-
-RSSDDCError rss_ddc_characterization_add_production_methods(
-    RSSDDCCharacterization *characterization) {
-    const RSSDDCDisplay *display = rss_ddc_characterization_display(characterization);
-    if (characterization == NULL || characterization->knowledge == NULL || display == NULL) {
-        return RSS_DDC_ERROR_ARGUMENT;
-    }
-
-    /*
-     * Characterization cannot observe the live IOKit safety correlation.
-     * Identity predicates are the same function the SET path uses; the
-     * write-time dp_safety_gate remains fail-closed on the real SET.
-     */
-    if (rss_ddc_validate_lg_alt_input_target(display->provider, true, display->product_name,
-                                             display->transport) != RSS_DDC_OK) {
-        return RSS_DDC_OK;
-    }
-    if (knowledge_has_authorized_lg_alt_write(characterization->knowledge)) {
-        return RSS_DDC_OK;
-    }
-
-    RSSDDCMonitorKnowledge *production = rss_ddc_monitor_knowledge_create();
-    RSSDDCProfileControl control = {.id = RSS_DDC_PROFILE_CONTROL_INPUT,
-                                    .method = RSS_DDC_PROFILE_METHOD_LG_ALT_INPUT,
-                                    .address = RSS_DDC_LG_ALT_INPUT_VCP,
-                                    .readable = false,
-                                    .writable = true,
-                                    .write_authorized = true,
-                                    .source = RSS_DDC_PROFILE_SOURCE_BUILTIN,
-                                    .confidence = RSS_DDC_PROFILE_CONFIDENCE_HARDWARE_VALIDATED};
-    RSSDDCError error = RSS_DDC_ERROR_SYSTEM;
-    if (production == NULL) {
-        return RSS_DDC_ERROR_SYSTEM;
-    }
-    error = rss_ddc_monitor_knowledge_add_profile_control(production, "inputs.switching",
-                                                          "production-lg-alt-input", &control);
-    if (error == RSS_DDC_OK) {
-        error = rss_ddc_characterization_add_knowledge(characterization, production);
-    }
-    rss_ddc_monitor_knowledge_destroy(production);
-    return error;
 }
 
 const RSSDDCDisplay *rss_ddc_characterization_display(const RSSDDCCharacterization *characterization) {
@@ -706,11 +677,6 @@ static bool mccs_has_vcp(const RSSDDCCharacterization *characterization, uint8_t
     return characterization->mccs != NULL && rss_ddc_mccs_capabilities_has_vcp(characterization->mccs, vcp);
 }
 
-static bool picture_mode_production_gate(const RSSDDCCharacterization *characterization) {
-    const RSSDDCDisplay *display = rss_ddc_characterization_display(characterization);
-    return display != NULL && (display->capabilities & RSS_DDC_CAP_PICTURE_MODE) != 0;
-}
-
 static bool control_in_scope(const RSSDDCCharacterization *characterization, const char *semantic_id) {
     const RSSDDCMonitorKnowledge *knowledge = rss_ddc_characterization_knowledge(characterization);
     if (strcmp(semantic_id, "display.brightness") == 0 || strcmp(semantic_id, "display.contrast") == 0) {
@@ -720,8 +686,7 @@ static bool control_in_scope(const RSSDDCCharacterization *characterization, con
         return knowledge_has_semantic(knowledge, semantic_id) || mccs_has_vcp(characterization, 0x14);
     }
     if (strcmp(semantic_id, "display.picture_mode") == 0) {
-        return knowledge_has_semantic(knowledge, semantic_id) || mccs_has_vcp(characterization, 0x15) ||
-               picture_mode_production_gate(characterization);
+        return knowledge_has_semantic(knowledge, semantic_id) || mccs_has_vcp(characterization, 0x15);
     }
     if (strcmp(semantic_id, "inputs.switching") == 0) {
         return knowledge_has_semantic(knowledge, semantic_id) || mccs_has_vcp(characterization, 0x60) ||
@@ -734,10 +699,6 @@ static RSSDDCError control_method_state(const RSSDDCCharacterization *characteri
                                         const char *semantic_id, bool *usable, bool *conflict) {
     *usable = false;
     *conflict = false;
-    if (strcmp(semantic_id, "display.picture_mode") == 0 && picture_mode_production_gate(characterization)) {
-        *usable = true;
-        return RSS_DDC_OK;
-    }
 
     RSSDDCMonitorKnowledgeResolution *resolution = NULL;
     RSSDDCError error = rss_ddc_characterization_resolve(characterization, semantic_id, &resolution);
@@ -829,8 +790,6 @@ RSSDDCError rss_ddc_characterization_sufficiency(
         }
 
         const bool has_route = knowledge_has_semantic(knowledge, semantic_id);
-        const bool production_gate =
-            strcmp(semantic_id, "display.picture_mode") == 0 && picture_mode_production_gate(characterization);
 
         if (conflict) {
             any_conflict = true;
@@ -838,7 +797,7 @@ RSSDDCError rss_ddc_characterization_sufficiency(
         } else if (!usable) {
             any_unresolved = true;
             result->reasons |= RSS_DDC_CHARACTERIZATION_REASON_UNRESOLVED_METHOD;
-            if (!has_route && !production_gate) {
+            if (!has_route) {
                 result->reasons |= RSS_DDC_CHARACTERIZATION_REASON_MISSING_CONTROL;
             }
             if (get_supported) {
@@ -866,6 +825,25 @@ RSSDDCError rss_ddc_characterization_sufficiency(
         result->reasons |= RSS_DDC_CHARACTERIZATION_REASON_PROBE_HELPFUL;
     }
     return RSS_DDC_OK;
+}
+
+RSSDDCCharacterizationStructuredMatch rss_ddc_characterization_structured_match(
+    const RSSDDCCharacterization *characterization) {
+    return characterization == NULL ? RSS_DDC_CHARACTERIZATION_STRUCTURED_NONE
+                                    : characterization->structured_match;
+}
+
+const char *rss_ddc_characterization_structured_match_name(RSSDDCCharacterizationStructuredMatch match) {
+    if (match == RSS_DDC_CHARACTERIZATION_STRUCTURED_PARTIAL) {
+        return "partial";
+    }
+    if (match == RSS_DDC_CHARACTERIZATION_STRUCTURED_COMPLETE) {
+        return "complete";
+    }
+    if (match == RSS_DDC_CHARACTERIZATION_STRUCTURED_CONFLICT) {
+        return "conflict";
+    }
+    return "none";
 }
 
 static bool observation_is_strict_valid(const RSSDDCProbeObservation *observation) {
@@ -1123,7 +1101,8 @@ const RSSDDCCharacterizationPromotionSummary *rss_ddc_characterization_extended_
 }
 
 RSSDDCCharacterizeOptions rss_ddc_default_characterize_options(void) {
-    RSSDDCCharacterizeOptions options = {.mode = RSS_DDC_CHARACTERIZE_MODE_DEFAULT};
+    RSSDDCCharacterizeOptions options = {.mode = RSS_DDC_CHARACTERIZE_MODE_DEFAULT,
+                                         .knowledge_policy = RSS_DDC_CHARACTERIZE_KNOWLEDGE_NORMAL};
     return options;
 }
 
@@ -1242,27 +1221,6 @@ static const RSSDDCProfileControl *effective_control_by_id(const RSSDDCEffective
     return NULL;
 }
 
-static RSSDDCError attach_lg_alt_production_enums(RSSDDCProfileControl *control) {
-    static const struct {
-        const char *id;
-        const char *name;
-        uint16_t value;
-    } values[] = {{"hdmi-1", "HDMI 1", 0x90u}, {"hdmi-2", "HDMI 2", 0x91u}, {"dp-1", "DisplayPort 1", 0xd0u}};
-    control->enum_value_count = 0;
-    for (size_t index = 0; index < sizeof(values) / sizeof(values[0]); ++index) {
-        if (!rss_ddc_lg_alt_input_value_is_supported(values[index].value)) {
-            return RSS_DDC_ERROR_SYSTEM;
-        }
-        RSSDDCProfileEnumValue *value = &control->enum_values[control->enum_value_count++];
-        *value = (RSSDDCProfileEnumValue){.raw_value = values[index].value};
-        if (snprintf(value->id, sizeof(value->id), "%s", values[index].id) < 0 ||
-            snprintf(value->name, sizeof(value->name), "%s", values[index].name) < 0) {
-            return RSS_DDC_ERROR_SYSTEM;
-        }
-    }
-    return RSS_DDC_OK;
-}
-
 static bool build_persistable_control(const RSSDDCCharacterization *characterization,
                                       const RSSDDCKnowledgeRoute *route, RSSDDCProfileControl *control) {
     RSSDDCProfileControlID id = control_id_for_semantic(route->semantic_id);
@@ -1274,7 +1232,9 @@ static bool build_persistable_control(const RSSDDCCharacterization *characteriza
         return false;
     }
     if (route->kind == RSS_DDC_KNOWLEDGE_ROUTE_LG_ALT_INPUT) {
-        if (id != RSS_DDC_PROFILE_CONTROL_INPUT) {
+        if (id != RSS_DDC_PROFILE_CONTROL_INPUT || source_control == NULL ||
+            source_control->method != RSS_DDC_PROFILE_METHOD_LG_ALT_INPUT ||
+            source_control->enum_value_count == 0) {
             return false;
         }
         control->id = id;
@@ -1283,7 +1243,9 @@ static bool build_persistable_control(const RSSDDCCharacterization *characteriza
         control->readable = false;
         control->writable = true;
         control->confidence = RSS_DDC_PROFILE_CONFIDENCE_HARDWARE_VALIDATED;
-        return attach_lg_alt_production_enums(control) == RSS_DDC_OK;
+        control->enum_value_count = source_control->enum_value_count;
+        memcpy(control->enum_values, source_control->enum_values, sizeof(control->enum_values));
+        return true;
     }
     if (route->kind != RSS_DDC_KNOWLEDGE_ROUTE_STANDARD_VCP || id == RSS_DDC_PROFILE_CONTROL_INPUT) {
         return false;
@@ -1471,7 +1433,10 @@ RSSDDCError rss_ddc_characterization_execute(uint32_t list_index, const RSSDDCPr
     *out = NULL;
     RSSDDCCharacterizeOptions resolved =
         options != NULL ? *options : rss_ddc_default_characterize_options();
-    if (!characterize_mode_valid(resolved.mode) || !characterization_ops_valid(ops)) {
+    if (!characterize_mode_valid(resolved.mode) ||
+        (resolved.knowledge_policy != RSS_DDC_CHARACTERIZE_KNOWLEDGE_NORMAL &&
+         resolved.knowledge_policy != RSS_DDC_CHARACTERIZE_KNOWLEDGE_IGNORE_KNOWN) ||
+        !characterization_ops_valid(ops)) {
         return RSS_DDC_ERROR_ARGUMENT;
     }
 
@@ -1494,16 +1459,20 @@ RSSDDCError rss_ddc_characterization_execute(uint32_t list_index, const RSSDDCPr
         edid_info = &info;
     }
 
-    error = rss_ddc_characterization_assemble(characterization, &display, edid_info, profiles);
+    error = rss_ddc_characterization_assemble(characterization, &display, edid_info,
+                                              resolved.knowledge_policy == RSS_DDC_CHARACTERIZE_KNOWLEDGE_IGNORE_KNOWN
+                                                  ? NULL
+                                                  : profiles);
     if (error != RSS_DDC_OK && error != RSS_DDC_ERROR_PROFILE_CONFLICT) {
         rss_ddc_characterization_destroy(characterization);
         return error;
     }
 
-    error = rss_ddc_characterization_add_production_methods(characterization);
-    if (error != RSS_DDC_OK) {
-        rss_ddc_characterization_destroy(characterization);
-        return error;
+    if (resolved.mode != RSS_DDC_CHARACTERIZE_MODE_DEEP &&
+        rss_ddc_characterization_structured_match(characterization) ==
+            RSS_DDC_CHARACTERIZATION_STRUCTURED_COMPLETE) {
+        *out = characterization;
+        return RSS_DDC_OK;
     }
 
     (void)collect_passive_with_ops(characterization, ops, list_index);

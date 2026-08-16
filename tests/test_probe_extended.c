@@ -128,6 +128,53 @@ static void test_bounds_ordering_and_request_limits(void) {
     rss_ddc_probe_destroy(probe);
 }
 
+static void test_extended_range_ignores_product_name(void) {
+    MockExtendedTransport lg = {.mccs_error = RSS_DDC_ERROR_READ};
+    MockExtendedTransport odyssey = {.mccs_error = RSS_DDC_ERROR_READ};
+    MockExtendedTransport alien = {.mccs_error = RSS_DDC_ERROR_READ};
+    RSSDDCProbe *lg_probe = NULL;
+    RSSDDCProbe *odyssey_probe = NULL;
+    RSSDDCProbe *alien_probe = NULL;
+    RSSDDCProbeExtendedDiagnostics lg_diag = {0};
+    RSSDDCProbeExtendedDiagnostics odyssey_diag = {0};
+    RSSDDCProbeExtendedDiagnostics alien_diag = {0};
+    RSSDDCProbeReadTransport lg_transport = {.context = &lg, .get_vcp = mock_get_vcp, .delay = mock_delay};
+    RSSDDCProbeReadTransport odyssey_transport = {.context = &odyssey, .get_vcp = mock_get_vcp,
+                                                  .delay = mock_delay};
+    RSSDDCProbeReadTransport alien_transport = {.context = &alien, .get_vcp = mock_get_vcp,
+                                                .delay = mock_delay};
+    RSSDDCProbeTarget lg_target = target(false, RSS_DDC_PROVIDER_DCPDP13);
+    RSSDDCProbeTarget odyssey_target = target(false, RSS_DDC_PROVIDER_DCPDP13);
+    RSSDDCProbeTarget alien_target = target(false, RSS_DDC_PROVIDER_DCPDP13);
+    fill_default_replies(&lg);
+    fill_default_replies(&odyssey);
+    fill_default_replies(&alien);
+    snprintf(odyssey_target.display.product_name, sizeof(odyssey_target.display.product_name), "%s",
+             "Odyssey G75F");
+    snprintf(alien_target.display.product_name, sizeof(alien_target.display.product_name), "%s",
+             "Unknown Alien Panel");
+    assert(rss_ddc_probe_create(&lg_target, &lg_transport, &lg_probe) == RSS_DDC_OK);
+    assert(rss_ddc_probe_create(&odyssey_target, &odyssey_transport, &odyssey_probe) == RSS_DDC_OK);
+    assert(rss_ddc_probe_create(&alien_target, &alien_transport, &alien_probe) == RSS_DDC_OK);
+    assert(rss_ddc_probe_extended(lg_probe) == RSS_DDC_OK);
+    assert(rss_ddc_probe_extended(odyssey_probe) == RSS_DDC_OK);
+    assert(rss_ddc_probe_extended(alien_probe) == RSS_DDC_OK);
+    assert(rss_ddc_probe_extended_diagnostics(lg_probe, &lg_diag) == RSS_DDC_OK);
+    assert(rss_ddc_probe_extended_diagnostics(odyssey_probe, &odyssey_diag) == RSS_DDC_OK);
+    assert(rss_ddc_probe_extended_diagnostics(alien_probe, &alien_diag) == RSS_DDC_OK);
+    assert(lg_diag.requested == 256 && odyssey_diag.requested == 256 && alien_diag.requested == 256);
+    assert(lg_diag.attempted == 256 && odyssey_diag.attempted == 256 && alien_diag.attempted == 256);
+    assert(lg.writes == 0 && odyssey.writes == 0 && alien.writes == 0);
+    for (size_t index = 0; index < 256; ++index) {
+        assert(lg_diag.observations[index].observation.requested_vcp == (uint8_t)index);
+        assert(odyssey_diag.observations[index].observation.requested_vcp == (uint8_t)index);
+        assert(alien_diag.observations[index].observation.requested_vcp == (uint8_t)index);
+    }
+    rss_ddc_probe_destroy(lg_probe);
+    rss_ddc_probe_destroy(odyssey_probe);
+    rss_ddc_probe_destroy(alien_probe);
+}
+
 static void test_classification_matrix_and_unadvertised_regression(void) {
     MockExtendedTransport mock = {.mccs_error = RSS_DDC_OK, .mccs_raw = "vcp(10 12 14(05 08 0b))"};
     fill_default_replies(&mock);
@@ -288,6 +335,7 @@ static void test_allocation_failure_and_stack_boundary(void) {
 
 int main(void) {
     test_bounds_ordering_and_request_limits();
+    test_extended_range_ignores_product_name();
     test_classification_matrix_and_unadvertised_regression();
     test_mccs_enum_correlation_lg_shape();
     test_repeat_error_reporting();

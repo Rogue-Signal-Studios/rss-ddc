@@ -13,11 +13,13 @@
  * rss_ddc_characterization_collect_quick (Alien Probe Quick Auto Probe),
  * rss_ddc_characterization_collect_extended (Alien Probe Extended Auto Probe),
  * and the live ops used by rss_ddc_characterize_display.
- * Known production methods are merged after identity/transport assemble and
- * do not perform I/O. Optional profile update is a separate explicit API and
+ * Known production methods are not injected from product-name gates.
+ * Monitor-specific write methods come from structured profile data. Optional
+ * profile update is a separate explicit API and
  * is not part of execute. It does not restore monitor-knowledge/v0.1 JSON or
  * call SET VCP. Sufficiency is a pure decision over current evidence. DEFAULT
- * Extended runs only when recommended; DEEP may force Extended when GET is
+ * Extended runs only when recommended unless a COMPLETE structured match
+ * already short-circuited discovery; DEEP always rediscovers when GET is
  * available.
  */
 
@@ -78,18 +80,6 @@ RSSDDCError rss_ddc_characterization_assemble(RSSDDCCharacterization *characteri
                                               const RSSDDCDisplay *display,
                                               const RSSDDCEDIDInfo *edid,
                                               const RSSDDCProfileStore *store);
-
-/**
- * Pure production-method ingest: if the assembled display already satisfies an
- * existing hardware-validated production gate, merge that known write method
- * into knowledge. Does not GET, SET, probe, or weaken the production gate.
- * Identity/transport must already be assembled. Independent of Alien Probe
- * and MCCS. Currently injects write-only LG_ALT for inputs.switching when
- * rss_ddc_validate_lg_alt_input_target succeeds. Picture Mode remains the
- * existing profile/CAP_PICTURE_MODE representation and is not duplicated.
- */
-RSSDDCError rss_ddc_characterization_add_production_methods(
-    RSSDDCCharacterization *characterization);
 
 /**
  * Platform Slice 2 entry: resolves `list_index` with rss_ddc_get_display,
@@ -279,9 +269,10 @@ typedef struct {
 
 /**
  * Private end-to-end executor used by rss_ddc_characterize_display. After
- * assemble, injects known production methods, then passive MCCS / Quick /
- * sufficiency / optional Extended. Does not SET VCP or mutate `profiles`.
- * On fatal failure `*out` is NULL.
+ * assemble, evaluates structured completeness, then passive MCCS / Quick /
+ * sufficiency / optional Extended unless PASSIVE/DEFAULT short-circuit on a
+ * COMPLETE match. IGNORE_KNOWN passes a NULL store. Does not SET VCP or
+ * mutate `profiles`. On fatal failure `*out` is NULL.
  */
 RSSDDCError rss_ddc_characterization_execute(uint32_t list_index, const RSSDDCProfileStore *profiles,
                                              const RSSDDCCharacterizeOptions *options,

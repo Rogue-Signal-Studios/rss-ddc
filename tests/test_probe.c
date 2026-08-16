@@ -185,6 +185,52 @@ static void test_determinism_and_cleanup(void) {
     rss_ddc_probe_destroy(right);
 }
 
+static void test_quick_control_selection_ignores_product_name(void) {
+    MockReadTransport lg = {0};
+    MockReadTransport odyssey = {0};
+    MockReadTransport alien = {0};
+    RSSDDCProbe *lg_probe = NULL;
+    RSSDDCProbe *odyssey_probe = NULL;
+    RSSDDCProbe *alien_probe = NULL;
+    RSSDDCProbeDiagnostics lg_diag = {0};
+    RSSDDCProbeDiagnostics odyssey_diag = {0};
+    RSSDDCProbeDiagnostics alien_diag = {0};
+    RSSDDCProbeReadTransport lg_transport = {.context = &lg, .get_vcp = mock_get_vcp};
+    RSSDDCProbeReadTransport odyssey_transport = {.context = &odyssey, .get_vcp = mock_get_vcp};
+    RSSDDCProbeReadTransport alien_transport = {.context = &alien, .get_vcp = mock_get_vcp};
+    RSSDDCProbeTarget lg_target = target(false, NULL);
+    RSSDDCProbeTarget odyssey_target = target(false, NULL);
+    RSSDDCProbeTarget alien_target = target(false, NULL);
+    for (size_t index = 0; index < RSS_DDC_PROBE_QUICK_CONTROL_COUNT; ++index) {
+        set_stable(&lg, index, 100, 1);
+        set_stable(&odyssey, index, 100, 1);
+        set_stable(&alien, index, 100, 1);
+    }
+    snprintf(odyssey_target.display.product_name, sizeof(odyssey_target.display.product_name), "%s",
+             "Odyssey G75F");
+    snprintf(alien_target.display.product_name, sizeof(alien_target.display.product_name), "%s",
+             "Unknown Alien Panel");
+    assert(rss_ddc_probe_create(&lg_target, &lg_transport, &lg_probe) == RSS_DDC_OK);
+    assert(rss_ddc_probe_create(&odyssey_target, &odyssey_transport, &odyssey_probe) == RSS_DDC_OK);
+    assert(rss_ddc_probe_create(&alien_target, &alien_transport, &alien_probe) == RSS_DDC_OK);
+    assert(rss_ddc_probe_quick(lg_probe) == RSS_DDC_OK);
+    assert(rss_ddc_probe_quick(odyssey_probe) == RSS_DDC_OK);
+    assert(rss_ddc_probe_quick(alien_probe) == RSS_DDC_OK);
+    assert(rss_ddc_probe_diagnostics(lg_probe, &lg_diag) == RSS_DDC_OK);
+    assert(rss_ddc_probe_diagnostics(odyssey_probe, &odyssey_diag) == RSS_DDC_OK);
+    assert(rss_ddc_probe_diagnostics(alien_probe, &alien_diag) == RSS_DDC_OK);
+    assert(lg_diag.observation_count == RSS_DDC_PROBE_QUICK_CONTROL_COUNT);
+    assert(lg.writes == 0 && odyssey.writes == 0 && alien.writes == 0);
+    for (size_t index = 0; index < RSS_DDC_PROBE_QUICK_CONTROL_COUNT; ++index) {
+        assert(lg_diag.observations[index].requested_vcp == codes[index]);
+        assert(odyssey_diag.observations[index].requested_vcp == codes[index]);
+        assert(alien_diag.observations[index].requested_vcp == codes[index]);
+    }
+    rss_ddc_probe_destroy(lg_probe);
+    rss_ddc_probe_destroy(odyssey_probe);
+    rss_ddc_probe_destroy(alien_probe);
+}
+
 static void test_allocation_failure_and_stack_boundary(void) {
     MockReadTransport mock = {0};
     for (size_t index = 0; index < RSS_DDC_PROBE_QUICK_CONTROL_COUNT; ++index) set_stable(&mock, index, 100, 1);
@@ -202,6 +248,7 @@ static void test_allocation_failure_and_stack_boundary(void) {
 int main(void) {
     test_final_observation_semantics();
     test_determinism_and_cleanup();
+    test_quick_control_selection_ignores_product_name();
     test_allocation_failure_and_stack_boundary();
     puts("test_probe: passed");
 }

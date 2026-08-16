@@ -232,31 +232,55 @@ static void test_global_args(void) {
 }
 
 static void test_characterize_args(void) {
-    RSSDDCCharacterizeMode mode = RSS_DDC_CHARACTERIZE_MODE_DEEP;
+    RSSDDCCharacterizeOptions options = {};
     char *none[] = {(char *)"rss-ddc", (char *)"characterize", (char *)"1"};
-    assert(rss_ddc_cli_parse_characterize_options(3, none, 3, &mode));
-    assert(mode == RSS_DDC_CHARACTERIZE_MODE_DEFAULT);
+    assert(rss_ddc_cli_parse_characterize_options(3, none, 3, &options));
+    assert(options.mode == RSS_DDC_CHARACTERIZE_MODE_DEFAULT);
+    assert(options.knowledge_policy == RSS_DDC_CHARACTERIZE_KNOWLEDGE_NORMAL);
     char *passive[] = {(char *)"rss-ddc", (char *)"characterize", (char *)"1", (char *)"--mode",
                        (char *)"passive"};
-    assert(rss_ddc_cli_parse_characterize_options(5, passive, 3, &mode));
-    assert(mode == RSS_DDC_CHARACTERIZE_MODE_PASSIVE);
+    assert(rss_ddc_cli_parse_characterize_options(5, passive, 3, &options));
+    assert(options.mode == RSS_DDC_CHARACTERIZE_MODE_PASSIVE);
     char *def[] = {(char *)"rss-ddc", (char *)"characterize", (char *)"1", (char *)"--mode=default"};
-    assert(rss_ddc_cli_parse_characterize_options(4, def, 3, &mode));
-    assert(mode == RSS_DDC_CHARACTERIZE_MODE_DEFAULT);
+    assert(rss_ddc_cli_parse_characterize_options(4, def, 3, &options));
+    assert(options.mode == RSS_DDC_CHARACTERIZE_MODE_DEFAULT);
     char *deep[] = {(char *)"rss-ddc", (char *)"characterize", (char *)"1", (char *)"--mode", (char *)"deep"};
-    assert(rss_ddc_cli_parse_characterize_options(5, deep, 3, &mode));
-    assert(mode == RSS_DDC_CHARACTERIZE_MODE_DEEP);
+    assert(rss_ddc_cli_parse_characterize_options(5, deep, 3, &options));
+    assert(options.mode == RSS_DDC_CHARACTERIZE_MODE_DEEP);
     char *bad[] = {(char *)"rss-ddc", (char *)"characterize", (char *)"1", (char *)"--mode", (char *)"unsafe"};
-    assert(!rss_ddc_cli_parse_characterize_options(5, bad, 3, &mode));
+    assert(!rss_ddc_cli_parse_characterize_options(5, bad, 3, &options));
     char *extra[] = {(char *)"rss-ddc", (char *)"characterize", (char *)"1", (char *)"--mode", (char *)"passive",
                      (char *)"--json"};
-    assert(!rss_ddc_cli_parse_characterize_options(6, extra, 3, &mode));
+    assert(!rss_ddc_cli_parse_characterize_options(6, extra, 3, &options));
     char *output[] = {(char *)"rss-ddc", (char *)"characterize", (char *)"1", (char *)"--output",
                       (char *)"/tmp/x.json"};
-    assert(!rss_ddc_cli_parse_characterize_options(5, output, 3, &mode));
+    assert(!rss_ddc_cli_parse_characterize_options(5, output, 3, &options));
+    char *no_profiles[] = {(char *)"rss-ddc", (char *)"characterize", (char *)"1", (char *)"--no-profiles"};
+    assert(rss_ddc_cli_parse_characterize_options(4, no_profiles, 3, &options));
+    assert(options.knowledge_policy == RSS_DDC_CHARACTERIZE_KNOWLEDGE_IGNORE_KNOWN);
+    assert(options.mode == RSS_DDC_CHARACTERIZE_MODE_DEFAULT);
+    char *deep_no_profiles[] = {(char *)"rss-ddc", (char *)"characterize", (char *)"1", (char *)"--mode",
+                                (char *)"deep", (char *)"--no-profiles"};
+    assert(rss_ddc_cli_parse_characterize_options(6, deep_no_profiles, 3, &options));
+    assert(options.mode == RSS_DDC_CHARACTERIZE_MODE_DEEP);
+    assert(options.knowledge_policy == RSS_DDC_CHARACTERIZE_KNOWLEDGE_IGNORE_KNOWN);
     assert(strcmp(rss_ddc_cli_characterize_mode_name(RSS_DDC_CHARACTERIZE_MODE_PASSIVE), "passive") == 0);
     assert(strcmp(rss_ddc_cli_characterize_mode_name(RSS_DDC_CHARACTERIZE_MODE_DEFAULT), "default") == 0);
     assert(strcmp(rss_ddc_cli_characterize_mode_name(RSS_DDC_CHARACTERIZE_MODE_DEEP), "deep") == 0);
+}
+
+static void test_help_args(void) {
+    RSSDDCCliParsedArgs parsed = {};
+    char *help[] = {(char *)"rss-ddc", (char *)"--help"};
+    assert(rss_ddc_cli_parse_global_args(2, help, &parsed));
+    assert(parsed.help);
+    char *short_help[] = {(char *)"rss-ddc", (char *)"-h"};
+    parsed = (RSSDDCCliParsedArgs){};
+    assert(rss_ddc_cli_parse_global_args(2, short_help, &parsed));
+    assert(parsed.help);
+    char *unknown[] = {(char *)"rss-ddc", (char *)"--not-a-flag"};
+    parsed = (RSSDDCCliParsedArgs){};
+    assert(!rss_ddc_cli_parse_global_args(2, unknown, &parsed));
 }
 
 static void test_profile_update_args(void) {
@@ -563,6 +587,7 @@ int main(void) {
     test_precedence_and_auto();
     test_global_args();
     test_characterize_args();
+    test_help_args();
     test_profile_update_args();
     test_plain_and_table_renderers();
     test_probe_renderers();

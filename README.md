@@ -21,6 +21,8 @@ Presentation settings (`color`, `table`, `unicode`) are configurable via
 
 ```sh
 make
+./rss-ddc --help
+./rss-ddc -h
 ./rss-ddc list
 ./rss-ddc --color=no --table=no list
 ./rss-ddc --table=yes list
@@ -28,6 +30,7 @@ make
 ./rss-ddc characterize 1
 ./rss-ddc characterize 1 --mode passive
 ./rss-ddc characterize 1 --mode deep
+./rss-ddc characterize 1 --mode deep --no-profiles
 ./rss-ddc profile update 1 --output /tmp/local-profiles.json
 ./rss-ddc --verbose info 1
 ./rss-ddc get 1 0x10
@@ -85,22 +88,32 @@ when a display fails closed.
 Guided Discovery / Experimental Validation. It never writes a profile store.
 
 ```sh
+./rss-ddc --help
+./rss-ddc -h
 ./rss-ddc characterize 1
 ./rss-ddc characterize 1 --mode passive
 ./rss-ddc characterize 1 --mode default
 ./rss-ddc characterize 1 --mode deep
+./rss-ddc characterize 1 --mode deep --no-profiles
 ```
+
+`--no-profiles` is a diagnostic true-alien path: the same characterization
+pipeline with monitor-specific profile/structured prior knowledge disabled.
+It remains read-only. Normal DEFAULT product behavior may still load
+structured knowledge.
 
 `profile update` is the explicit profile-store write path. It characterizes
 the selected display in DEFAULT mode (read-only toward the monitor), calls
 `rss_ddc_characterization_update_profile`, and saves only LOCAL overlay
 records to `--output`. There is no implicit user profile path; `--output` is
 required. Automatic update persists already-authoritative, schema-representable
-knowledge only. Example: LG HDR QHD can persist validated LG_ALT input
-(`lg-alt-input` at `0xf4`) as a local overlay while builtin Picture Mode stays
-builtin. Odyssey currently has no safely persistable authoritative controls, so
-the command reports `UNSUPPORTED` and writes no file. This does not mean every
-monitor can automatically gain write support.
+knowledge only. Validated LG HDR QHD LG_ALT input (`lg-alt-input` at `0xf4`,
+values `0x90` / `0x91` / `0xd0`) lives in builtin profile data; profile update
+may copy that operational subset into a local overlay. It does not invent
+LG_ALT from identity or from observed VCP `0x60`. Odyssey currently has no
+safely persistable authoritative controls, so the command reports
+`UNSUPPORTED` and writes no file. This does not mean every monitor can
+automatically gain write support.
 
 ```sh
 ./rss-ddc profile update 1 --output /tmp/local-profiles.json

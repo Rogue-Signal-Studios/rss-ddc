@@ -329,6 +329,9 @@ static void render_characterization_summary(FILE *stream, const RSSDDCCharacteri
     print_kv(stream, "mode", rss_ddc_cli_characterize_mode_name(mode));
     print_kv(stream, "read-only", "yes");
     print_kv(stream, "profile", profile_status_name(rss_ddc_characterization_profile_status(characterization)));
+    print_kv(stream, "structured",
+             rss_ddc_characterization_structured_match_name(
+                 rss_ddc_characterization_structured_match(characterization)));
     print_kv(stream, "transport", caps);
     print_kv(stream, "mccs",
              stage_status(rss_ddc_characterization_mccs_supported(characterization),

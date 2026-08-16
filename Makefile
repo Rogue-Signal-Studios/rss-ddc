@@ -158,7 +158,21 @@ $(BUILD)/test_library_strings: tests/test_library_strings.c $(LIBRARY) | $(BUILD
 check-library-sources: $(LIBRARY) $(TEST_SUPPORT_SOURCES)
 	@! $(AR) t $(LIBRARY) | grep -E '(get_validation|set_validation|(^|/)tests/|(^|/)cli/|(^|/)research/)'
 
-test: $(TESTS) check-library-sources
+check-characterization-boundaries:
+	@! grep -E 'LG HDR QHD|Odyssey G75F' src/core/characterize.c src/core/characterize_prepare.c \
+		src/core/characterize.h src/core/probe.c
+
+check-cli-help: $(NAME)
+	@./$(NAME) --help >$(BUILD)/help-long.out 2>$(BUILD)/help-long.err; test $$? -eq 0
+	@! grep -q 'unknown option' $(BUILD)/help-long.out $(BUILD)/help-long.err
+	@grep -q 'Usage:' $(BUILD)/help-long.err $(BUILD)/help-long.out
+	@./$(NAME) -h >$(BUILD)/help-short.out 2>$(BUILD)/help-short.err; test $$? -eq 0
+	@! grep -q 'unknown option' $(BUILD)/help-short.out $(BUILD)/help-short.err
+	@grep -q 'Usage:' $(BUILD)/help-short.err $(BUILD)/help-short.out
+	@if ./$(NAME) --not-a-real-option >$(BUILD)/help-bad.out 2>$(BUILD)/help-bad.err; then exit 1; fi
+	@grep -q 'unknown option' $(BUILD)/help-bad.err
+
+test: $(TESTS) check-library-sources check-characterization-boundaries check-cli-help
 	$(BUILD)/test_protocol
 	$(BUILD)/test_provider
 	$(BUILD)/test_correlation

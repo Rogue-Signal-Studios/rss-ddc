@@ -10,6 +10,7 @@
 typedef struct {
     RSSDDCCliArgOverrides overrides;
     bool verbose;
+    bool help;
     int command_index;
 } RSSDDCCliParsedArgs;
 
@@ -26,11 +27,11 @@ bool rss_ddc_cli_parse_characterize_mode(const char *text, RSSDDCCharacterizeMod
 const char *rss_ddc_cli_characterize_mode_name(RSSDDCCharacterizeMode mode);
 
 /**
- * Parses optional `--mode <name>` or `--mode=<name>` after `characterize <index>`.
- * No extra arguments leaves `*mode` as DEFAULT.
+ * Parses optional `--mode <name>`, `--mode=<name>`, and `--no-profiles` after
+ * `characterize <index>`. No extra arguments leaves DEFAULT + NORMAL knowledge.
  */
 bool rss_ddc_cli_parse_characterize_options(int argc, char **argv, int first_option,
-                                            RSSDDCCharacterizeMode *mode);
+                                            RSSDDCCharacterizeOptions *options);
 
 /** Parsed options for `profile update <index> --output <file>`. */
 typedef struct {

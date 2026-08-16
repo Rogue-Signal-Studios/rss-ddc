@@ -19,9 +19,10 @@
 static void usage(const char *program) {
     fprintf(stderr,
             "Usage:\n"
+            "  %s [--help|-h]\n"
             "  %s [--color=yes|no|auto] [--table=yes|no|auto] [--unicode=yes|no|auto] list\n"
             "  %s [--verbose] [--color=yes|no|auto] [--table=yes|no|auto] [--unicode=yes|no|auto] info <display-index>\n"
-            "  %s [--color=yes|no|auto] [--table=yes|no|auto] [--unicode=yes|no|auto] characterize <display-index> [--mode passive|default|deep]\n"
+            "  %s [--color=yes|no|auto] [--table=yes|no|auto] [--unicode=yes|no|auto] characterize <display-index> [--mode passive|default|deep] [--no-profiles]\n"
             "  %s [--color=yes|no|auto] [--table=yes|no|auto] [--unicode=yes|no|auto] profile update <display-index> --output <file>\n"
             "  %s [--verbose] edid <display-index> [--decode|--hex|--raw <file>]\n"
             "  %s [--verbose] dpcd <display-index> <address> <length>\n"
@@ -36,7 +37,7 @@ static void usage(const char *program) {
             "  %s [--verbose] set <display-index> <vcp> <value> --verify [--settle-ms <ms>] "
             "[--retries <count>] [--retry-delay-ms <ms>]\n",
             program, program, program, program, program, program, program, program, program, program, program, program,
-            program, program, program);
+            program, program, program, program);
 }
 
 static bool parse_unsigned(const char *text, unsigned long maximum, unsigned long *value) {
@@ -156,6 +157,10 @@ int main(int argc, char **argv) {
         return EXIT_FAILURE;
     }
     const int argument = parsed.command_index;
+    if (parsed.help) {
+        usage(argv[0]);
+        return EXIT_SUCCESS;
+    }
     if (argc <= argument) {
         usage(argv[0]);
         return EXIT_FAILURE;
@@ -277,17 +282,18 @@ int main(int argc, char **argv) {
         return EXIT_SUCCESS;
     }
     if (strcmp(argv[argument], "characterize") == 0) {
-        RSSDDCCharacterizeMode mode = RSS_DDC_CHARACTERIZE_MODE_DEFAULT;
-        if (!rss_ddc_cli_parse_characterize_options(argc, argv, argument + 2, &mode)) {
+        RSSDDCCharacterizeOptions options = rss_ddc_default_characterize_options();
+        if (!rss_ddc_cli_parse_characterize_options(argc, argv, argument + 2, &options)) {
             usage(argv[0]);
             return EXIT_FAILURE;
         }
-        RSSDDCCharacterizeOptions options = rss_ddc_default_characterize_options();
-        options.mode = mode;
-        RSSDDCProfileStore *store = rss_ddc_profile_store_create();
-        if (store != NULL && rss_ddc_profile_store_load_builtin(store) != RSS_DDC_OK) {
-            rss_ddc_profile_store_destroy(store);
-            store = NULL;
+        RSSDDCProfileStore *store = NULL;
+        if (options.knowledge_policy != RSS_DDC_CHARACTERIZE_KNOWLEDGE_IGNORE_KNOWN) {
+            store = rss_ddc_profile_store_create();
+            if (store != NULL && rss_ddc_profile_store_load_builtin(store) != RSS_DDC_OK) {
+                rss_ddc_profile_store_destroy(store);
+                store = NULL;
+            }
         }
         RSSDDCCharacterization *result = NULL;
         RSSDDCError error = rss_ddc_characterize_display((uint32_t)display_index, store, &options, &result);
@@ -298,7 +304,7 @@ int main(int argc, char **argv) {
             return EXIT_FAILURE;
         }
         RSSDDCCliEffectiveOutput output = resolve_presentation(&parsed, true);
-        rss_ddc_cli_render_characterization(stdout, result, mode, &output);
+        rss_ddc_cli_render_characterization(stdout, result, options.mode, &output);
         rss_ddc_characterization_destroy(result);
         return EXIT_SUCCESS;
     }

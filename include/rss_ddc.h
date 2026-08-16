@@ -677,9 +677,19 @@ typedef enum {
     RSS_DDC_CHARACTERIZE_MODE_DEEP
 } RSSDDCCharacterizeMode;
 
-/** v1 options: mode only. NULL options to rss_ddc_characterize_display means DEFAULT. */
+/** Whether characterization may load monitor-specific structured prior knowledge. */
+typedef enum {
+    RSS_DDC_CHARACTERIZE_KNOWLEDGE_NORMAL = 0,
+    RSS_DDC_CHARACTERIZE_KNOWLEDGE_IGNORE_KNOWN
+} RSSDDCCharacterizeKnowledgePolicy;
+
+/**
+ * v1 options. NULL options to rss_ddc_characterize_display means DEFAULT + NORMAL.
+ * IGNORE_KNOWN disables profile/structured prior knowledge for a true alien path.
+ */
 typedef struct {
     RSSDDCCharacterizeMode mode;
+    RSSDDCCharacterizeKnowledgePolicy knowledge_policy;
 } RSSDDCCharacterizeOptions;
 
 typedef enum {
@@ -700,6 +710,14 @@ typedef enum {
     RSS_DDC_CHARACTERIZATION_SUFFICIENCY_UNAVAILABLE,
     RSS_DDC_CHARACTERIZATION_SUFFICIENCY_CONFLICT
 } RSSDDCCharacterizationSufficiency;
+
+/** Early structured-knowledge lookup result. Evaluated after identity/profile assemble. */
+typedef enum {
+    RSS_DDC_CHARACTERIZATION_STRUCTURED_NONE = 0,
+    RSS_DDC_CHARACTERIZATION_STRUCTURED_PARTIAL,
+    RSS_DDC_CHARACTERIZATION_STRUCTURED_COMPLETE,
+    RSS_DDC_CHARACTERIZATION_STRUCTURED_CONFLICT
+} RSSDDCCharacterizationStructuredMatch;
 
 enum {
     RSS_DDC_CHARACTERIZATION_REASON_NONE = 0,
@@ -734,10 +752,12 @@ RSSDDCCharacterizeOptions rss_ddc_default_characterize_options(void);
  * `profiles` is borrowed and may be NULL. The store is never mutated.
  * `options` may be NULL, which selects rss_ddc_default_characterize_options().
  *
- * PASSIVE runs identity, profile match, transport bits, and passive MCCS.
- * DEFAULT adds Alien Probe Quick Auto Probe, then Extended only when
- * sufficiency recommends it. DEEP forces Extended when GET VCP is available,
- * even if DEFAULT would already be sufficient. DEEP is still read-only and is
+ * PASSIVE runs identity and structured lookup; a COMPLETE match returns loaded
+ * knowledge, otherwise passive MCCS only. DEFAULT does the same lookup, then
+ * Alien Probe Quick and optional Extended unless the match is COMPLETE. DEEP
+ * always rediscovers (Quick + Extended when GET exists) even if a complete
+ * profile is present. IGNORE_KNOWN disables monitor-specific profile data.
+ * DEEP is still read-only and is
  * not Guided Discovery or Experimental Validation.
  *
  * On success or safe degradation, `*out` is an owned characterization. On
@@ -824,6 +844,11 @@ const RSSDDCCharacterizationPromotionSummary *rss_ddc_characterization_extended_
 RSSDDCError rss_ddc_characterization_sufficiency(
     const RSSDDCCharacterization *characterization,
     RSSDDCCharacterizationSufficiencyResult *result);
+
+/** Snapshot of exact structured-knowledge completeness after assemble. */
+RSSDDCCharacterizationStructuredMatch rss_ddc_characterization_structured_match(
+    const RSSDDCCharacterization *characterization);
+const char *rss_ddc_characterization_structured_match_name(RSSDDCCharacterizationStructuredMatch match);
 
 typedef enum {
     RSS_DDC_CHARACTERIZATION_PROFILE_UPDATE_CREATED = 0,
