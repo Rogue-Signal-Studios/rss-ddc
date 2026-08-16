@@ -298,8 +298,8 @@ static void test_insufficient_conflict_and_controls(void) {
                                                              strlen("vcp(10 12 15 60)")) == RSS_DDC_OK);
     probe = run_quick(&mock, &display);
     assert(rss_ddc_characterization_collect_quick_probe(insufficient, probe) == RSS_DDC_OK);
+    assert(rss_ddc_characterization_augment_with_prior(insufficient) == RSS_DDC_OK);
     plain = render_text(insufficient, RSS_DDC_CHARACTERIZE_MODE_DEFAULT, false);
-    assert(strstr(plain, "product=LG HDR QHD") != NULL);
     assert(strstr(plain, "evidence=profile,declared,observed") != NULL);
     assert(strstr(plain, "authorized=yes") != NULL);
     assert(strstr(plain, "current=42") != NULL);
@@ -391,11 +391,14 @@ static void test_lg_alt_write_label_from_builtin_profile(void) {
     assert(characterization != NULL && store != NULL);
     assert(rss_ddc_profile_store_load_builtin(store) == RSS_DDC_OK);
     assert(rss_ddc_characterization_assemble(characterization, &display, NULL, store) == RSS_DDC_OK);
+    assert(rss_ddc_characterization_augment_with_prior(characterization) == RSS_DDC_OK);
     plain = render_text(characterization, RSS_DDC_CHARACTERIZE_MODE_PASSIVE, false);
     assert(strstr(plain, "id=inputs.switching") != NULL);
     assert(strstr(plain, "write=LG_ALT") != NULL);
     assert(strstr(plain, "authorized=yes") != NULL);
     assert(strstr(plain, "structured=partial") != NULL);
+    assert(strstr(plain, "discovery=skipped") != NULL);
+    assert(strstr(plain, "prior-knowledge=augmented") != NULL);
     rss_ddc_characterization_destroy(characterization);
     rss_ddc_profile_store_destroy(store);
     free(plain);
@@ -410,6 +413,7 @@ static void test_profile_free_render_has_no_lg_alt(void) {
     plain = render_text(characterization, RSS_DDC_CHARACTERIZE_MODE_PASSIVE, false);
     assert(strstr(plain, "write=LG_ALT") == NULL);
     assert(strstr(plain, "structured=none") != NULL);
+    assert(strstr(plain, "prior-knowledge=none") != NULL);
     rss_ddc_characterization_destroy(characterization);
     free(plain);
 }

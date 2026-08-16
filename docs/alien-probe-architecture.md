@@ -62,7 +62,40 @@ CONNECTED / UNKNOWN MONITOR
 ```
 
 A PARTIAL profile match is augmentation, not a cache hit. It must not
-suppress discovery.
+suppress discovery. PARTIAL prior structured knowledge must not influence
+discovery sufficiency or Alien Probe depth.
+
+## Knowledge views
+
+Characterization keeps three distinguishable views:
+
+```text
+discovery knowledge
+    identity, transport capability, passive/MCCS, Quick observations,
+    Extended observations, generic semantic knowledge
+    This is what Alien Probe actually discovered.
+
+prior structured knowledge
+    exact matched PROFILE/pack facts retained at lookup
+    Quarantined from discovery sufficiency until the pipeline completes.
+
+effective / augmented knowledge
+    discovery knowledge plus prior structured knowledge after discovery
+    Product consumers see this view.
+```
+
+Only an exact COMPLETE validated structured match may suppress discovery.
+For NONE / PARTIAL / CONFLICT, discovery depth is decided from discovery
+knowledge alone.
+
+`monitor-knowledge/v0.1` is the discovery artifact. A future
+augmented/effective view may contain prior PROFILE facts, but those must
+remain distinguishable from what Alien Probe actually discovered.
+
+Public `rss_ddc_characterization_knowledge()` returns effective/augmented
+knowledge. `rss_ddc_characterization_discovered_knowledge()` returns
+discovery-only knowledge. `--no-profiles` / `IGNORE_KNOWN` makes these the
+same object because there is no prior augmentation.
 
 ## Two artifacts
 
@@ -127,6 +160,8 @@ discovery:
 
 Do not invent a fuzzy “looks close enough” rule. A complete match may
 short-circuit PASSIVE/DEFAULT discovery. A partial match must not.
+PARTIAL prior methods must not satisfy pre-Extended discovery sufficiency
+or change what Alien Probe probes.
 
 ## Mode semantics after early lookup
 
@@ -135,12 +170,13 @@ returns loaded knowledge. Otherwise perform passive discovery only (no Quick,
 no Extended).
 
 **DEFAULT:** identity, structured lookup. Complete match returns loaded
-knowledge (no Quick/Extended). Otherwise passive, Quick, sufficiency, optional
-Extended.
+knowledge (no Quick/Extended). Otherwise passive, Quick, discovery-only
+sufficiency, optional Extended, then prior-knowledge augmentation.
 
-**DEEP:** identity, structured lookup. Load known knowledge as augmentation
-when present, but **always** perform the requested deep discovery. A complete
-profile must not skip a rescan the caller asked for.
+**DEEP:** identity, structured lookup. Retain known knowledge as prior
+augmentation when present, but **always** perform the requested deep
+discovery. A complete profile must not skip a rescan the caller asked for.
+Prior knowledge does not determine DEEP depth because Extended is forced.
 
 **`--no-profiles` / `IGNORE_KNOWN`:** same pipeline with monitor-specific
 profile/structured prior knowledge disabled. Diagnostic/discovery option.
@@ -164,7 +200,8 @@ Read-only. Proves a true alien encounter.
    GET, Extended discovery, and current value are not writable.
 7. Profiles augment discovery unless they qualify for the explicit complete
    match short-circuit. A partial known profile must not replace actual
-   characterization.
+   characterization and must not influence discovery sufficiency or Alien
+   Probe depth.
 8. Alien Probe™ discovery must be independently testable with monitor profiles
    and monitor-specific structured knowledge disabled.
 9. Characterization must ultimately produce `monitor-knowledge/v0.1`. Runtime

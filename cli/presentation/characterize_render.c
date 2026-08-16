@@ -332,6 +332,12 @@ static void render_characterization_summary(FILE *stream, const RSSDDCCharacteri
     print_kv(stream, "structured",
              rss_ddc_characterization_structured_match_name(
                  rss_ddc_characterization_structured_match(characterization)));
+    print_kv(stream, "discovery",
+             rss_ddc_characterization_discovery_performed(characterization) ? "completed" : "skipped");
+    print_kv(stream, "prior-knowledge",
+             rss_ddc_characterization_prior_augmented(characterization)
+                 ? "augmented"
+                 : "none");
     print_kv(stream, "transport", caps);
     print_kv(stream, "mccs",
              stage_status(rss_ddc_characterization_mccs_supported(characterization),

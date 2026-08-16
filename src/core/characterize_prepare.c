@@ -67,7 +67,7 @@ RSSDDCError rss_ddc_characterization_collect_extended(RSSDDCCharacterization *ch
             characterization, RSS_DDC_ERROR_UNSUPPORTED_CAPABILITY);
     }
     RSSDDCCharacterizationSufficiencyResult sufficiency = {0};
-    RSSDDCError error = rss_ddc_characterization_sufficiency(characterization, &sufficiency);
+    RSSDDCError error = rss_ddc_characterization_discovery_sufficiency(characterization, &sufficiency);
     if (error != RSS_DDC_OK) {
         return error;
     }

@@ -753,9 +753,11 @@ RSSDDCCharacterizeOptions rss_ddc_default_characterize_options(void);
  * `options` may be NULL, which selects rss_ddc_default_characterize_options().
  *
  * PASSIVE runs identity and structured lookup; a COMPLETE match returns loaded
- * knowledge, otherwise passive MCCS only. DEFAULT does the same lookup, then
- * Alien Probe Quick and optional Extended unless the match is COMPLETE. DEEP
- * always rediscovers (Quick + Extended when GET exists) even if a complete
+ * effective knowledge, otherwise passive MCCS only. DEFAULT does the same
+ * lookup, then Alien Probe Quick and optional Extended unless the match is
+ * COMPLETE. PARTIAL prior knowledge is retained but does not decide Quick or
+ * Extended; it is merged into effective knowledge only after discovery.
+ * DEEP always rediscovers (Quick + Extended when GET exists) even if a complete
  * profile is present. IGNORE_KNOWN disables monitor-specific profile data.
  * DEEP is still read-only and is
  * not Guided Discovery or Experimental Validation.
@@ -795,12 +797,25 @@ const RSSDDCProfileIdentity *rss_ddc_characterization_profile_identity(
 const RSSDDCEffectiveProfile *rss_ddc_characterization_effective_profile(
     const RSSDDCCharacterization *characterization);
 
-/** Borrowed accumulated knowledge; valid until destroy. */
+/**
+ * Borrowed effective/augmented knowledge; valid until destroy.
+ * After discovery completes this may include retained prior PROFILE facts.
+ * Use rss_ddc_characterization_discovered_knowledge for discovery-only facts.
+ */
 const RSSDDCMonitorKnowledge *rss_ddc_characterization_knowledge(
     const RSSDDCCharacterization *characterization);
 /**
+ * Borrowed discovery-only monitor knowledge: identity-adjacent evidence from
+ * passive/MCCS, Quick, and Extended. Never includes prior PROFILE
+ * augmentation. Valid until destroy. With IGNORE_KNOWN this is the same
+ * object as rss_ddc_characterization_knowledge.
+ */
+const RSSDDCMonitorKnowledge *rss_ddc_characterization_discovered_knowledge(
+    const RSSDDCCharacterization *characterization);
+/**
  * Resolves effective read/write methods for `semantic_id` after alias
- * normalization. Caller owns `*resolution` and must destroy it.
+ * normalization, using effective/augmented knowledge. Caller owns
+ * `*resolution` and must destroy it.
  */
 RSSDDCError rss_ddc_characterization_resolve(const RSSDDCCharacterization *characterization,
                                              const char *semantic_id,
@@ -837,13 +852,34 @@ const RSSDDCCharacterizationPromotionSummary *rss_ddc_characterization_extended_
     const RSSDDCCharacterization *characterization);
 
 /**
- * Pure DEFAULT-mode sufficiency over current evidence. PASSIVE reports the
+ * Pure DEFAULT-mode sufficiency over effective/augmented knowledge. After
+ * discovery this may include prior PROFILE methods. PASSIVE reports the
  * passive-only state without having probed. DEEP reports the post-Extended
  * state when Extended ran. DEEP does not imply SUFFICIENT.
  */
 RSSDDCError rss_ddc_characterization_sufficiency(
     const RSSDDCCharacterization *characterization,
     RSSDDCCharacterizationSufficiencyResult *result);
+
+/**
+ * Sufficiency over discovery-only knowledge. Pre-Extended depth uses this
+ * result, never prior PROFILE methods. IGNORE_KNOWN matches
+ * rss_ddc_characterization_sufficiency.
+ */
+RSSDDCError rss_ddc_characterization_discovery_sufficiency(
+    const RSSDDCCharacterization *characterization,
+    RSSDDCCharacterizationSufficiencyResult *result);
+
+/**
+ * Merges retained prior structured knowledge into effective knowledge after
+ * discovery. Idempotent. Discovery knowledge is unchanged. COMPLETE
+ * short-circuit also uses this to load the validated match.
+ */
+RSSDDCError rss_ddc_characterization_augment_with_prior(RSSDDCCharacterization *characterization);
+/** True after retained prior knowledge has been merged into effective knowledge. */
+bool rss_ddc_characterization_prior_augmented(const RSSDDCCharacterization *characterization);
+/** True when automatic passive/Quick/Extended stages ran (not COMPLETE skip). */
+bool rss_ddc_characterization_discovery_performed(const RSSDDCCharacterization *characterization);
 
 /** Snapshot of exact structured-knowledge completeness after assemble. */
 RSSDDCCharacterizationStructuredMatch rss_ddc_characterization_structured_match(

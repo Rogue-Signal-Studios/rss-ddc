@@ -289,6 +289,10 @@ static const RSSDDCKnowledgeRoute *route_with_semantic(const RSSDDCMonitorKnowle
     return NULL;
 }
 
+static void apply_prior(RSSDDCCharacterization *characterization) {
+    assert(rss_ddc_characterization_augment_with_prior(characterization) == RSS_DDC_OK);
+}
+
 static void test_assemble_identity_without_edid(void) {
     RSSDDCCharacterization *characterization = rss_ddc_characterization_create();
     RSSDDCDisplay display = slice2_display();
@@ -348,9 +352,14 @@ static void test_assemble_matches_and_normalizes_profile_controls(void) {
     assert(rss_ddc_characterization_assemble(characterization, &display, NULL, store) == RSS_DDC_OK);
     assert(rss_ddc_characterization_profile_status(characterization) ==
            RSS_DDC_CHARACTERIZATION_PROFILE_MATCHED);
+    assert(rss_ddc_characterization_structured_match(characterization) ==
+           RSS_DDC_CHARACTERIZATION_STRUCTURED_PARTIAL);
     assert(rss_ddc_characterization_effective_profile(characterization) != NULL);
     assert(rss_ddc_effective_profile_control_count(
                rss_ddc_characterization_effective_profile(characterization)) == 3);
+    assert(rss_ddc_monitor_knowledge_route_count(
+               rss_ddc_characterization_discovered_knowledge(characterization)) == 0);
+    apply_prior(characterization);
     knowledge = rss_ddc_characterization_knowledge(characterization);
     assert(rss_ddc_monitor_knowledge_route_count(knowledge) == 3);
     brightness = route_with_semantic(knowledge, "display.brightness");
@@ -394,6 +403,9 @@ static void test_assemble_retains_competing_facts(void) {
     assert(rss_ddc_characterization_add_knowledge(characterization, observed) == RSS_DDC_OK);
     assert(rss_ddc_profile_store_load_pack_data(store, pack, strlen(pack)) == RSS_DDC_OK);
     assert(rss_ddc_characterization_assemble(characterization, &display, NULL, store) == RSS_DDC_OK);
+    assert(rss_ddc_monitor_knowledge_route_count(
+               rss_ddc_characterization_discovered_knowledge(characterization)) == 1);
+    apply_prior(characterization);
     assert(rss_ddc_monitor_knowledge_route_count(rss_ddc_characterization_knowledge(characterization)) ==
            4);
     assert(rss_ddc_characterization_resolve(characterization, "brightness", &resolution) == RSS_DDC_OK);
@@ -458,13 +470,15 @@ static void test_assemble_profile_merge_overflow_is_explicit(void) {
     }
     assert(rss_ddc_characterization_add_knowledge(characterization, batch) == RSS_DDC_OK);
     assert(rss_ddc_profile_store_load_pack_data(store, pack, strlen(pack)) == RSS_DDC_OK);
-    assert(rss_ddc_characterization_assemble(characterization, &display, NULL, store) ==
-           RSS_DDC_ERROR_PROFILE_CONFLICT);
+    assert(rss_ddc_characterization_assemble(characterization, &display, NULL, store) == RSS_DDC_OK);
     assert(rss_ddc_monitor_knowledge_route_count(rss_ddc_characterization_knowledge(characterization)) ==
            128);
     assert(rss_ddc_characterization_profile_status(characterization) ==
-           RSS_DDC_CHARACTERIZATION_PROFILE_NONE);
+           RSS_DDC_CHARACTERIZATION_PROFILE_MATCHED);
     assert(rss_ddc_characterization_display(characterization) != NULL);
+    assert(rss_ddc_characterization_augment_with_prior(characterization) == RSS_DDC_ERROR_PROFILE_CONFLICT);
+    assert(rss_ddc_monitor_knowledge_route_count(rss_ddc_characterization_knowledge(characterization)) ==
+           128);
     rss_ddc_monitor_knowledge_destroy(batch);
     rss_ddc_profile_store_destroy(store);
     rss_ddc_characterization_destroy(characterization);
@@ -566,6 +580,10 @@ static void test_passive_mccs_preserves_profile_authorization(void) {
     assert(rss_ddc_characterization_assemble(characterization, &display, NULL, store) == RSS_DDC_OK);
     assert(rss_ddc_characterization_collect_passive_mccs_raw(characterization, "vcp(10 12 60(0F 11))",
                                                              strlen("vcp(10 12 60(0F 11))")) == RSS_DDC_OK);
+    assert(route_with_semantic(rss_ddc_characterization_discovered_knowledge(characterization),
+                               "display.brightness")
+               ->provenance.fact_kind == RSS_DDC_KNOWLEDGE_FACT_DECLARED);
+    apply_prior(characterization);
     knowledge = rss_ddc_characterization_knowledge(characterization);
     for (size_t index = 0; index < rss_ddc_monitor_knowledge_route_count(knowledge); ++index) {
         const RSSDDCKnowledgeRoute *route = rss_ddc_monitor_knowledge_route_at(knowledge, index);
@@ -596,23 +614,27 @@ static void test_passive_mccs_malformed_and_failed_preserve_state(void) {
     assert(characterization != NULL && store != NULL);
     assert(rss_ddc_profile_store_load_pack_data(store, pack, strlen(pack)) == RSS_DDC_OK);
     assert(rss_ddc_characterization_assemble(characterization, &display, NULL, store) == RSS_DDC_OK);
-    before = rss_ddc_monitor_knowledge_route_count(rss_ddc_characterization_knowledge(characterization));
-    assert(before == 3);
+    before = rss_ddc_monitor_knowledge_route_count(
+        rss_ddc_characterization_discovered_knowledge(characterization));
+    assert(before == 0);
     assert(rss_ddc_characterization_collect_passive_mccs_raw(characterization, "vcp(10 12", 9) ==
            RSS_DDC_OK);
     assert(rss_ddc_characterization_mccs_attempted(characterization));
     assert(rss_ddc_characterization_mccs_status(characterization) != RSS_DDC_OK);
     assert(rss_ddc_characterization_mccs(characterization) == NULL);
-    assert(rss_ddc_monitor_knowledge_route_count(rss_ddc_characterization_knowledge(characterization)) ==
-           before);
+    assert(rss_ddc_monitor_knowledge_route_count(
+               rss_ddc_characterization_discovered_knowledge(characterization)) == before);
     assert(rss_ddc_characterization_display(characterization) != NULL);
     assert(rss_ddc_characterization_profile_status(characterization) ==
            RSS_DDC_CHARACTERIZATION_PROFILE_MATCHED);
     assert(rss_ddc_characterization_collect_passive_mccs_failed(characterization, RSS_DDC_ERROR_READ) ==
            RSS_DDC_OK);
     assert(rss_ddc_characterization_mccs_status(characterization) == RSS_DDC_ERROR_READ);
+    assert(rss_ddc_monitor_knowledge_route_count(
+               rss_ddc_characterization_discovered_knowledge(characterization)) == before);
+    apply_prior(characterization);
     assert(rss_ddc_monitor_knowledge_route_count(rss_ddc_characterization_knowledge(characterization)) ==
-           before);
+           3);
     rss_ddc_profile_store_destroy(store);
     rss_ddc_characterization_destroy(characterization);
 }
@@ -797,6 +819,10 @@ static void test_quick_probe_profile_declared_observed_coexist(void) {
            RSS_DDC_OK);
     probe = slice4_run_quick(&mock, &display);
     assert(rss_ddc_characterization_collect_quick_probe(characterization, probe) == RSS_DDC_OK);
+    assert(route_with_semantic(rss_ddc_characterization_discovered_knowledge(characterization),
+                               "display.brightness")
+               ->provenance.fact_kind != RSS_DDC_KNOWLEDGE_FACT_PROFILE);
+    apply_prior(characterization);
     knowledge = rss_ddc_characterization_knowledge(characterization);
     assert(count_fact_kind(knowledge, "display.brightness", RSS_DDC_KNOWLEDGE_FACT_PROFILE) == 1);
     assert(count_fact_kind(knowledge, "display.brightness", RSS_DDC_KNOWLEDGE_FACT_DECLARED) == 1);
@@ -920,14 +946,18 @@ static void test_quick_probe_failure_preserves_prior_knowledge(void) {
     assert(rss_ddc_characterization_assemble(characterization, &display, NULL, store) == RSS_DDC_OK);
     assert(rss_ddc_characterization_collect_passive_mccs_raw(characterization, "vcp(10 12)",
                                                              strlen("vcp(10 12)")) == RSS_DDC_OK);
-    before = rss_ddc_monitor_knowledge_route_count(rss_ddc_characterization_knowledge(characterization));
+    before = rss_ddc_monitor_knowledge_route_count(
+        rss_ddc_characterization_discovered_knowledge(characterization));
     assert(before > 0);
+    assert(count_fact_kind(rss_ddc_characterization_discovered_knowledge(characterization),
+                           "display.brightness", RSS_DDC_KNOWLEDGE_FACT_PROFILE) == 0);
     assert(rss_ddc_characterization_collect_quick_probe_failed(characterization, RSS_DDC_ERROR_READ) ==
            RSS_DDC_OK);
     assert(rss_ddc_characterization_quick_attempted(characterization));
     assert(rss_ddc_characterization_quick_status(characterization) == RSS_DDC_ERROR_READ);
-    assert(rss_ddc_monitor_knowledge_route_count(rss_ddc_characterization_knowledge(characterization)) ==
-           before);
+    assert(rss_ddc_monitor_knowledge_route_count(
+               rss_ddc_characterization_discovered_knowledge(characterization)) == before);
+    apply_prior(characterization);
     assert(count_fact_kind(rss_ddc_characterization_knowledge(characterization), "display.brightness",
                            RSS_DDC_KNOWLEDGE_FACT_PROFILE) == 1);
     assert(count_fact_kind(rss_ddc_characterization_knowledge(characterization), "display.brightness",
@@ -1065,6 +1095,12 @@ static void test_sufficiency_actionable_profile_without_live_values(void) {
     RSSDDCCharacterizationSufficiencyResult result = {0};
     RSSDDCCharacterizationValueState value_state = RSS_DDC_CHARACTERIZATION_VALUE_RESOLVED;
     const RSSDDCKnowledgeRoute *current = (const RSSDDCKnowledgeRoute *)0x1;
+    RSSDDCCharacterizationSufficiencyResult discovery = {0};
+    assert(rss_ddc_characterization_structured_match(characterization) ==
+           RSS_DDC_CHARACTERIZATION_STRUCTURED_COMPLETE);
+    assert(rss_ddc_characterization_discovery_sufficiency(characterization, &discovery) == RSS_DDC_OK);
+    assert(discovery.status == RSS_DDC_CHARACTERIZATION_SUFFICIENCY_INSUFFICIENT);
+    apply_prior(characterization);
     assert(rss_ddc_characterization_sufficiency(characterization, &result) == RSS_DDC_OK);
     assert(result.status == RSS_DDC_CHARACTERIZATION_SUFFICIENCY_SUFFICIENT);
     assert(!result.extended_recommended);
@@ -1099,8 +1135,12 @@ static void test_sufficiency_validated_input_without_quick_0x60(void) {
     diagnostics = rss_ddc_characterization_quick_diagnostics(characterization);
     assert(diagnostics != NULL);
     assert(diagnostics->observations[0].requested_vcp == 0x10);
-    assert(route_with_kind(rss_ddc_characterization_knowledge(characterization), "inputs.switching",
-                           RSS_DDC_KNOWLEDGE_FACT_OBSERVED) == NULL);
+    assert(route_with_kind(rss_ddc_characterization_discovered_knowledge(characterization),
+                           "inputs.switching", RSS_DDC_KNOWLEDGE_FACT_OBSERVED) == NULL);
+    assert(rss_ddc_characterization_discovery_sufficiency(characterization, &result) == RSS_DDC_OK);
+    assert(result.status == RSS_DDC_CHARACTERIZATION_SUFFICIENCY_INSUFFICIENT);
+    assert(result.extended_recommended);
+    apply_prior(characterization);
     assert(rss_ddc_characterization_sufficiency(characterization, &result) == RSS_DDC_OK);
     assert(result.status == RSS_DDC_CHARACTERIZATION_SUFFICIENCY_SUFFICIENT);
     assert(!result.extended_recommended);
@@ -1114,6 +1154,7 @@ static void test_sufficiency_vendor_unknown_does_not_block(void) {
     RSSDDCCharacterizationSufficiencyResult result = {0};
     assert(rss_ddc_characterization_collect_passive_mccs_raw(characterization, "vcp(10 12 15 60 42)",
                                                              strlen("vcp(10 12 15 60 42)")) == RSS_DDC_OK);
+    apply_prior(characterization);
     assert(route_with_semantic(rss_ddc_characterization_knowledge(characterization),
                                "vendor.unknown.vcp.42") != NULL);
     assert(rss_ddc_characterization_sufficiency(characterization, &result) == RSS_DDC_OK);
@@ -1127,6 +1168,7 @@ static void test_sufficiency_no_get_with_and_without_profile(void) {
     RSSDDCCharacterization *with_profile = slice5_assembled(&display, slice5_actionable_pack_mcdp());
     RSSDDCCharacterization *without_profile = slice5_assembled(&display, NULL);
     RSSDDCCharacterizationSufficiencyResult result = {0};
+    apply_prior(with_profile);
     assert(!rss_ddc_characterization_quick_supported(with_profile));
     assert(rss_ddc_characterization_sufficiency(with_profile, &result) == RSS_DDC_OK);
     assert(result.status == RSS_DDC_CHARACTERIZATION_SUFFICIENCY_SUFFICIENT);
@@ -1188,6 +1230,7 @@ static void test_sufficiency_variable_is_not_stable_current(void) {
     slice4_set_reply(&mock, 0, 1, RSS_DDC_OK, 0x10, 100, 51);
     probe = slice4_run_quick(&mock, &display);
     assert(rss_ddc_characterization_collect_quick_probe(characterization, probe) == RSS_DDC_OK);
+    apply_prior(characterization);
     assert(rss_ddc_characterization_quick_diagnostics(characterization)->observations[0].category ==
            RSS_DDC_PROBE_RESULT_VARIABLE);
     assert(rss_ddc_characterization_sufficiency(characterization, &result) == RSS_DDC_OK);
@@ -1211,6 +1254,7 @@ static void test_sufficiency_stable_quick_observation(void) {
     RSSDDCCharacterizationValueState value_state = RSS_DDC_CHARACTERIZATION_VALUE_UNRESOLVED;
     const RSSDDCKnowledgeRoute *current = NULL;
     assert(rss_ddc_characterization_collect_quick_probe(characterization, probe) == RSS_DDC_OK);
+    apply_prior(characterization);
     assert(rss_ddc_characterization_quick_diagnostics(characterization)->observations[0].category ==
            RSS_DDC_PROBE_RESULT_STABLE);
     assert(rss_ddc_characterization_sufficiency(characterization, &result) == RSS_DDC_OK);
@@ -1288,15 +1332,21 @@ static const char *slice6_pack_brightness_contrast(void) {
 static void test_extended_not_recommended_is_not_run(void) {
     RSSDDCDisplay display = slice2_display();
     RSSDDCCharacterization *characterization = slice5_assembled(&display, slice5_actionable_pack_dcpdp13());
-    size_t before = rss_ddc_monitor_knowledge_route_count(rss_ddc_characterization_knowledge(characterization));
+    size_t before = rss_ddc_monitor_knowledge_route_count(
+        rss_ddc_characterization_discovered_knowledge(characterization));
+    RSSDDCCharacterizationSufficiencyResult discovery = {0};
     RSSDDCCharacterizationSufficiencyResult sufficiency = {0};
+    assert(rss_ddc_characterization_discovery_sufficiency(characterization, &discovery) == RSS_DDC_OK);
+    assert(discovery.status == RSS_DDC_CHARACTERIZATION_SUFFICIENCY_INSUFFICIENT);
+    assert(discovery.extended_recommended);
+    apply_prior(characterization);
     assert(rss_ddc_characterization_sufficiency(characterization, &sufficiency) == RSS_DDC_OK);
     assert(sufficiency.status == RSS_DDC_CHARACTERIZATION_SUFFICIENCY_SUFFICIENT);
     assert(!sufficiency.extended_recommended);
     assert(!rss_ddc_characterization_extended_attempted(characterization));
     assert(rss_ddc_characterization_extended_diagnostics(characterization) == NULL);
-    assert(rss_ddc_monitor_knowledge_route_count(rss_ddc_characterization_knowledge(characterization)) ==
-           before);
+    assert(rss_ddc_monitor_knowledge_route_count(
+               rss_ddc_characterization_discovered_knowledge(characterization)) == before);
     rss_ddc_characterization_destroy(characterization);
 }
 
@@ -1359,6 +1409,9 @@ static void test_extended_coexists_and_does_not_authorize_write(void) {
     slice6_set_stable(&extended_mock, 0x15, 255, 1);
     extended = slice6_run_extended(&extended_mock, &display);
     assert(rss_ddc_characterization_collect_extended_probe(characterization, extended) == RSS_DDC_OK);
+    assert(count_fact_kind(rss_ddc_characterization_discovered_knowledge(characterization),
+                           "display.brightness", RSS_DDC_KNOWLEDGE_FACT_PROFILE) == 0);
+    apply_prior(characterization);
     knowledge = rss_ddc_characterization_knowledge(characterization);
     assert(count_fact_kind(knowledge, "display.brightness", RSS_DDC_KNOWLEDGE_FACT_PROFILE) == 1);
     assert(count_fact_kind(knowledge, "display.brightness", RSS_DDC_KNOWLEDGE_FACT_DECLARED) == 1);
@@ -1416,11 +1469,11 @@ static void test_extended_priority_beats_capacity(void) {
     RSSDDCProbe *probe = NULL;
     const RSSDDCCharacterizationPromotionSummary *promotion = NULL;
     size_t before = 0;
-    for (unsigned index = 0; index < 124; ++index) {
+    for (unsigned index = 0; index < 126; ++index) {
         char route_id[RSS_DDC_PROFILE_ID_MAX] = {};
         (void)snprintf(route_id, sizeof(route_id), "fill-%u", index);
         RSSDDCKnowledgeRoute route =
-            make_route("display.contrast", "fill", RSS_DDC_PROFILE_SOURCE_RESEARCH,
+            make_route("display.rgb.red_gain", "fill", RSS_DDC_PROFILE_SOURCE_RESEARCH,
                        RSS_DDC_PROFILE_CONFIDENCE_OBSERVED, RSS_DDC_KNOWLEDGE_FACT_OBSERVED, route_id,
                        (uint16_t)index, RSS_DDC_KNOWLEDGE_VALUE_UNSIGNED, index, true, false, false);
         assert(rss_ddc_monitor_knowledge_add_route(batch, &route) == RSS_DDC_OK);
@@ -1464,11 +1517,11 @@ static void test_extended_advertised_before_unknown_and_still_insufficient(void)
     const RSSDDCCharacterizationPromotionSummary *promotion = NULL;
     assert(rss_ddc_characterization_collect_passive_mccs_raw(characterization, "vcp(15 42)",
                                                              strlen("vcp(15 42)")) == RSS_DDC_OK);
-    for (unsigned index = 0; index < 123; ++index) {
+    for (unsigned index = 0; index < 125; ++index) {
         char route_id[RSS_DDC_PROFILE_ID_MAX] = {};
         (void)snprintf(route_id, sizeof(route_id), "fill-%u", index);
         RSSDDCKnowledgeRoute route =
-            make_route("display.contrast", "fill", RSS_DDC_PROFILE_SOURCE_RESEARCH,
+            make_route("display.rgb.red_gain", "fill", RSS_DDC_PROFILE_SOURCE_RESEARCH,
                        RSS_DDC_PROFILE_CONFIDENCE_OBSERVED, RSS_DDC_KNOWLEDGE_FACT_OBSERVED, route_id,
                        (uint16_t)index, RSS_DDC_KNOWLEDGE_VALUE_UNSIGNED, index, true, false, false);
         assert(rss_ddc_monitor_knowledge_add_route(batch, &route) == RSS_DDC_OK);
@@ -1895,6 +1948,9 @@ static void test_builtin_lg_profile_adds_lg_alt_authority(void) {
     assert(rss_ddc_characterization_assemble(characterization, &display, NULL, store) == RSS_DDC_OK);
     assert(rss_ddc_characterization_structured_match(characterization) ==
            RSS_DDC_CHARACTERIZATION_STRUCTURED_PARTIAL);
+    assert(route_with_kind_and_route_kind(rss_ddc_characterization_discovered_knowledge(characterization),
+                                          "inputs.switching", RSS_DDC_KNOWLEDGE_ROUTE_LG_ALT_INPUT) == NULL);
+    apply_prior(characterization);
     lg_alt = route_with_kind_and_route_kind(rss_ddc_characterization_knowledge(characterization),
                                             "inputs.switching", RSS_DDC_KNOWLEDGE_ROUTE_LG_ALT_INPUT);
     assert(lg_alt != NULL);
@@ -1954,6 +2010,12 @@ static void test_complete_match_skips_default_probing(void) {
     RSSDDCCharacterizeOptions options = rss_ddc_default_characterize_options();
     assert(slice7_run(&harness, store, &options, &result) == RSS_DDC_OK);
     assert(rss_ddc_characterization_structured_match(result) == RSS_DDC_CHARACTERIZATION_STRUCTURED_COMPLETE);
+    assert(!rss_ddc_characterization_discovery_performed(result));
+    assert(rss_ddc_characterization_prior_augmented(result));
+    assert(count_fact_kind(rss_ddc_characterization_knowledge(result), "display.brightness",
+                           RSS_DDC_KNOWLEDGE_FACT_PROFILE) == 1);
+    assert(count_fact_kind(rss_ddc_characterization_discovered_knowledge(result), "display.brightness",
+                           RSS_DDC_KNOWLEDGE_FACT_PROFILE) == 0);
     assert(harness.get_mccs_calls == 0);
     assert(harness.quick_calls == 0);
     assert(harness.extended_calls == 0);
@@ -1970,6 +2032,8 @@ static void test_complete_match_skips_passive_mccs(void) {
     harness.mccs_raw = "vcp(10 12 15 60)";
     assert(slice7_run(&harness, store, &options, &result) == RSS_DDC_OK);
     assert(rss_ddc_characterization_structured_match(result) == RSS_DDC_CHARACTERIZATION_STRUCTURED_COMPLETE);
+    assert(!rss_ddc_characterization_discovery_performed(result));
+    assert(rss_ddc_characterization_prior_augmented(result));
     assert(harness.get_mccs_calls == 0);
     assert(harness.quick_calls == 0);
     assert(harness.extended_calls == 0);
@@ -1987,7 +2051,11 @@ static void test_partial_match_does_not_skip_default(void) {
     slice7_stable_quick(&harness, 42);
     assert(slice7_run(&harness, store, NULL, &result) == RSS_DDC_OK);
     assert(rss_ddc_characterization_structured_match(result) == RSS_DDC_CHARACTERIZATION_STRUCTURED_PARTIAL);
+    assert(rss_ddc_characterization_discovery_performed(result));
+    assert(rss_ddc_characterization_prior_augmented(result));
+    assert(harness.get_mccs_calls == 1);
     assert(harness.quick_calls == 1);
+    assert(harness.extended_calls == 1);
     assert(harness.set_calls == 0);
     rss_ddc_characterization_destroy(result);
     rss_ddc_profile_store_destroy(store);
@@ -2001,6 +2069,8 @@ static void test_deep_discovers_with_complete_profile(void) {
     slice7_stable_quick(&harness, 42);
     assert(slice7_run(&harness, store, &options, &result) == RSS_DDC_OK);
     assert(rss_ddc_characterization_structured_match(result) == RSS_DDC_CHARACTERIZATION_STRUCTURED_COMPLETE);
+    assert(rss_ddc_characterization_discovery_performed(result));
+    assert(rss_ddc_characterization_prior_augmented(result));
     assert(harness.quick_calls == 1);
     assert(harness.extended_calls == 1);
     assert(harness.set_calls == 0);
@@ -2020,12 +2090,106 @@ static void test_ignore_known_has_no_profile_facts(void) {
     assert(slice7_run(&harness, store, &options, &result) == RSS_DDC_OK);
     assert(rss_ddc_characterization_profile_status(result) == RSS_DDC_CHARACTERIZATION_PROFILE_NONE);
     assert(rss_ddc_characterization_structured_match(result) == RSS_DDC_CHARACTERIZATION_STRUCTURED_NONE);
+    assert(rss_ddc_characterization_knowledge(result) ==
+           rss_ddc_characterization_discovered_knowledge(result));
+    assert(!rss_ddc_characterization_prior_augmented(result));
     assert(route_with_kind_and_route_kind(rss_ddc_characterization_knowledge(result), "inputs.switching",
                                           RSS_DDC_KNOWLEDGE_ROUTE_LG_ALT_INPUT) == NULL);
     assert(harness.quick_calls == 1);
     assert(harness.extended_calls == 1);
     assert(harness.set_calls == 0);
     rss_ddc_characterization_destroy(result);
+    rss_ddc_profile_store_destroy(store);
+}
+
+static void prepare_lg_discovery_harness(Slice7Harness *harness) {
+    harness->mccs_raw = "vcp(10 12 15 60(11 12 0f 00))";
+    slice7_stable_quick(harness, 42);
+    slice6_set_stable(&harness->extended, 0x15, 255, 0x31);
+    slice6_set_stable(&harness->extended, 0x60, 18, 0x11);
+}
+
+static void test_partial_prior_is_quarantined_from_discovery(void) {
+    RSSDDCCharacterization *characterization = rss_ddc_characterization_create();
+    RSSDDCDisplay display = lg_hdr_qhd_display();
+    RSSDDCProfileStore *store = rss_ddc_profile_store_create();
+    RSSDDCCharacterizationSufficiencyResult discovery = {0};
+    Slice4MockGet mock = {0};
+    RSSDDCProbe *probe = NULL;
+    assert(characterization != NULL && store != NULL);
+    assert(rss_ddc_profile_store_load_builtin(store) == RSS_DDC_OK);
+    assert(rss_ddc_characterization_assemble(characterization, &display, NULL, store) == RSS_DDC_OK);
+    assert(rss_ddc_characterization_structured_match(characterization) ==
+           RSS_DDC_CHARACTERIZATION_STRUCTURED_PARTIAL);
+    assert(count_fact_kind(rss_ddc_characterization_discovered_knowledge(characterization),
+                           "display.picture_mode", RSS_DDC_KNOWLEDGE_FACT_PROFILE) == 0);
+    assert(route_with_kind_and_route_kind(rss_ddc_characterization_discovered_knowledge(characterization),
+                                          "inputs.switching", RSS_DDC_KNOWLEDGE_ROUTE_LG_ALT_INPUT) == NULL);
+    for (size_t index = 0; index < RSS_DDC_PROBE_QUICK_CONTROL_COUNT; ++index) {
+        slice4_set_stable(&mock, index, 100, 1);
+    }
+    probe = slice4_run_quick(&mock, &display);
+    assert(rss_ddc_characterization_collect_quick_probe(characterization, probe) == RSS_DDC_OK);
+    assert(rss_ddc_characterization_discovery_sufficiency(characterization, &discovery) == RSS_DDC_OK);
+    assert(discovery.status == RSS_DDC_CHARACTERIZATION_SUFFICIENCY_INSUFFICIENT);
+    assert(discovery.extended_recommended);
+    assert(count_fact_kind(rss_ddc_characterization_discovered_knowledge(characterization),
+                           "inputs.switching", RSS_DDC_KNOWLEDGE_FACT_PROFILE) == 0);
+    rss_ddc_probe_destroy(probe);
+    rss_ddc_characterization_destroy(characterization);
+    rss_ddc_profile_store_destroy(store);
+}
+
+static void test_lg_partial_matches_profile_free_then_augments(void) {
+    Slice7Harness with_profile = slice7_harness(lg_hdr_qhd_display());
+    Slice7Harness no_profile = slice7_harness(lg_hdr_qhd_display());
+    RSSDDCProfileStore *store = rss_ddc_profile_store_create();
+    RSSDDCCharacterization *partial = NULL;
+    RSSDDCCharacterization *alien = NULL;
+    RSSDDCCharacterizeOptions ignore = {.mode = RSS_DDC_CHARACTERIZE_MODE_DEFAULT,
+                                        .knowledge_policy = RSS_DDC_CHARACTERIZE_KNOWLEDGE_IGNORE_KNOWN};
+    RSSDDCMonitorKnowledgeResolution *resolution = NULL;
+    const RSSDDCKnowledgeRoute *write = NULL;
+    const RSSDDCKnowledgeRoute *observed_input = NULL;
+    const RSSDDCKnowledgeRoute *observed_picture = NULL;
+    assert(store != NULL);
+    assert(rss_ddc_profile_store_load_builtin(store) == RSS_DDC_OK);
+    prepare_lg_discovery_harness(&with_profile);
+    prepare_lg_discovery_harness(&no_profile);
+    assert(slice7_run(&with_profile, store, NULL, &partial) == RSS_DDC_OK);
+    assert(slice7_run(&no_profile, store, &ignore, &alien) == RSS_DDC_OK);
+    assert(with_profile.quick_calls == no_profile.quick_calls);
+    assert(with_profile.extended_calls == no_profile.extended_calls);
+    assert(with_profile.quick_calls == 1);
+    assert(with_profile.extended_calls == 1);
+    assert(with_profile.get_mccs_calls == no_profile.get_mccs_calls);
+    assert(rss_ddc_characterization_discovery_performed(partial));
+    assert(rss_ddc_characterization_discovery_performed(alien));
+    assert(rss_ddc_characterization_prior_augmented(partial));
+    assert(!rss_ddc_characterization_prior_augmented(alien));
+    assert(rss_ddc_characterization_knowledge(alien) ==
+           rss_ddc_characterization_discovered_knowledge(alien));
+    assert(route_with_kind_and_route_kind(rss_ddc_characterization_discovered_knowledge(partial),
+                                          "inputs.switching", RSS_DDC_KNOWLEDGE_ROUTE_LG_ALT_INPUT) == NULL);
+    assert(route_with_kind_and_route_kind(rss_ddc_characterization_knowledge(partial),
+                                          "inputs.switching", RSS_DDC_KNOWLEDGE_ROUTE_LG_ALT_INPUT) != NULL);
+    assert(route_with_kind_and_route_kind(rss_ddc_characterization_knowledge(alien), "inputs.switching",
+                                          RSS_DDC_KNOWLEDGE_ROUTE_LG_ALT_INPUT) == NULL);
+    observed_input = route_with_kind(rss_ddc_characterization_discovered_knowledge(partial),
+                                     "inputs.switching", RSS_DDC_KNOWLEDGE_FACT_OBSERVED);
+    observed_picture = route_with_kind(rss_ddc_characterization_discovered_knowledge(partial),
+                                       "display.picture_mode", RSS_DDC_KNOWLEDGE_FACT_OBSERVED);
+    assert(observed_input != NULL && observed_input->address == 0x60);
+    assert(!observed_input->write_authorized);
+    assert(observed_picture != NULL && observed_picture->address == 0x15);
+    assert(!observed_picture->write_authorized);
+    assert(rss_ddc_characterization_resolve(partial, "display.picture_mode", &resolution) == RSS_DDC_OK);
+    write = rss_ddc_monitor_knowledge_resolution_preferred_write(resolution);
+    assert(write != NULL && write->write_authorized);
+    assert(write->provenance.fact_kind == RSS_DDC_KNOWLEDGE_FACT_PROFILE);
+    rss_ddc_monitor_knowledge_resolution_destroy(resolution);
+    rss_ddc_characterization_destroy(partial);
+    rss_ddc_characterization_destroy(alien);
     rss_ddc_profile_store_destroy(store);
 }
 
@@ -2041,6 +2205,9 @@ static void test_profile_and_mccs_remain_distinct(void) {
     assert(rss_ddc_characterization_assemble(characterization, &display, NULL, store) == RSS_DDC_OK);
     assert(rss_ddc_characterization_collect_passive_mccs_raw(characterization, raw, strlen(raw)) ==
            RSS_DDC_OK);
+    assert(route_with_kind_and_route_kind(rss_ddc_characterization_discovered_knowledge(characterization),
+                                          "inputs.switching", RSS_DDC_KNOWLEDGE_ROUTE_LG_ALT_INPUT) == NULL);
+    apply_prior(characterization);
     lg_alt = route_with_kind_and_route_kind(rss_ddc_characterization_knowledge(characterization),
                                             "inputs.switching", RSS_DDC_KNOWLEDGE_ROUTE_LG_ALT_INPUT);
     declared = route_with_kind(rss_ddc_characterization_knowledge(characterization), "inputs.switching",
@@ -2320,6 +2487,8 @@ int main(void) {
     test_partial_match_does_not_skip_default();
     test_deep_discovers_with_complete_profile();
     test_ignore_known_has_no_profile_facts();
+    test_partial_prior_is_quarantined_from_discovery();
+    test_lg_partial_matches_profile_free_then_augments();
     test_profile_and_mccs_remain_distinct();
     test_profile_update_explicit_and_does_not_mutate_characterize();
     test_profile_update_persists_lg_alt_not_vcp60();

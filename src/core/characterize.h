@@ -17,10 +17,11 @@
  * Monitor-specific write methods come from structured profile data. Optional
  * profile update is a separate explicit API and
  * is not part of execute. It does not restore monitor-knowledge/v0.1 JSON or
- * call SET VCP. Sufficiency is a pure decision over current evidence. DEFAULT
- * Extended runs only when recommended unless a COMPLETE structured match
- * already short-circuited discovery; DEEP always rediscovers when GET is
- * available.
+ * call SET VCP. Discovery-only sufficiency decides Alien Probe depth.
+ * DEFAULT Extended runs only when discovery-only sufficiency recommends it
+ * unless a COMPLETE structured match already short-circuited discovery; DEEP
+ * always rediscovers when GET is available. PARTIAL prior PROFILE facts do
+ * not satisfy pre-Extended sufficiency.
  */
 
 /** Allocates empty orchestration state that owns an empty knowledge object. */
@@ -35,7 +36,7 @@ RSSDDCError rss_ddc_characterization_normalize_semantic_id(const char *semantic_
                                                            size_t capacity);
 
 /**
- * Merges a copy of `knowledge` into the accumulated object after normalizing
+ * Merges a copy of `knowledge` into discovery knowledge after normalizing
  * each route's semantic ID. Competing facts are retained. On capacity overflow
  * the accumulated object is unchanged and RSS_DDC_ERROR_PROFILE_CONFLICT is
  * returned (the existing bounded-knowledge overflow status).
@@ -43,9 +44,15 @@ RSSDDCError rss_ddc_characterization_normalize_semantic_id(const char *semantic_
 RSSDDCError rss_ddc_characterization_add_knowledge(RSSDDCCharacterization *characterization,
                                                    const RSSDDCMonitorKnowledge *knowledge);
 
-/** Borrowed accumulated knowledge; valid until the next mutating call or destroy. */
+/** Borrowed effective/augmented knowledge; valid until the next mutating call or destroy. */
 const RSSDDCMonitorKnowledge *rss_ddc_characterization_knowledge(
     const RSSDDCCharacterization *characterization);
+/** Borrowed discovery-only knowledge; never includes prior PROFILE augmentation. */
+const RSSDDCMonitorKnowledge *rss_ddc_characterization_discovered_knowledge(
+    const RSSDDCCharacterization *characterization);
+RSSDDCError rss_ddc_characterization_augment_with_prior(RSSDDCCharacterization *characterization);
+bool rss_ddc_characterization_prior_augmented(const RSSDDCCharacterization *characterization);
+bool rss_ddc_characterization_discovery_performed(const RSSDDCCharacterization *characterization);
 
 /**
  * Resolves effective read/write methods for `semantic_id` (after normalization)
@@ -69,12 +76,13 @@ RSSDDCError rss_ddc_characterization_current_value(const RSSDDCCharacterization 
 /**
  * Pure Slice 2 assembly from an already-resolved display snapshot.
  * Copies identity, optional EDID, and provider capability bits; matches
- * `store` if non-NULL; normalizes profile control names and merges PROFILE
- * facts. Does not call list/get display, EDID read, MCCS, or probe.
- * `edid` and `store` may be NULL. Profile absence is non-fatal. Profile
- * resolve conflict returns RSS_DDC_ERROR_PROFILE_CONFLICT after identity
- * and transport bits are stored. Knowledge overflow returns the same status
- * without committing the new PROFILE facts.
+ * `store` if non-NULL; normalizes profile control names and retains PROFILE
+ * facts as prior structured knowledge. Does not merge PARTIAL/COMPLETE prior
+ * facts into discovery knowledge. Does not call list/get display, EDID read,
+ * MCCS, or probe. `edid` and `store` may be NULL. Profile absence is
+ * non-fatal. Profile resolve conflict returns RSS_DDC_ERROR_PROFILE_CONFLICT
+ * after identity and transport bits are stored. Knowledge overflow of the
+ * retained prior object returns the same status without committing it.
  */
 RSSDDCError rss_ddc_characterization_assemble(RSSDDCCharacterization *characterization,
                                               const RSSDDCDisplay *display,
@@ -204,11 +212,19 @@ const RSSDDCProbeDiagnostics *rss_ddc_characterization_quick_diagnostics(
     const RSSDDCCharacterization *characterization);
 
 /**
- * Pure DEFAULT-mode sufficiency over current identity, profile, MCCS, Quick
- * Auto Probe diagnostics, and merged knowledge. Does not run Extended Probe,
- * GET, or SET. Quick success alone is not sufficiency.
+ * Pure DEFAULT-mode sufficiency over effective/augmented knowledge. Does not
+ * run Extended Probe, GET, or SET. Quick success alone is not sufficiency.
+ * Pre-Extended depth must use discovery_sufficiency instead.
  */
 RSSDDCError rss_ddc_characterization_sufficiency(
+    const RSSDDCCharacterization *characterization,
+    RSSDDCCharacterizationSufficiencyResult *result);
+
+/**
+ * Sufficiency over discovery-only knowledge. PARTIAL prior PROFILE methods
+ * cannot satisfy this result.
+ */
+RSSDDCError rss_ddc_characterization_discovery_sufficiency(
     const RSSDDCCharacterization *characterization,
     RSSDDCCharacterizationSufficiencyResult *result);
 
@@ -229,7 +245,7 @@ RSSDDCError rss_ddc_characterization_collect_extended_probe(
     RSSDDCCharacterization *characterization, const RSSDDCProbe *probe);
 
 /**
- * Platform Slice 6 entry: runs Extended only when Slice 5 sufficiency
+ * Platform Slice 6 entry: runs Extended only when discovery-only sufficiency
  * recommends it and GET VCP is available. Otherwise returns OK without
  * execution. Does not SET, verify, or run Guided Discovery.
  */
@@ -270,8 +286,9 @@ typedef struct {
 /**
  * Private end-to-end executor used by rss_ddc_characterize_display. After
  * assemble, evaluates structured completeness, then passive MCCS / Quick /
- * sufficiency / optional Extended unless PASSIVE/DEFAULT short-circuit on a
- * COMPLETE match. IGNORE_KNOWN passes a NULL store. Does not SET VCP or
+ * discovery-only sufficiency / optional Extended unless PASSIVE/DEFAULT
+ * short-circuit on a COMPLETE match. PARTIAL prior knowledge is applied only
+ * after those stages. IGNORE_KNOWN passes a NULL store. Does not SET VCP or
  * mutate `profiles`. On fatal failure `*out` is NULL.
  */
 RSSDDCError rss_ddc_characterization_execute(uint32_t list_index, const RSSDDCProfileStore *profiles,
