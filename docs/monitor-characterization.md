@@ -277,9 +277,10 @@ slices; map at the orchestration boundary.
 | Identity / connection | `RSSDDCDisplay` (not a knowledge provenance record) |
 | EDID | `RSSDDCEDIDInfo` beside knowledge |
 | Provider / transport | display snapshot + capability bits |
-| MCCS advertisement | `DECLARED` + `source_id=mccs-capabilities` (probe currently tags `source=RESEARCH`; historically evidence type `mccs_advertised`) |
+| MCCS advertisement | `DECLARED` + `source_id=mccs-capabilities` (historically evidence type `mccs_advertised`) |
 | Known profile | `PROFILE` + profile source class |
-| Quick / Extended Probe | `OBSERVED` + `source_id=alien-probe-live-read` (probe currently tags `source=RESEARCH`; historically `stable_get` / `extended_discovery`, confidence `observed`, validation `read_validated`) |
+| Alien Probe Quick | `OBSERVED` + `source_id=alien-probe-quick` (v0.1 `stable_get`, confidence `observed`, validation `read_validated`, risk `read_standard`) |
+| Alien Probe Extended | `OBSERVED` + `source_id=alien-probe-extended` (v0.1 `extended_discovery`, risk `read_extended`). This includes Quick VCPs such as `0x10` when Extended actually produced the GET. |
 | Hardware-validated known behavior | profile `HARDWARE_VALIDATED` and/or hardcoded production gates |
 | Local/manual profile | `RSS_DDC_PROFILE_SOURCE_LOCAL` |
 

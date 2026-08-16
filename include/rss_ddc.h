@@ -350,6 +350,13 @@ typedef enum { RSS_DDC_KNOWLEDGE_RESOLUTION_UNRESOLVED = 0,
                RSS_DDC_KNOWLEDGE_RESOLUTION_RESOLVED,
                RSS_DDC_KNOWLEDGE_RESOLUTION_CONFLICT } RSSDDCKnowledgeResolutionState;
 typedef struct { RSSDDCKnowledgeValueState state; uint16_t unsigned_value; char string_value[RSS_DDC_TEXT_MAX]; } RSSDDCKnowledgeValue;
+/*
+ * source_id is the acquisition source, not a VCP-address inference:
+ * mccs-capabilities, alien-probe-quick, alien-probe-extended. Older documents
+ * may still carry alien-probe-live-read when stage was unspecified.
+ * evidence_id records stability or advertisement: mccs-advertised, stable-get,
+ * variable-get.
+ */
 typedef struct { char source_id[RSS_DDC_PROFILE_ID_MAX]; RSSDDCProfileSource source;
                  RSSDDCProfileConfidence confidence; RSSDDCKnowledgeFactKind fact_kind;
                  char evidence_id[RSS_DDC_PROFILE_ID_MAX]; } RSSDDCKnowledgeProvenance;
@@ -473,6 +480,11 @@ const RSSDDCKnowledgeRoute *rss_ddc_monitor_knowledge_route_at(const RSSDDCMonit
  * optional identity. NULL/0 queries required bytes including NUL. Does not
  * invent write authority. PROFILE routes are included only if present in
  * `knowledge`; characterization export uses discovered knowledge instead.
+ * Evidence type follows acquisition source_id (Quick=stable_get,
+ * Extended=extended_discovery), not VCP address. Capability confidence is the
+ * strongest route confidence; capability validation is read_validated when any
+ * grouped route is OBSERVED and is omitted when that read evidence coexists
+ * with PROFILE write-class confidence.
  */
 RSSDDCError rss_ddc_monitor_knowledge_serialize_json(const RSSDDCMonitorKnowledge *knowledge,
                                                      const RSSDDCMonitorKnowledgeIdentity *identity,

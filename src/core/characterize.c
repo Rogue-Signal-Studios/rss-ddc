@@ -627,6 +627,7 @@ static void copy_quick_diagnostics(RSSDDCCharacterization *characterization,
 
 static RSSDDCError merge_quick_observed_knowledge(RSSDDCCharacterization *characterization,
                                                  const RSSDDCMonitorKnowledge *probe_knowledge) {
+    /* Copies OBSERVED Quick routes unchanged, including alien-probe-quick source_id. */
     RSSDDCMonitorKnowledge *observed = rss_ddc_monitor_knowledge_create();
     if (observed == NULL) {
         return RSS_DDC_ERROR_SYSTEM;
@@ -1010,6 +1011,12 @@ static int compare_extended_promotion(const void *left, const void *right) {
     return (int)first->vcp - (int)second->vcp;
 }
 
+/*
+ * Builds an OBSERVED GET route from one Extended protocol-valid observation.
+ * Called only after observation_is_strict_valid. source_id is
+ * alien-probe-extended because this path runs after Alien Probe Extended,
+ * including when the VCP is also in the Quick set (for example 0x10).
+ */
 static RSSDDCError observed_route_from_extended(const RSSDDCProbeObservation *observation,
                                                 const char *semantic_id, RSSDDCKnowledgeRoute *route) {
     memset(route, 0, sizeof(*route));
@@ -1032,7 +1039,7 @@ static RSSDDCError observed_route_from_extended(const RSSDDCProbeObservation *ob
     route->provenance.confidence = RSS_DDC_PROFILE_CONFIDENCE_OBSERVED;
     route->provenance.fact_kind = RSS_DDC_KNOWLEDGE_FACT_OBSERVED;
     (void)snprintf(route->provenance.source_id, sizeof(route->provenance.source_id), "%s",
-                   "alien-probe-live-read");
+                   "alien-probe-extended");
     (void)snprintf(route->provenance.evidence_id, sizeof(route->provenance.evidence_id), "%s",
                    observation->stable ? "stable-get" : "variable-get");
     return RSS_DDC_OK;

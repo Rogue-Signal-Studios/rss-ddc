@@ -97,3 +97,36 @@ claim fresh Alien Probe observations. Bounds: 256 KiB document, 128
 capabilities, 32 methods and 32 values per capability, 8 evidence records
 per object. Unknown JSON keys are ignored. Malformed or oversized input is
 rejected without publishing a partial object.
+
+### Evidence and capability aggregation
+
+Acquisition stage is recorded on the route as `source_id` at observation time
+(`mccs-capabilities`, `alien-probe-quick`, `alien-probe-extended`). v0.1
+`evidence.type` follows that stage, not VCP address:
+
+| Runtime fact | `evidence.type` | `sourceId` | `reference` |
+| --- | --- | --- | --- |
+| DECLARED MCCS | `mccs_advertised` | `mccs-capabilities` | omitted |
+| Quick GET | `stable_get` | `alien-probe-quick` | `stable` or `variable` |
+| Extended GET | `extended_discovery` | `alien-probe-extended` | `stable` or `variable` |
+
+A Quick VCP such as `0x10` observed during Extended remains `extended_discovery`.
+A future targeted read of `0x60` must not become Extended merely because `0x60`
+is outside the Quick set. Variability is `reference`, not a stage substitute.
+
+Capability-level `confidence` is the strongest `RSSDDCProfileConfidence` among
+grouped routes (historical v0.1 scale; independent of insertion/sort order).
+Capability-level `validation` is `read_validated` when any grouped route is
+`OBSERVED`. It is omitted for DECLARED-only groups. GET evidence never becomes
+`set_confirmed` or `hardware_validated`. If OBSERVED read evidence coexists
+with PROFILE write-class confidence, capability validation is omitted so the
+conflict remains on the methods. Discovery export still excludes PROFILE
+routes.
+
+`OBSERVED` serializes `readable=true` because runtime OBSERVED routes are
+created only after a successful protocol-valid GET. That is not write
+authority.
+
+Identity `evidence: [{type: edid_derived}]` is emitted only when EDID identity
+fields (`edidManufacturer`, `edidProductCode`, EDID serial/model fallback) are
+present. `provider`, `transport`, and `branch` remain connection facts.

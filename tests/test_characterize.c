@@ -784,7 +784,7 @@ static void test_quick_probe_observed_brightness_and_current_value(void) {
     assert(observed->value.unsigned_value == 42);
     assert(!observed->write_authorized);
     assert(!observed->writable);
-    assert(strcmp(observed->provenance.source_id, "alien-probe-live-read") == 0);
+    assert(strcmp(observed->provenance.source_id, "alien-probe-quick") == 0);
     assert(rss_ddc_characterization_current_value(characterization, "brightness", &value_state,
                                                   &current) == RSS_DDC_OK);
     assert(value_state == RSS_DDC_CHARACTERIZATION_VALUE_RESOLVED);
@@ -1383,6 +1383,8 @@ static void test_extended_promotes_input_and_picture_mode(void) {
     assert(input != NULL && picture != NULL);
     assert(input->address == 0x60);
     assert(picture->address == 0x15);
+    assert(strcmp(input->provenance.source_id, "alien-probe-extended") == 0);
+    assert(strcmp(picture->provenance.source_id, "alien-probe-extended") == 0);
     assert(!input->write_authorized && !picture->write_authorized);
     assert(rss_ddc_characterization_sufficiency(characterization, &after) == RSS_DDC_OK);
     assert(after.status == RSS_DDC_CHARACTERIZATION_SUFFICIENCY_SUFFICIENT);
@@ -1415,7 +1417,7 @@ static void test_extended_coexists_and_does_not_authorize_write(void) {
     knowledge = rss_ddc_characterization_knowledge(characterization);
     assert(count_fact_kind(knowledge, "display.brightness", RSS_DDC_KNOWLEDGE_FACT_PROFILE) == 1);
     assert(count_fact_kind(knowledge, "display.brightness", RSS_DDC_KNOWLEDGE_FACT_DECLARED) == 1);
-    assert(count_fact_kind(knowledge, "display.brightness", RSS_DDC_KNOWLEDGE_FACT_OBSERVED) == 1);
+    assert(count_fact_kind(knowledge, "display.brightness", RSS_DDC_KNOWLEDGE_FACT_OBSERVED) == 2);
     assert(count_fact_kind(knowledge, "display.picture_mode", RSS_DDC_KNOWLEDGE_FACT_DECLARED) == 1);
     assert(count_fact_kind(knowledge, "display.picture_mode", RSS_DDC_KNOWLEDGE_FACT_OBSERVED) == 1);
     assert(!route_with_kind(knowledge, "display.picture_mode", RSS_DDC_KNOWLEDGE_FACT_OBSERVED)
@@ -2273,10 +2275,90 @@ static void test_odyssey_discovery_json_has_no_profile_facts(void) {
     assert(strstr(json, "vendor.unknown.vcp.ee") != NULL);
     assert(strstr(json, "\"reference\":\"variable\"") != NULL);
     assert(strstr(json, "\"reference\":\"stable\"") != NULL);
+    assert(strstr(json, "\"sourceId\":\"alien-probe-quick\"") != NULL);
+    assert(strstr(json, "\"sourceId\":\"alien-probe-extended\"") != NULL);
+    assert(strstr(json, "\"type\":\"extended_discovery\"") != NULL);
+    assert(strstr(json, "profile_known") == NULL);
     assert_discovery_json_has_no_prior_authority(json);
     free(json);
     rss_ddc_characterization_destroy(result);
     rss_ddc_profile_store_destroy(store);
+}
+
+static void test_discovery_json_preserves_acquisition_stage(void) {
+    RSSDDCDisplay display = slice2_display();
+    Slice4MockGet quick_mock = {0};
+    Slice4MockGet quick_mock_again = {0};
+    Slice6MockGet extended_mock = {0};
+    Slice6MockGet extended_mock_again = {0};
+    RSSDDCCharacterization *quick_only = rss_ddc_characterization_create();
+    RSSDDCCharacterization *extended_only = rss_ddc_characterization_create();
+    RSSDDCCharacterization *both = rss_ddc_characterization_create();
+    RSSDDCProbe *quick = NULL;
+    RSSDDCProbe *extended = NULL;
+    RSSDDCProbe *quick_again = NULL;
+    RSSDDCProbe *extended_again = NULL;
+    char *quick_json = NULL;
+    char *extended_json = NULL;
+    char *both_json = NULL;
+    const RSSDDCKnowledgeRoute *route = NULL;
+    assert(quick_only != NULL && extended_only != NULL && both != NULL);
+    assert(rss_ddc_characterization_assemble(quick_only, &display, NULL, NULL) == RSS_DDC_OK);
+    quick = slice5_quick_all_stable(&quick_mock, &display, 50);
+    assert(rss_ddc_characterization_collect_quick_probe(quick_only, quick) == RSS_DDC_OK);
+    quick_json = serialize_discovered(quick_only);
+    route = route_with_kind(rss_ddc_characterization_discovered_knowledge(quick_only),
+                            "display.brightness", RSS_DDC_KNOWLEDGE_FACT_OBSERVED);
+    assert(route != NULL && strcmp(route->provenance.source_id, "alien-probe-quick") == 0);
+    assert(strstr(quick_json, "\"sourceId\":\"alien-probe-quick\"") != NULL);
+    assert(strstr(quick_json, "\"type\":\"stable_get\"") != NULL);
+    assert(strstr(quick_json, "extended_discovery") == NULL);
+    assert(strstr(quick_json, "\"writable\":true") == NULL);
+    assert(rss_ddc_characterization_assemble(extended_only, &display, NULL, NULL) == RSS_DDC_OK);
+    slice6_fill_protocol_reported(&extended_mock);
+    slice6_set_stable(&extended_mock, 0x10, 100, 50);
+    slice6_set_stable(&extended_mock, 0x60, 18, 0x11);
+    slice6_set_reply(&extended_mock, 0xee, 0, RSS_DDC_OK, 0xee, 255, 1);
+    slice6_set_reply(&extended_mock, 0xee, 1, RSS_DDC_OK, 0xee, 255, 2);
+    extended = slice6_run_extended(&extended_mock, &display);
+    assert(rss_ddc_characterization_collect_extended_probe(extended_only, extended) == RSS_DDC_OK);
+    extended_json = serialize_discovered(extended_only);
+    route = route_with_kind(rss_ddc_characterization_discovered_knowledge(extended_only),
+                            "display.brightness", RSS_DDC_KNOWLEDGE_FACT_OBSERVED);
+    assert(route != NULL && strcmp(route->provenance.source_id, "alien-probe-extended") == 0);
+    assert(strstr(extended_json, "\"sourceId\":\"alien-probe-extended\"") != NULL);
+    assert(strstr(extended_json, "\"type\":\"extended_discovery\"") != NULL);
+    assert(strstr(extended_json, "\"vcpCode\":96") != NULL);
+    assert(strstr(extended_json, "\"reference\":\"variable\"") != NULL);
+    assert(strstr(extended_json, "profile_known") == NULL);
+    assert(strstr(extended_json, "\"writable\":true") == NULL);
+    assert(rss_ddc_characterization_assemble(both, &display, NULL, NULL) == RSS_DDC_OK);
+    quick_again = slice5_quick_all_stable(&quick_mock_again, &display, 50);
+    assert(rss_ddc_characterization_collect_quick_probe(both, quick_again) == RSS_DDC_OK);
+    slice6_fill_protocol_reported(&extended_mock_again);
+    slice6_set_stable(&extended_mock_again, 0x10, 100, 50);
+    slice6_set_stable(&extended_mock_again, 0x60, 18, 0x11);
+    slice6_set_reply(&extended_mock_again, 0xee, 0, RSS_DDC_OK, 0xee, 255, 1);
+    slice6_set_reply(&extended_mock_again, 0xee, 1, RSS_DDC_OK, 0xee, 255, 2);
+    extended_again = slice6_run_extended(&extended_mock_again, &display);
+    assert(rss_ddc_characterization_collect_extended_probe(both, extended_again) == RSS_DDC_OK);
+    both_json = serialize_discovered(both);
+    assert(count_fact_kind(rss_ddc_characterization_discovered_knowledge(both), "display.brightness",
+                           RSS_DDC_KNOWLEDGE_FACT_OBSERVED) == 2);
+    assert(strstr(both_json, "alien-probe-quick") != NULL);
+    assert(strstr(both_json, "alien-probe-extended") != NULL);
+    assert(strstr(both_json, "stable_get") != NULL);
+    assert(strstr(both_json, "extended_discovery") != NULL);
+    free(quick_json);
+    free(extended_json);
+    free(both_json);
+    rss_ddc_probe_destroy(quick);
+    rss_ddc_probe_destroy(extended);
+    rss_ddc_probe_destroy(quick_again);
+    rss_ddc_probe_destroy(extended_again);
+    rss_ddc_characterization_destroy(quick_only);
+    rss_ddc_characterization_destroy(extended_only);
+    rss_ddc_characterization_destroy(both);
 }
 
 static void test_complete_cache_hit_json_is_identity_only(void) {
@@ -2291,6 +2373,8 @@ static void test_complete_cache_hit_json_is_identity_only(void) {
     assert(strstr(json, "\"model\":\"Test\"") != NULL);
     assert(strstr(json, "\"capabilities\":[]") != NULL);
     assert(strstr(json, "alien-probe-live-read") == NULL);
+    assert(strstr(json, "alien-probe-quick") == NULL);
+    assert(strstr(json, "alien-probe-extended") == NULL);
     assert(strstr(json, "stable_get") == NULL);
     assert(strstr(json, "profile_known") == NULL);
     assert(count_fact_kind(rss_ddc_characterization_knowledge(result), "display.brightness",
@@ -2619,6 +2703,7 @@ int main(void) {
     test_lg_partial_matches_profile_free_then_augments();
     test_discovery_json_excludes_partial_profile_and_matches_profile_free();
     test_odyssey_discovery_json_has_no_profile_facts();
+    test_discovery_json_preserves_acquisition_stage();
     test_complete_cache_hit_json_is_identity_only();
     test_deep_complete_json_serializes_fresh_discovery();
     test_profile_and_mccs_remain_distinct();

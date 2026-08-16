@@ -295,9 +295,18 @@ static RSSDDCError load_mccs(RSSDDCProbe *probe) {
     return RSS_DDC_OK;
 }
 
+/*
+ * Records one MCCS advertisement or one successful GET as a knowledge fact.
+ * Declared facts use source_id mccs-capabilities. Observed facts use
+ * observed_source_id (alien-probe-quick or alien-probe-extended) so later
+ * serialization can report the stage that actually produced the GET.
+ * OBSERVED is created only after observation_strict_valid (protocol-valid
+ * matching GET); readable is set only on that path.
+ */
 static RSSDDCError add_knowledge_fact(RSSDDCMonitorKnowledge *knowledge,
                                       const RSSDDCProbeObservation *observation,
-                                      const char *semantic_id, bool declared) {
+                                      const char *semantic_id, bool declared,
+                                      const char *observed_source_id) {
     RSSDDCKnowledgeRoute *route = probe_calloc(1, sizeof(*route));
     if (route == NULL) {
         return RSS_DDC_ERROR_SYSTEM;
@@ -313,7 +322,7 @@ static RSSDDCError add_knowledge_fact(RSSDDCMonitorKnowledge *knowledge,
     route->provenance.confidence = RSS_DDC_PROFILE_CONFIDENCE_OBSERVED;
     route->provenance.fact_kind = declared ? RSS_DDC_KNOWLEDGE_FACT_DECLARED : RSS_DDC_KNOWLEDGE_FACT_OBSERVED;
     (void)snprintf(route->provenance.source_id, sizeof(route->provenance.source_id), "%s",
-                   declared ? "mccs-capabilities" : "alien-probe-live-read");
+                   declared ? "mccs-capabilities" : observed_source_id);
     (void)snprintf(route->provenance.evidence_id, sizeof(route->provenance.evidence_id), "%s",
                    declared ? "mccs-advertised" : observation->stable ? "stable-get" : "variable-get");
     if (declared) {
@@ -343,10 +352,12 @@ static RSSDDCError build_knowledge_from_observations(RSSDDCProbe *probe, const R
         const RSSDDCProbeObservation *observation = &observations[index];
         RSSDDCError error = RSS_DDC_OK;
         if (observation_strict_valid(observation)) {
-            error = add_knowledge_fact(knowledge, observation, semantic_ids[index], false);
+            error = add_knowledge_fact(knowledge, observation, semantic_ids[index], false,
+                                       "alien-probe-quick");
         }
         if (error == RSS_DDC_OK && observation->advertised == RSS_DDC_PROBE_KNOWLEDGE_YES) {
-            error = add_knowledge_fact(knowledge, observation, semantic_ids[index], true);
+            error = add_knowledge_fact(knowledge, observation, semantic_ids[index], true,
+                                       "alien-probe-quick");
         }
         if (error != RSS_DDC_OK) {
             rss_ddc_monitor_knowledge_destroy(knowledge);
@@ -367,10 +378,12 @@ static RSSDDCError build_extended_knowledge(RSSDDCProbe *probe) {
         const RSSDDCProbeObservation *observation = &extended->observation;
         RSSDDCError error = RSS_DDC_OK;
         if (observation_strict_valid(observation)) {
-            error = add_knowledge_fact(knowledge, observation, extended->observation.semantic_id, false);
+            error = add_knowledge_fact(knowledge, observation, extended->observation.semantic_id, false,
+                                       "alien-probe-extended");
         }
         if (error == RSS_DDC_OK && observation->advertised == RSS_DDC_PROBE_KNOWLEDGE_YES) {
-            error = add_knowledge_fact(knowledge, observation, extended->observation.semantic_id, true);
+            error = add_knowledge_fact(knowledge, observation, extended->observation.semantic_id, true,
+                                       "alien-probe-extended");
         }
         if (error != RSS_DDC_OK) {
             rss_ddc_monitor_knowledge_destroy(knowledge);

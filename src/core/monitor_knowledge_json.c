@@ -90,13 +90,13 @@ static void put_quoted(Writer *w, const char *key, const char *value, bool *comm
     *comma = true;
 }
 
-static bool quick_vcp(uint16_t address) {
-    return address == 0x10 || address == 0x12 || address == 0x14 || address == 0x16 ||
-           address == 0x18 || address == 0x1a;
-}
-
-static bool unknown_semantic(const char *semantic_id) {
-    return semantic_id != NULL && strncmp(semantic_id, "vendor.unknown.vcp.", 19) == 0;
+/*
+ * True when the route was acquired by Alien Probe Extended Auto Probe.
+ * Stage is taken from source_id recorded at observation time, never from
+ * VCP address, Quick-set membership, or semantic id.
+ */
+static bool extended_acquisition(const RSSDDCKnowledgeRoute *route) {
+    return route != NULL && strcmp(route->provenance.source_id, "alien-probe-extended") == 0;
 }
 
 static const char *confidence_json(RSSDDCProfileConfidence confidence) {
@@ -146,14 +146,23 @@ static const char *method_type_json(RSSDDCKnowledgeRouteKind kind) {
     return "mccs_vcp";
 }
 
+/*
+ * Historical v0.1 method risk follows acquisition stage. Extended GETs are
+ * read_extended; Quick, declared, profile, and unspecified live-read stay
+ * read_standard rather than inferring Extended from address.
+ */
 static const char *risk_json(const RSSDDCKnowledgeRoute *route) {
-    if (route->provenance.fact_kind == RSS_DDC_KNOWLEDGE_FACT_OBSERVED &&
-        (unknown_semantic(route->semantic_id) || !quick_vcp(route->address))) {
+    if (route->provenance.fact_kind == RSS_DDC_KNOWLEDGE_FACT_OBSERVED && extended_acquisition(route)) {
         return "read_extended";
     }
     return "read_standard";
 }
 
+/*
+ * Historical evidence types: mccs_advertised, profile_known, stable_get
+ * (Quick GET), extended_discovery (Extended GET). Stability is encoded in
+ * reference (stable vs variable), not by treating variable-get as Extended.
+ */
 static const char *evidence_type_json(const RSSDDCKnowledgeRoute *route) {
     if (route->provenance.fact_kind == RSS_DDC_KNOWLEDGE_FACT_DECLARED) {
         return "mccs_advertised";
@@ -161,8 +170,7 @@ static const char *evidence_type_json(const RSSDDCKnowledgeRoute *route) {
     if (route->provenance.fact_kind == RSS_DDC_KNOWLEDGE_FACT_PROFILE) {
         return "profile_known";
     }
-    if (strcmp(route->provenance.evidence_id, "variable-get") == 0 ||
-        (!quick_vcp(route->address) && route->provenance.fact_kind == RSS_DDC_KNOWLEDGE_FACT_OBSERVED)) {
+    if (extended_acquisition(route)) {
         return "extended_discovery";
     }
     return "stable_get";
@@ -182,11 +190,31 @@ static bool include_route(const RSSDDCKnowledgeRoute *route, bool omit_profile) 
     return route != NULL && (!omit_profile || route->provenance.fact_kind != RSS_DDC_KNOWLEDGE_FACT_PROFILE);
 }
 
+/*
+ * Total order so grouped methods with the same route_id (DECLARED + Quick +
+ * Extended) serialize in a deterministic sequence independent of insertion.
+ */
 static int compare_routes(const void *left, const void *right) {
     const RSSDDCKnowledgeRoute *a = *(const RSSDDCKnowledgeRoute *const *)left;
     const RSSDDCKnowledgeRoute *b = *(const RSSDDCKnowledgeRoute *const *)right;
     int by_semantic = strcmp(a->semantic_id, b->semantic_id);
-    return by_semantic != 0 ? by_semantic : strcmp(a->route_id, b->route_id);
+    int by_route;
+    int by_source;
+    if (by_semantic != 0) {
+        return by_semantic;
+    }
+    by_route = strcmp(a->route_id, b->route_id);
+    if (by_route != 0) {
+        return by_route;
+    }
+    by_source = strcmp(a->provenance.source_id, b->provenance.source_id);
+    if (by_source != 0) {
+        return by_source;
+    }
+    if (a->provenance.fact_kind != b->provenance.fact_kind) {
+        return a->provenance.fact_kind < b->provenance.fact_kind ? -1 : 1;
+    }
+    return strcmp(a->provenance.evidence_id, b->provenance.evidence_id);
 }
 
 static void emit_evidence(Writer *w, const RSSDDCKnowledgeRoute *route) {
@@ -226,6 +254,11 @@ static void emit_identity(Writer *w, const RSSDDCMonitorKnowledgeIdentity *ident
             putn(w, identity->edid_product_code);
             comma = true;
         }
+        /*
+         * identity.evidence is identity-level and is emitted only when EDID
+         * identity fields themselves are present. provider/transport/branch
+         * remain display connection facts and are not labeled EDID-derived.
+         */
         if (identity->edid_manufacturer[0] != '\0' || identity->edid_product_code_present) {
             if (comma) {
                 put(w, ",");
@@ -244,6 +277,7 @@ static void emit_method(Writer *w, const RSSDDCKnowledgeRoute *route) {
     put(w, "\",\"type\":\"");
     put(w, method_type_json(route->kind));
     put(w, "\",\"readable\":");
+    /* OBSERVED is only created after a successful GET; that is readable, not writable. */
     put(w, route->readable || route->provenance.fact_kind == RSS_DDC_KNOWLEDGE_FACT_OBSERVED ? "true"
                                                                                             : "false");
     put(w, ",\"writable\":");
@@ -297,11 +331,54 @@ static bool observed_value(const RSSDDCKnowledgeRoute *route) {
             route->value.state == RSS_DDC_KNOWLEDGE_VALUE_STRING);
 }
 
+/*
+ * Historical v0.1 capability confidence is the strongest supported confidence
+ * on the capability. RSSDDCProfileConfidence enum order matches that scale.
+ * Insertion and sort order must not change the result.
+ */
+static RSSDDCProfileConfidence capability_confidence(const RSSDDCKnowledgeRoute *const *routes,
+                                                     size_t count) {
+    RSSDDCProfileConfidence strongest = RSS_DDC_PROFILE_CONFIDENCE_UNKNOWN;
+    for (size_t index = 0; index < count; ++index) {
+        if (routes[index]->provenance.confidence > strongest) {
+            strongest = routes[index]->provenance.confidence;
+        }
+    }
+    return strongest;
+}
+
+/*
+ * Capability validation is read_validated iff any grouped route is an
+ * OBSERVED GET. GET evidence never becomes set_confirmed/hardware_validated.
+ * When OBSERVED coexists with PROFILE write-class confidence, capability
+ * validation is omitted so the conflict remains visible on the methods.
+ */
+static const char *capability_validation(const RSSDDCKnowledgeRoute *const *routes, size_t count) {
+    bool any_observed = false;
+    bool any_write_class = false;
+    for (size_t index = 0; index < count; ++index) {
+        const RSSDDCKnowledgeRoute *route = routes[index];
+        if (route->provenance.fact_kind == RSS_DDC_KNOWLEDGE_FACT_OBSERVED) {
+            any_observed = true;
+        }
+        if (route->provenance.fact_kind == RSS_DDC_KNOWLEDGE_FACT_PROFILE &&
+            (route->provenance.confidence == RSS_DDC_PROFILE_CONFIDENCE_SET_OBSERVED ||
+             route->provenance.confidence == RSS_DDC_PROFILE_CONFIDENCE_HARDWARE_VALIDATED)) {
+            any_write_class = true;
+        }
+    }
+    if (any_observed && any_write_class) {
+        return NULL;
+    }
+    return any_observed ? "read_validated" : NULL;
+}
+
 static void emit_capability(Writer *w, const RSSDDCKnowledgeRoute *const *routes, size_t count) {
     bool has_reported = false;
     bool reported_conflict = false;
     unsigned long reported = 0;
-    const char *confidence = confidence_json(routes[0]->provenance.confidence);
+    const char *confidence = confidence_json(capability_confidence(routes, count));
+    const char *validation = capability_validation(routes, count);
     put(w, "{\"id\":\"");
     put(w, json_safe(routes[0]->semantic_id) ? routes[0]->semantic_id : "unknown");
     put(w, "\"");
@@ -310,8 +387,10 @@ static void emit_capability(Writer *w, const RSSDDCKnowledgeRoute *const *routes
         put(w, confidence);
         put(w, "\"");
     }
-    if (routes[0]->provenance.fact_kind == RSS_DDC_KNOWLEDGE_FACT_OBSERVED) {
-        put(w, ",\"validation\":\"read_validated\"");
+    if (validation != NULL) {
+        put(w, ",\"validation\":\"");
+        put(w, validation);
+        put(w, "\"");
     }
     for (size_t index = 0; index < count; ++index) {
         const RSSDDCKnowledgeRoute *route = routes[index];
@@ -808,10 +887,18 @@ static RSSDDCError add_parsed_route(RSSDDCMonitorKnowledge *knowledge, const cha
     if (method->has_evidence && method->evidence.source_id[0] != '\0') {
         (void)snprintf(route.provenance.source_id, sizeof(route.provenance.source_id), "%s",
                        method->evidence.source_id);
+    } else if (fact == RSS_DDC_KNOWLEDGE_FACT_DECLARED) {
+        (void)snprintf(route.provenance.source_id, sizeof(route.provenance.source_id), "%s",
+                       "mccs-capabilities");
+    } else if (method->has_evidence && strcmp(method->evidence.type, "extended_discovery") == 0) {
+        (void)snprintf(route.provenance.source_id, sizeof(route.provenance.source_id), "%s",
+                       "alien-probe-extended");
+    } else if (method->has_evidence && strcmp(method->evidence.type, "stable_get") == 0) {
+        (void)snprintf(route.provenance.source_id, sizeof(route.provenance.source_id), "%s",
+                       "alien-probe-quick");
     } else {
         (void)snprintf(route.provenance.source_id, sizeof(route.provenance.source_id), "%s",
-                       fact == RSS_DDC_KNOWLEDGE_FACT_DECLARED ? "mccs-capabilities"
-                                                              : "alien-probe-live-read");
+                       "alien-probe-live-read");
     }
     if (method->has_evidence && strcmp(method->evidence.reference, "variable") == 0) {
         (void)snprintf(route.provenance.evidence_id, sizeof(route.provenance.evidence_id), "%s",
