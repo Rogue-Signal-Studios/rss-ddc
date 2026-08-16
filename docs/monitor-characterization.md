@@ -460,7 +460,9 @@ Legend: I/O = hardware I/O; RO = read-only; Mut = can change monitor OSD/state.
 | L Optional profile update | no | filesystem only | — | no monitor | persist **validated** subset |
 
 Characterization never calls `rss_ddc_set_vcp`, `rss_ddc_set_input`,
-`rss_ddc_set_picture_mode`, or Set-and-Verify.
+`rss_ddc_set_picture_mode`, or Set-and-Verify. Authorized semantic input
+execution is a separate API, `rss_ddc_characterization_set_input`, which
+consumes a completed characterization as authority-bearing context.
 
 ## 9. Dependency DAG
 
@@ -815,7 +817,10 @@ Characterization never issues a write to “confirm” authority.
 
 Hardcoded production gates (`rss_ddc_set_picture_mode`, `rss_ddc_set_input`
 LG_ALT) remain the execution policy for those APIs even if knowledge metadata
-says authorized. Knowledge does not call those APIs.
+says authorized. `rss_ddc_characterization_set_input` is the knowledge-driven
+consumer boundary: it requires effective `write_authorized` and a
+profile-backed value domain, then dispatches to those existing gated APIs.
+It does not bypass LG_ALT target validation or STANDARD Set VCP safety.
 
 ## 14. Profile match / update boundary
 
@@ -1023,8 +1028,10 @@ brightness only when methods exist; refuse writes unless
 
 **Stream Deck plugin (macOS):** expose only actionable resolved controls with
 validated write authority (or read-only tiles for readable-but-not-authorized
-values). Use `inputs.switching` resolution, not a plugin-local 0x60 table.
-Do not reimplement MCCS/probe.
+values). Use `rss_ddc_characterization_set_input` for authorized
+`inputs.switching` writes. Do not map route kind to
+`RSS_DDC_INPUT_SWITCH_STANDARD` / `RSS_DDC_INPUT_SWITCH_LG_ALT` in the plugin,
+and do not use a plugin-local 0x60 table. Do not reimplement MCCS/probe.
 
 No consumer-specific capability interpretation. This task does not implement
 those integrations.

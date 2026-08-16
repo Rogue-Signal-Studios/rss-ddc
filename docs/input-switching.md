@@ -2,7 +2,15 @@
 
 `rss_ddc_set_input` makes input selection explicit. `STANDARD` delegates
 unchanged to the normal provider `SetVCP(0x60)` path. `LG_ALT` is a different,
-write-only transport and never falls back to `STANDARD`.
+write-only transport and never falls back to `STANDARD`. This remains the
+lower-level explicit-method API.
+
+Authorized consumers that already characterized a display should call
+`rss_ddc_characterization_set_input` instead. That higher-level API resolves
+effective `inputs.switching`, requires `write_authorized`, validates the
+requested value against the profile-backed domain, and dispatches STANDARD or
+LG_ALT internally. The caller does not pass a method enum, VCP code, or
+model/product name to choose the write path.
 
 ## Evidence and scope
 
@@ -54,14 +62,28 @@ profile system.
 RSSDDCError rss_ddc_set_input(uint32_t display_index,
                               RSSDDCInputSwitchMethod method,
                               uint16_t value);
+
+RSSDDCError rss_ddc_characterization_set_input(
+    const RSSDDCCharacterization *characterization,
+    uint16_t value);
 ```
 
-The CLI equivalent is:
+`rss_ddc_set_input` is the lower-level explicit-method operation. The CLI
+equivalent remains:
 
 ```sh
 ./rss-ddc [--verbose] input <display-index> standard <mccs-value>
 ./rss-ddc [--verbose] input <display-index> lg-alt <0x90|0x91|0xd0>
 ```
+
+`rss_ddc_characterization_set_input` is the effective-characterization
+authorized operation. It identifies `inputs.switching`, uses effective
+knowledge, requires a write method with `write_authorized`, validates the
+value against the matched profile enum domain, re-checks that the live
+display still matches the characterization snapshot, then calls
+`rss_ddc_set_input` with the resolved method. Observed GET/current values and
+MCCS-advertised enums do not become an authorized write domain. Production
+LG_ALT target and value gates are unchanged.
 
 `LG_ALT` rejects every other value before display resolution or IOAV service
 construction. The provider capability reports only that DCPDP13 can issue this

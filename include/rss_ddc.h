@@ -693,9 +693,12 @@ RSSDDCError rss_ddc_set_vcp(uint32_t list_index, uint8_t vcp_code, uint16_t valu
 RSSDDCError rss_ddc_set_vcp_with_diagnostics(uint32_t list_index, uint8_t vcp_code, uint16_t value,
                                               const RSSDDCDiagnostics *diagnostics);
 /**
- * Selects an input through an explicit method. STANDARD is exactly the
- * ordinary Set VCP(0x60) path. LG_ALT is restricted to the documented LG HDR
- * QHD / DCPDP13Service / DCPEXT0 target and its three validated values.
+ * Selects an input through an explicit method. This remains the lower-level
+ * explicit-method operation: STANDARD is exactly the ordinary Set VCP(0x60)
+ * path, and LG_ALT is restricted to the documented LG HDR QHD /
+ * DCPDP13Service / DCPEXT0 target and its three validated values. Callers
+ * that already characterized the display should use
+ * rss_ddc_characterization_set_input so they do not select STANDARD vs LG_ALT.
  */
 RSSDDCError rss_ddc_set_input(uint32_t list_index, RSSDDCInputSwitchMethod method, uint16_t value);
 /** Diagnostic form of rss_ddc_set_input; diagnostics do not alter its writes or timing. */
@@ -738,8 +741,10 @@ RSSDDCError rss_ddc_set_vcp_and_verify_with_diagnostics(uint32_t list_index, uin
  * Automatic monitor characterization. The object is opaque; callers receive an
  * owned pointer from rss_ddc_characterize_display and release it with
  * rss_ddc_characterization_destroy. Accessor pointers are borrowed from the
- * owned object and remain valid until destroy. This API never SET/writes a
- * monitor or mutates a profile store.
+ * owned object and remain valid until destroy. rss_ddc_characterize_display
+ * never SET/writes a monitor or mutates a profile store.
+ * rss_ddc_characterization_set_input is a separate authorized write that uses
+ * this object as authority-bearing context.
  */
 typedef struct RSSDDCCharacterization RSSDDCCharacterization;
 
@@ -1004,6 +1009,28 @@ typedef struct {
 RSSDDCError rss_ddc_characterization_update_profile(
     const RSSDDCCharacterization *characterization, RSSDDCProfileStore *store,
     RSSDDCCharacterizationProfileUpdateResult *result);
+
+/**
+ * Executes an authorized `inputs.switching` SET from effective characterization.
+ * Resolves the write route internally from effective/augmented knowledge. The
+ * caller does not pass RSS_DDC_INPUT_SWITCH_STANDARD, RSS_DDC_INPUT_SWITCH_LG_ALT,
+ * a VCP code, or a model/product name to choose the method.
+ *
+ * Requires a characterization that retains a display snapshot. Uses that
+ * snapshot's list_index as the write target, then re-resolves the live display
+ * and fails closed if identity no longer matches. Requires an effective write
+ * route with write_authorized and a profile-backed authorized value domain.
+ * Observed GET/current values and MCCS-advertised enums are not write-authorized
+ * domain. Dispatches to rss_ddc_set_input, preserving its STANDARD and LG_ALT
+ * production gates. rss_ddc_set_input remains available as the explicit-method
+ * lower-level API.
+ */
+RSSDDCError rss_ddc_characterization_set_input(const RSSDDCCharacterization *characterization,
+                                               uint16_t value);
+/** Diagnostic form of rss_ddc_characterization_set_input. */
+RSSDDCError rss_ddc_characterization_set_input_with_diagnostics(
+    const RSSDDCCharacterization *characterization, uint16_t value,
+    const RSSDDCDiagnostics *diagnostics);
 
 #ifdef __cplusplus
 }

@@ -303,6 +303,11 @@ if (error == RSS_DDC_OK) {
 }
 ```
 
+Authorized input switching from that characterization is a separate API,
+`rss_ddc_characterization_set_input`. It resolves effective `inputs.switching`
+and dispatches STANDARD or LG_ALT internally. `rss_ddc_set_input` remains the
+lower-level explicit-method operation.
+
 The public API is pre-1.0 (`0.2.0`), so source/API compatibility may evolve as
 provider coverage matures. Consumers should pin an exact release or commit;
 the planned external consumer will pin rss-ddc rather than track `main`. No
