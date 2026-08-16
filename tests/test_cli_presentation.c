@@ -231,6 +231,31 @@ static void test_global_args(void) {
     assert(parsed.command_index == 3 && strcmp(argv[parsed.command_index], "list") == 0);
 }
 
+static void test_characterize_args(void) {
+    RSSDDCCharacterizeMode mode = RSS_DDC_CHARACTERIZE_MODE_DEEP;
+    char *none[] = {(char *)"rss-ddc", (char *)"characterize", (char *)"1"};
+    assert(rss_ddc_cli_parse_characterize_options(3, none, 3, &mode));
+    assert(mode == RSS_DDC_CHARACTERIZE_MODE_DEFAULT);
+    char *passive[] = {(char *)"rss-ddc", (char *)"characterize", (char *)"1", (char *)"--mode",
+                       (char *)"passive"};
+    assert(rss_ddc_cli_parse_characterize_options(5, passive, 3, &mode));
+    assert(mode == RSS_DDC_CHARACTERIZE_MODE_PASSIVE);
+    char *def[] = {(char *)"rss-ddc", (char *)"characterize", (char *)"1", (char *)"--mode=default"};
+    assert(rss_ddc_cli_parse_characterize_options(4, def, 3, &mode));
+    assert(mode == RSS_DDC_CHARACTERIZE_MODE_DEFAULT);
+    char *deep[] = {(char *)"rss-ddc", (char *)"characterize", (char *)"1", (char *)"--mode", (char *)"deep"};
+    assert(rss_ddc_cli_parse_characterize_options(5, deep, 3, &mode));
+    assert(mode == RSS_DDC_CHARACTERIZE_MODE_DEEP);
+    char *bad[] = {(char *)"rss-ddc", (char *)"characterize", (char *)"1", (char *)"--mode", (char *)"unsafe"};
+    assert(!rss_ddc_cli_parse_characterize_options(5, bad, 3, &mode));
+    char *extra[] = {(char *)"rss-ddc", (char *)"characterize", (char *)"1", (char *)"--mode", (char *)"passive",
+                     (char *)"--json"};
+    assert(!rss_ddc_cli_parse_characterize_options(6, extra, 3, &mode));
+    assert(strcmp(rss_ddc_cli_characterize_mode_name(RSS_DDC_CHARACTERIZE_MODE_PASSIVE), "passive") == 0);
+    assert(strcmp(rss_ddc_cli_characterize_mode_name(RSS_DDC_CHARACTERIZE_MODE_DEFAULT), "default") == 0);
+    assert(strcmp(rss_ddc_cli_characterize_mode_name(RSS_DDC_CHARACTERIZE_MODE_DEEP), "deep") == 0);
+}
+
 static RSSDDCDisplay sample_display(void) {
     RSSDDCDisplay display = {.list_index = 1,
                              .cg_display_id = 2,
@@ -515,6 +540,7 @@ int main(void) {
     test_config_path_precedence();
     test_precedence_and_auto();
     test_global_args();
+    test_characterize_args();
     test_plain_and_table_renderers();
     test_probe_renderers();
     test_extended_probe_renderer();

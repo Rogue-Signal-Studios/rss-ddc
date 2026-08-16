@@ -52,3 +52,64 @@ bool rss_ddc_cli_parse_global_args(int argc, char **argv, RSSDDCCliParsedArgs *p
     }
     return true;
 }
+
+const char *rss_ddc_cli_characterize_mode_name(RSSDDCCharacterizeMode mode) {
+    if (mode == RSS_DDC_CHARACTERIZE_MODE_PASSIVE) {
+        return "passive";
+    }
+    if (mode == RSS_DDC_CHARACTERIZE_MODE_DEEP) {
+        return "deep";
+    }
+    return "default";
+}
+
+bool rss_ddc_cli_parse_characterize_mode(const char *text, RSSDDCCharacterizeMode *mode) {
+    if (text == NULL || mode == NULL) {
+        return false;
+    }
+    if (strcmp(text, "passive") == 0) {
+        *mode = RSS_DDC_CHARACTERIZE_MODE_PASSIVE;
+        return true;
+    }
+    if (strcmp(text, "default") == 0) {
+        *mode = RSS_DDC_CHARACTERIZE_MODE_DEFAULT;
+        return true;
+    }
+    if (strcmp(text, "deep") == 0) {
+        *mode = RSS_DDC_CHARACTERIZE_MODE_DEEP;
+        return true;
+    }
+    fprintf(stderr, "rss-ddc: invalid characterization mode: %s (expected passive, default, or deep)\n",
+            text);
+    return false;
+}
+
+bool rss_ddc_cli_parse_characterize_options(int argc, char **argv, int first_option,
+                                            RSSDDCCharacterizeMode *mode) {
+    if (mode == NULL) {
+        return false;
+    }
+    *mode = RSS_DDC_CHARACTERIZE_MODE_DEFAULT;
+    if (argv == NULL || first_option >= argc) {
+        return true;
+    }
+    if (first_option < 0 || argv[first_option] == NULL) {
+        return false;
+    }
+    const char *argument = argv[first_option];
+    const char *value = NULL;
+    if (strncmp(argument, "--mode=", 7) == 0) {
+        value = argument + 7;
+        if (first_option + 1 != argc) {
+            return false;
+        }
+    } else if (strcmp(argument, "--mode") == 0) {
+        if (first_option + 1 >= argc || first_option + 2 != argc) {
+            return false;
+        }
+        value = argv[first_option + 1];
+    } else {
+        return false;
+    }
+    return rss_ddc_cli_parse_characterize_mode(value, mode);
+}

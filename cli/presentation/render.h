@@ -18,4 +18,11 @@ void rss_ddc_cli_render_probe_quick(FILE *stream, const RSSDDCProbeDiagnostics *
 void rss_ddc_cli_render_probe_extended(FILE *stream, const RSSDDCProbeExtendedDiagnostics *diagnostics,
                                        const RSSDDCCliEffectiveOutput *output);
 
+/**
+ * Renders a public characterization result. Presentation only: it does not
+ * discover displays, retrieve MCCS, or run Alien Probe.
+ */
+void rss_ddc_cli_render_characterization(FILE *stream, const RSSDDCCharacterization *characterization,
+                                         RSSDDCCharacterizeMode mode, const RSSDDCCliEffectiveOutput *output);
+
 #endif

@@ -25,6 +25,9 @@ make
 ./rss-ddc --color=no --table=no list
 ./rss-ddc --table=yes list
 ./rss-ddc info 1
+./rss-ddc characterize 1
+./rss-ddc characterize 1 --mode passive
+./rss-ddc characterize 1 --mode deep
 ./rss-ddc --verbose info 1
 ./rss-ddc get 1 0x10
 ./rss-ddc edid 1 --decode
@@ -75,6 +78,23 @@ Successful non-verbose `get` prints only the current value. `--verbose` writes t
 For `info`, verbose mode emits a precise registry-correlation rejection reason
 without constructing an IOAV Service object; it is the first diagnostic to run
 when a display fails closed.
+
+`characterize` is a read-only report for one current list index. It calls
+`rss_ddc_characterize_display` and does not SET, update profiles, or run
+Guided Discovery / Experimental Validation.
+
+```sh
+./rss-ddc characterize 1
+./rss-ddc characterize 1 --mode passive
+./rss-ddc characterize 1 --mode default
+./rss-ddc characterize 1 --mode deep
+```
+
+PASSIVE is identity, profile match, transport bits, and MCCS only. DEFAULT
+adds Alien Probe Quick, then Extended only if sufficiency recommends it. DEEP
+forces read-only Extended when GET VCP is available; it does not mean the
+result is sufficient. INSUFFICIENT or CONFLICT sufficiency is still a
+successful CLI run.
 
 `set` remains a provider-specific write-only operation. `set --verify` is a
 separate, opt-in orchestration layer: it writes once, waits for the requested

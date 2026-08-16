@@ -1426,7 +1426,38 @@ and the macOS Stream Deck backend.
 
 ### Slice 8 — CLI characterization view
 
-Unchanged.
+- **Files:** `cli/main.m`, `cli/presentation/args.c`,
+  `cli/presentation/characterize_render.c`, `tests/test_cli_presentation.c`,
+  `tests/test_cli_characterize.c`, README, `docs/cli-output.md`
+- **Reuse:** public `rss_ddc_characterize_display`, existing table/color/unicode
+  presentation, 1-based display index parsing
+- **Hardware:** targeted read-only smoke after the implementation commit
+- **Accept:** presentation-only CLI; no SET; no profile update; no JSON;
+  no forced DEEP unless DEFAULT itself recommends Extended
+
+#### Slice 8 implementation (this branch)
+
+```sh
+rss-ddc characterize 1
+rss-ddc characterize 1 --mode passive
+rss-ddc characterize 1 --mode default
+rss-ddc characterize 1 --mode deep
+```
+
+The command parses the display index and optional `--mode`, loads the builtin
+profile store if available (read-only; never saved), calls
+`rss_ddc_characterize_display`, renders the owned result, and destroys it.
+It does not call MCCS, Quick, or Extended APIs directly.
+
+Exit 0 when the public API returns a characterization, including INSUFFICIENT
+or CONFLICT. Fatal API failure exits non-zero.
+
+Report sections: MONITOR, CHARACTERIZATION, RESOLVED CONTROLS, EVIDENCE
+SUMMARY, MCCS SUMMARY, Alien Probe Quick summary, and Extended summary only
+when Extended ran or DEEP was requested. Observed GET never implies write
+authorization.
+
+**Slice 9 boundary.** Stop before optional profile update policy.
 
 ### Slice 9 — Optional profile update policy
 

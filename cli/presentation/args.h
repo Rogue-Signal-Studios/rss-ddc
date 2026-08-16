@@ -4,6 +4,7 @@
 #include <stdbool.h>
 
 #include "output_settings.h"
+#include "rss_ddc.h"
 
 /** Result of parsing global CLI presentation flags before the command name. */
 typedef struct {
@@ -17,5 +18,18 @@ typedef struct {
  * and `--unicode=no`. Returns false when a recognized flag has an invalid value.
  */
 bool rss_ddc_cli_parse_global_args(int argc, char **argv, RSSDDCCliParsedArgs *parsed);
+
+/** Parses `passive`, `default`, or `deep`. Writes a stderr message on invalid input. */
+bool rss_ddc_cli_parse_characterize_mode(const char *text, RSSDDCCharacterizeMode *mode);
+
+/** Returns a static lowercase mode label for help and reports. */
+const char *rss_ddc_cli_characterize_mode_name(RSSDDCCharacterizeMode mode);
+
+/**
+ * Parses optional `--mode <name>` or `--mode=<name>` after `characterize <index>`.
+ * No extra arguments leaves `*mode` as DEFAULT.
+ */
+bool rss_ddc_cli_parse_characterize_options(int argc, char **argv, int first_option,
+                                            RSSDDCCharacterizeMode *mode);
 
 #endif

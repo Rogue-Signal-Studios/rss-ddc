@@ -90,9 +90,11 @@ column each for current Unicode table borders.
 - `list`
 - `probe-quick`
 - `probe-extended`
+- `characterize` (resolved-control table; probe summaries stay compact)
 
 Interactive table mode also prints concise probe summaries using the exact
-underlying Slice 8 counters.
+underlying Slice 8 counters. `characterize` does not dump every Quick or
+Extended observation by default.
 
 ## Color semantics
 
