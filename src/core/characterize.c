@@ -620,3 +620,182 @@ const RSSDDCProbeDiagnostics *rss_ddc_characterization_quick_diagnostics(
                ? &characterization->quick_diagnostics
                : NULL;
 }
+
+static bool knowledge_has_semantic(const RSSDDCMonitorKnowledge *knowledge, const char *semantic_id) {
+    if (knowledge == NULL || semantic_id == NULL) {
+        return false;
+    }
+    for (size_t index = 0; index < rss_ddc_monitor_knowledge_route_count(knowledge); ++index) {
+        const RSSDDCKnowledgeRoute *route = rss_ddc_monitor_knowledge_route_at(knowledge, index);
+        if (route != NULL && strcmp(route->semantic_id, semantic_id) == 0) {
+            return true;
+        }
+    }
+    return false;
+}
+
+static bool mccs_has_vcp(const RSSDDCCharacterization *characterization, uint8_t vcp) {
+    return characterization->mccs != NULL && rss_ddc_mccs_capabilities_has_vcp(characterization->mccs, vcp);
+}
+
+static bool picture_mode_production_gate(const RSSDDCCharacterization *characterization) {
+    const RSSDDCDisplay *display = rss_ddc_characterization_display(characterization);
+    return display != NULL && (display->capabilities & RSS_DDC_CAP_PICTURE_MODE) != 0;
+}
+
+static bool control_in_scope(const RSSDDCCharacterization *characterization, const char *semantic_id) {
+    const RSSDDCMonitorKnowledge *knowledge = rss_ddc_characterization_knowledge(characterization);
+    if (strcmp(semantic_id, "display.brightness") == 0 || strcmp(semantic_id, "display.contrast") == 0) {
+        return true;
+    }
+    if (strcmp(semantic_id, "display.color_preset") == 0) {
+        return knowledge_has_semantic(knowledge, semantic_id) || mccs_has_vcp(characterization, 0x14);
+    }
+    if (strcmp(semantic_id, "display.picture_mode") == 0) {
+        return knowledge_has_semantic(knowledge, semantic_id) || mccs_has_vcp(characterization, 0x15) ||
+               picture_mode_production_gate(characterization);
+    }
+    if (strcmp(semantic_id, "inputs.switching") == 0) {
+        return knowledge_has_semantic(knowledge, semantic_id) || mccs_has_vcp(characterization, 0x60) ||
+               (characterization->provider_capabilities & RSS_DDC_CAP_ALTERNATE_INPUT) != 0;
+    }
+    return false;
+}
+
+static RSSDDCError control_method_state(const RSSDDCCharacterization *characterization,
+                                        const char *semantic_id, bool *usable, bool *conflict) {
+    *usable = false;
+    *conflict = false;
+    if (strcmp(semantic_id, "display.picture_mode") == 0 && picture_mode_production_gate(characterization)) {
+        *usable = true;
+        return RSS_DDC_OK;
+    }
+
+    RSSDDCMonitorKnowledgeResolution *resolution = NULL;
+    RSSDDCError error = rss_ddc_characterization_resolve(characterization, semantic_id, &resolution);
+    if (error == RSS_DDC_ERROR_NOT_FOUND) {
+        return RSS_DDC_OK;
+    }
+    if (error != RSS_DDC_OK) {
+        return error;
+    }
+    if (rss_ddc_monitor_knowledge_resolution_has_conflict(resolution)) {
+        *conflict = true;
+    } else if (rss_ddc_monitor_knowledge_resolution_state(resolution) ==
+                   RSS_DDC_KNOWLEDGE_RESOLUTION_RESOLVED &&
+               (rss_ddc_monitor_knowledge_resolution_preferred_read(resolution) != NULL ||
+                rss_ddc_monitor_knowledge_resolution_preferred_write(resolution) != NULL)) {
+        *usable = true;
+    }
+    rss_ddc_monitor_knowledge_resolution_destroy(resolution);
+    return RSS_DDC_OK;
+}
+
+static bool quick_variable_for(const RSSDDCCharacterization *characterization, const char *semantic_id) {
+    const RSSDDCProbeDiagnostics *diagnostics =
+        rss_ddc_characterization_quick_diagnostics(characterization);
+    if (diagnostics == NULL || diagnostics->observations == NULL) {
+        return false;
+    }
+    for (size_t index = 0; index < diagnostics->observation_count; ++index) {
+        const RSSDDCProbeObservation *observation = &diagnostics->observations[index];
+        if (observation->semantic_id != NULL && strcmp(observation->semantic_id, semantic_id) == 0 &&
+            observation->category == RSS_DDC_PROBE_RESULT_VARIABLE) {
+            return true;
+        }
+    }
+    return false;
+}
+
+RSSDDCError rss_ddc_characterization_sufficiency(
+    const RSSDDCCharacterization *characterization,
+    RSSDDCCharacterizationSufficiencyResult *result) {
+    if (characterization == NULL || result == NULL) {
+        return RSS_DDC_ERROR_ARGUMENT;
+    }
+
+    *result = (RSSDDCCharacterizationSufficiencyResult){
+        .status = RSS_DDC_CHARACTERIZATION_SUFFICIENCY_INSUFFICIENT,
+        .reasons = RSS_DDC_CHARACTERIZATION_REASON_NONE,
+        .extended_recommended = false,
+    };
+
+    if (rss_ddc_characterization_display(characterization) == NULL) {
+        result->status = RSS_DDC_CHARACTERIZATION_SUFFICIENCY_UNAVAILABLE;
+        return RSS_DDC_OK;
+    }
+
+    const bool get_supported = get_vcp_supported(characterization);
+    if (!get_supported) {
+        result->reasons |= RSS_DDC_CHARACTERIZATION_REASON_NO_GET_SUPPORT;
+    }
+
+    if (rss_ddc_characterization_profile_status(characterization) ==
+        RSS_DDC_CHARACTERIZATION_PROFILE_CONFLICT) {
+        result->status = RSS_DDC_CHARACTERIZATION_SUFFICIENCY_CONFLICT;
+        result->reasons |= RSS_DDC_CHARACTERIZATION_REASON_PROFILE_CONFLICT;
+        return RSS_DDC_OK;
+    }
+
+    static const char *const product_controls[] = {
+        "display.brightness", "display.contrast", "display.color_preset", "display.picture_mode",
+        "inputs.switching",
+    };
+
+    bool any_unresolved = false;
+    bool any_conflict = false;
+    bool probe_helpful = false;
+    const RSSDDCMonitorKnowledge *knowledge = rss_ddc_characterization_knowledge(characterization);
+
+    for (size_t index = 0; index < sizeof(product_controls) / sizeof(product_controls[0]); ++index) {
+        const char *semantic_id = product_controls[index];
+        if (!control_in_scope(characterization, semantic_id)) {
+            continue;
+        }
+
+        bool usable = false;
+        bool conflict = false;
+        RSSDDCError error = control_method_state(characterization, semantic_id, &usable, &conflict);
+        if (error != RSS_DDC_OK) {
+            return error;
+        }
+
+        const bool has_route = knowledge_has_semantic(knowledge, semantic_id);
+        const bool production_gate =
+            strcmp(semantic_id, "display.picture_mode") == 0 && picture_mode_production_gate(characterization);
+
+        if (conflict) {
+            any_conflict = true;
+            result->reasons |= RSS_DDC_CHARACTERIZATION_REASON_CONFLICTING_METHOD;
+        } else if (!usable) {
+            any_unresolved = true;
+            result->reasons |= RSS_DDC_CHARACTERIZATION_REASON_UNRESOLVED_METHOD;
+            if (!has_route && !production_gate) {
+                result->reasons |= RSS_DDC_CHARACTERIZATION_REASON_MISSING_CONTROL;
+            }
+            if (get_supported) {
+                probe_helpful = true;
+            }
+        }
+
+        if ((strcmp(semantic_id, "display.brightness") == 0 ||
+             strcmp(semantic_id, "display.contrast") == 0) &&
+            quick_variable_for(characterization, semantic_id)) {
+            result->reasons |= RSS_DDC_CHARACTERIZATION_REASON_VARIABLE_OBSERVATION;
+        }
+    }
+
+    if (any_conflict) {
+        result->status = RSS_DDC_CHARACTERIZATION_SUFFICIENCY_CONFLICT;
+    } else if (any_unresolved) {
+        result->status = RSS_DDC_CHARACTERIZATION_SUFFICIENCY_INSUFFICIENT;
+    } else {
+        result->status = RSS_DDC_CHARACTERIZATION_SUFFICIENCY_SUFFICIENT;
+    }
+
+    if (result->status == RSS_DDC_CHARACTERIZATION_SUFFICIENCY_INSUFFICIENT && probe_helpful) {
+        result->extended_recommended = true;
+        result->reasons |= RSS_DDC_CHARACTERIZATION_REASON_PROBE_HELPFUL;
+    }
+    return RSS_DDC_OK;
+}

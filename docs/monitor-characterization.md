@@ -58,7 +58,7 @@ native C representation  ↔  deterministic monitor-knowledge/v0.1 JSON
 
 | Layer | What it is | Status on this branch |
 | --- | --- | --- |
-| Characterization | Process / orchestrator combining identity, profile, passive MCCS, and Alien Probe™ Quick Auto Probe | Slice 4 Quick Auto Probe OBSERVED evidence implemented internally; Extended Probe, Guided Discovery, and Experimental Validation deferred |
+| Characterization | Process / orchestrator combining identity, profile, passive MCCS, Alien Probe™ Quick Auto Probe, and sufficiency | Slice 5 DEFAULT sufficiency implemented internally; Extended Probe, Guided Discovery, and Experimental Validation deferred |
 | `monitor-knowledge/v0.1` | Canonical durable document: identity, capabilities, methods, values, input routes, relationships, evidence | Implemented historically (`38cf0b1`); **not present** on current main; serializer deferred |
 | Current `RSSDDCMonitorKnowledge` | Reconstructed subset: copied `RSSDDCKnowledgeRoute` facts, max 128 | Implemented (`src/core/monitor_knowledge.c`) |
 | `RSSDDCDisplay` / `RSSDDCEDIDInfo` / `RSSDDCProfileIdentity` | Identity and connection evidence (historically also inside the v0.1 document) | Implemented beside knowledge |
@@ -1242,12 +1242,62 @@ Protocol-reported / malformed / transport / semantic-mismatch reads stay in
 diagnostics only. Merge overflow → `RSS_DDC_ERROR_PROFILE_CONFLICT`, prior
 knowledge unchanged.
 
-**Slice 5 boundary.** Stop before sufficiency policy, Extended Probe, SET, JSON,
-and public `rss_ddc_characterize_display`.
+**Slice 5 boundary.** Stop before sufficiency policy. Sufficiency is a later
+pure stage (`rss_ddc_characterization_sufficiency`) and must not invoke
+Extended Probe.
 
 ### Slice 5 — Sufficiency decision
 
-Unchanged.
+- **Files:** `characterize.h`, `characterize.c`, `tests/test_characterize.c`
+- **Reuse:** existing resolver, current-value accessor, Quick diagnostics,
+  profile status, provider bits, MCCS model
+- **Hardware:** none; pure function over already-collected evidence
+- **Accept:** Quick success is not sufficiency; Extended is recommended or not,
+  never invoked
+
+#### Slice 5 implementation (this branch)
+
+`rss_ddc_characterization_sufficiency` is a pure DEFAULT-mode decision. It
+does not GET, SET, cache a pipeline flag, or run Alien Probe™ Extended.
+
+**Product-relevant set (v1).** Always: `display.brightness`,
+`display.contrast`. Conditionally: `display.color_preset` if advertised or
+present in knowledge; `display.picture_mode` if advertised, present in
+knowledge, or `display.capabilities` includes `RSS_DDC_CAP_PICTURE_MODE`;
+`inputs.switching` if advertised, present in knowledge, or provider bits
+include `RSS_DDC_CAP_ALTERNATE_INPUT`. RGB gains and `vendor.unknown.vcp.XX`
+never block sufficiency.
+
+**Usable method.** Resolver `RESOLVED` with a preferred read or write route.
+`display.picture_mode` is also usable when the copied display snapshot already
+has the production Picture Mode gate bit. DECLARED-only routes are not
+methods. Lack of a live OBSERVED current value does not fail a control whose
+method is already known.
+
+**Quick coverage.** Alien Probe™ Quick Auto Probe still reads only six known
+VCPs. It does not observe `display.picture_mode` or `inputs.switching`.
+`quick_status == OK` is therefore not sufficiency. Those controls can still
+be sufficient from PROFILE, DECLARED plus an already known method, or the
+Picture Mode production gate.
+
+**Variable observations.** Quick VARIABLE stays in diagnostics; the OBSERVED
+route still holds the first GET. Sufficiency records
+`REASON_VARIABLE_OBSERVATION` for brightness/contrast and does not treat that
+first value as stable current state. VARIABLE alone does not fail the
+characterization when methods are already resolved, and it does not recommend
+Extended (more GETs will not authorize a method or stabilize a fluctuating
+control).
+
+**Extended recommendation.** True only when status is INSUFFICIENT, GET VCP is
+available, and an in-scope product-relevant control still has no usable
+method. False when already sufficient, GET is unavailable, the gap is profile
+conflict / write-authority-only, or only unknown vendor VCPs remain.
+
+**Statuses.** SUFFICIENT; INSUFFICIENT (unresolved in-scope methods);
+CONFLICT (profile match conflict or equal-authority method conflict);
+UNAVAILABLE (no assembled display).
+
+**Slice 6 boundary.** Stop before invoking Alien Probe™ Extended Auto Probe.
 
 ### Slice 6 — Optional Extended Probe
 

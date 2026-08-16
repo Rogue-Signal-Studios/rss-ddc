@@ -968,6 +968,261 @@ static void test_quick_probe_overflow_is_explicit(void) {
     rss_ddc_characterization_destroy(characterization);
 }
 
+static const char *slice5_actionable_pack_dcpdp13(void) {
+    return "{\"schemaVersion\":1,\"databaseVersion\":\"x\",\"minimumRSSDDCVersion\":\"0.1.0\","
+           "\"packId\":\"slice5-dcpdp13\",\"profiles\":[{\"id\":\"one\",\"identity\":{"
+           "\"productName\":\"Test\",\"provider\":\"DCPDP13Service\",\"transport\":\"DCPEXT0\","
+           "\"external\":true},\"confidence\":\"hardware-validated\",\"controls\":["
+           "{\"id\":\"brightness\",\"method\":\"vcp\",\"address\":16,\"readable\":true,"
+           "\"writable\":true,\"confidence\":\"hardware-validated\",\"enums\":[]},"
+           "{\"id\":\"contrast\",\"method\":\"vcp\",\"address\":18,\"readable\":true,"
+           "\"writable\":true,\"confidence\":\"hardware-validated\",\"enums\":[]},"
+           "{\"id\":\"picture-mode\",\"method\":\"vcp\",\"address\":21,\"readable\":true,"
+           "\"writable\":true,\"confidence\":\"hardware-validated\",\"enums\":["
+           "{\"id\":\"vivid\",\"name\":\"Vivid\",\"value\":49},"
+           "{\"id\":\"reader\",\"name\":\"Reader\",\"value\":1}]},"
+           "{\"id\":\"input\",\"method\":\"vcp\",\"address\":96,\"readable\":true,"
+           "\"writable\":true,\"confidence\":\"hardware-validated\",\"enums\":[]}]}]}";
+}
+
+static const char *slice5_actionable_pack_mcdp(void) {
+    return "{\"schemaVersion\":1,\"databaseVersion\":\"x\",\"minimumRSSDDCVersion\":\"0.1.0\","
+           "\"packId\":\"slice5-mcdp\",\"profiles\":[{\"id\":\"one\",\"identity\":{"
+           "\"productName\":\"Internal\",\"provider\":\"AppleDCPMCDP29XX\",\"transport\":\"unknown\","
+           "\"external\":true},\"confidence\":\"hardware-validated\",\"controls\":["
+           "{\"id\":\"brightness\",\"method\":\"vcp\",\"address\":16,\"readable\":true,"
+           "\"writable\":true,\"confidence\":\"hardware-validated\",\"enums\":[]},"
+           "{\"id\":\"contrast\",\"method\":\"vcp\",\"address\":18,\"readable\":true,"
+           "\"writable\":true,\"confidence\":\"hardware-validated\",\"enums\":[]},"
+           "{\"id\":\"picture-mode\",\"method\":\"vcp\",\"address\":21,\"readable\":true,"
+           "\"writable\":true,\"confidence\":\"hardware-validated\",\"enums\":["
+           "{\"id\":\"vivid\",\"name\":\"Vivid\",\"value\":49},"
+           "{\"id\":\"reader\",\"name\":\"Reader\",\"value\":1}]},"
+           "{\"id\":\"input\",\"method\":\"vcp\",\"address\":96,\"readable\":true,"
+           "\"writable\":true,\"confidence\":\"hardware-validated\",\"enums\":[]}]}]}";
+}
+
+static const char *slice5_pack_without_picture_mode(void) {
+    return "{\"schemaVersion\":1,\"databaseVersion\":\"x\",\"minimumRSSDDCVersion\":\"0.1.0\","
+           "\"packId\":\"slice5-no-picture\",\"profiles\":[{\"id\":\"one\",\"identity\":{"
+           "\"productName\":\"Test\",\"provider\":\"DCPDP13Service\",\"transport\":\"DCPEXT0\","
+           "\"external\":true},\"confidence\":\"hardware-validated\",\"controls\":["
+           "{\"id\":\"brightness\",\"method\":\"vcp\",\"address\":16,\"readable\":true,"
+           "\"writable\":true,\"confidence\":\"hardware-validated\",\"enums\":[]},"
+           "{\"id\":\"contrast\",\"method\":\"vcp\",\"address\":18,\"readable\":true,"
+           "\"writable\":true,\"confidence\":\"hardware-validated\",\"enums\":[]},"
+           "{\"id\":\"input\",\"method\":\"vcp\",\"address\":96,\"readable\":true,"
+           "\"writable\":true,\"confidence\":\"hardware-validated\",\"enums\":[]}]}]}";
+}
+
+static RSSDDCCharacterization *slice5_assembled(const RSSDDCDisplay *display, const char *pack) {
+    RSSDDCCharacterization *characterization = rss_ddc_characterization_create();
+    RSSDDCProfileStore *store = NULL;
+    assert(characterization != NULL);
+    if (pack != NULL) {
+        store = rss_ddc_profile_store_create();
+        assert(store != NULL);
+        assert(rss_ddc_profile_store_load_pack_data(store, pack, strlen(pack)) == RSS_DDC_OK);
+    }
+    assert(rss_ddc_characterization_assemble(characterization, display, NULL, store) == RSS_DDC_OK);
+    rss_ddc_profile_store_destroy(store);
+    return characterization;
+}
+
+static RSSDDCProbe *slice5_quick_all_stable(Slice4MockGet *mock, const RSSDDCDisplay *display,
+                                            uint16_t brightness) {
+    for (size_t index = 0; index < RSS_DDC_PROBE_QUICK_CONTROL_COUNT; ++index) {
+        slice4_set_stable(mock, index, 100, 1);
+    }
+    slice4_set_stable(mock, 0, 100, brightness);
+    return slice4_run_quick(mock, display);
+}
+
+static void test_sufficiency_quick_success_is_not_enough(void) {
+    RSSDDCCharacterization *characterization = rss_ddc_characterization_create();
+    RSSDDCDisplay display = slice2_display();
+    Slice4MockGet mock = {0};
+    RSSDDCProbe *probe = NULL;
+    RSSDDCCharacterizationSufficiencyResult result = {0};
+    assert(characterization != NULL);
+    assert(rss_ddc_characterization_assemble(characterization, &display, NULL, NULL) == RSS_DDC_OK);
+    probe = slice5_quick_all_stable(&mock, &display, 42);
+    assert(rss_ddc_characterization_collect_quick_probe(characterization, probe) == RSS_DDC_OK);
+    assert(rss_ddc_characterization_quick_status(characterization) == RSS_DDC_OK);
+    assert(rss_ddc_characterization_sufficiency(characterization, &result) == RSS_DDC_OK);
+    assert(result.status == RSS_DDC_CHARACTERIZATION_SUFFICIENCY_INSUFFICIENT);
+    assert((result.reasons & RSS_DDC_CHARACTERIZATION_REASON_UNRESOLVED_METHOD) != 0);
+    assert(result.extended_recommended);
+    rss_ddc_probe_destroy(probe);
+    rss_ddc_characterization_destroy(characterization);
+}
+
+static void test_sufficiency_actionable_profile_without_live_values(void) {
+    RSSDDCDisplay display = slice2_display();
+    RSSDDCCharacterization *characterization = slice5_assembled(&display, slice5_actionable_pack_dcpdp13());
+    RSSDDCCharacterizationSufficiencyResult result = {0};
+    RSSDDCCharacterizationValueState value_state = RSS_DDC_CHARACTERIZATION_VALUE_RESOLVED;
+    const RSSDDCKnowledgeRoute *current = (const RSSDDCKnowledgeRoute *)0x1;
+    assert(rss_ddc_characterization_sufficiency(characterization, &result) == RSS_DDC_OK);
+    assert(result.status == RSS_DDC_CHARACTERIZATION_SUFFICIENCY_SUFFICIENT);
+    assert(!result.extended_recommended);
+    assert(rss_ddc_characterization_current_value(characterization, "display.brightness", &value_state,
+                                                  &current) == RSS_DDC_OK);
+    assert(value_state == RSS_DDC_CHARACTERIZATION_VALUE_UNRESOLVED);
+    rss_ddc_characterization_destroy(characterization);
+}
+
+static void test_sufficiency_missing_picture_mode_and_declared_only(void) {
+    RSSDDCDisplay display = slice2_display();
+    RSSDDCCharacterization *characterization =
+        slice5_assembled(&display, slice5_pack_without_picture_mode());
+    RSSDDCCharacterizationSufficiencyResult result = {0};
+    assert(rss_ddc_characterization_collect_passive_mccs_raw(characterization, "vcp(15)",
+                                                             strlen("vcp(15)")) == RSS_DDC_OK);
+    assert(rss_ddc_characterization_sufficiency(characterization, &result) == RSS_DDC_OK);
+    assert(result.status == RSS_DDC_CHARACTERIZATION_SUFFICIENCY_INSUFFICIENT);
+    assert((result.reasons & RSS_DDC_CHARACTERIZATION_REASON_UNRESOLVED_METHOD) != 0);
+    assert(result.extended_recommended);
+    rss_ddc_characterization_destroy(characterization);
+}
+
+static void test_sufficiency_validated_input_without_quick_0x60(void) {
+    RSSDDCDisplay display = slice2_display();
+    RSSDDCCharacterization *characterization = slice5_assembled(&display, slice5_actionable_pack_dcpdp13());
+    Slice4MockGet mock = {0};
+    RSSDDCProbe *probe = slice5_quick_all_stable(&mock, &display, 42);
+    RSSDDCCharacterizationSufficiencyResult result = {0};
+    const RSSDDCProbeDiagnostics *diagnostics = NULL;
+    assert(rss_ddc_characterization_collect_quick_probe(characterization, probe) == RSS_DDC_OK);
+    diagnostics = rss_ddc_characterization_quick_diagnostics(characterization);
+    assert(diagnostics != NULL);
+    assert(diagnostics->observations[0].requested_vcp == 0x10);
+    assert(route_with_kind(rss_ddc_characterization_knowledge(characterization), "inputs.switching",
+                           RSS_DDC_KNOWLEDGE_FACT_OBSERVED) == NULL);
+    assert(rss_ddc_characterization_sufficiency(characterization, &result) == RSS_DDC_OK);
+    assert(result.status == RSS_DDC_CHARACTERIZATION_SUFFICIENCY_SUFFICIENT);
+    assert(!result.extended_recommended);
+    rss_ddc_probe_destroy(probe);
+    rss_ddc_characterization_destroy(characterization);
+}
+
+static void test_sufficiency_vendor_unknown_does_not_block(void) {
+    RSSDDCDisplay display = slice2_display();
+    RSSDDCCharacterization *characterization = slice5_assembled(&display, slice5_actionable_pack_dcpdp13());
+    RSSDDCCharacterizationSufficiencyResult result = {0};
+    assert(rss_ddc_characterization_collect_passive_mccs_raw(characterization, "vcp(10 12 15 60 42)",
+                                                             strlen("vcp(10 12 15 60 42)")) == RSS_DDC_OK);
+    assert(route_with_semantic(rss_ddc_characterization_knowledge(characterization),
+                               "vendor.unknown.vcp.42") != NULL);
+    assert(rss_ddc_characterization_sufficiency(characterization, &result) == RSS_DDC_OK);
+    assert(result.status == RSS_DDC_CHARACTERIZATION_SUFFICIENCY_SUFFICIENT);
+    assert(!result.extended_recommended);
+    rss_ddc_characterization_destroy(characterization);
+}
+
+static void test_sufficiency_no_get_with_and_without_profile(void) {
+    RSSDDCDisplay display = slice4_no_get_display();
+    RSSDDCCharacterization *with_profile = slice5_assembled(&display, slice5_actionable_pack_mcdp());
+    RSSDDCCharacterization *without_profile = slice5_assembled(&display, NULL);
+    RSSDDCCharacterizationSufficiencyResult result = {0};
+    assert(!rss_ddc_characterization_quick_supported(with_profile));
+    assert(rss_ddc_characterization_sufficiency(with_profile, &result) == RSS_DDC_OK);
+    assert(result.status == RSS_DDC_CHARACTERIZATION_SUFFICIENCY_SUFFICIENT);
+    assert(!result.extended_recommended);
+    assert((result.reasons & RSS_DDC_CHARACTERIZATION_REASON_NO_GET_SUPPORT) != 0);
+    result = (RSSDDCCharacterizationSufficiencyResult){0};
+    assert(rss_ddc_characterization_sufficiency(without_profile, &result) == RSS_DDC_OK);
+    assert(result.status == RSS_DDC_CHARACTERIZATION_SUFFICIENCY_INSUFFICIENT);
+    assert(!result.extended_recommended);
+    assert((result.reasons & RSS_DDC_CHARACTERIZATION_REASON_NO_GET_SUPPORT) != 0);
+    rss_ddc_characterization_destroy(with_profile);
+    rss_ddc_characterization_destroy(without_profile);
+}
+
+static void test_sufficiency_profile_conflict(void) {
+    RSSDDCCharacterization *characterization = rss_ddc_characterization_create();
+    RSSDDCDisplay display = slice2_display();
+    RSSDDCProfileStore *store = rss_ddc_profile_store_create();
+    RSSDDCCharacterizationSufficiencyResult result = {0};
+    const char *first =
+        "{\"schemaVersion\":1,\"databaseVersion\":\"x\",\"minimumRSSDDCVersion\":\"0.1.0\","
+        "\"packId\":\"a\",\"profiles\":[{\"id\":\"one\",\"identity\":{\"productName\":\"Test\","
+        "\"provider\":\"DCPDP13Service\",\"transport\":\"DCPEXT0\",\"external\":true},"
+        "\"confidence\":\"hardware-validated\",\"controls\":[{\"id\":\"brightness\",\"method\":\"vcp\","
+        "\"address\":16,\"readable\":true,\"writable\":true,\"confidence\":\"hardware-validated\","
+        "\"enums\":[]}]}]}";
+    const char *second =
+        "{\"schemaVersion\":1,\"databaseVersion\":\"x\",\"minimumRSSDDCVersion\":\"0.1.0\","
+        "\"packId\":\"b\",\"profiles\":[{\"id\":\"two\",\"identity\":{\"productName\":\"Test\","
+        "\"provider\":\"DCPDP13Service\",\"transport\":\"DCPEXT0\",\"external\":true},"
+        "\"confidence\":\"hardware-validated\",\"controls\":[{\"id\":\"brightness\",\"method\":\"vcp\","
+        "\"address\":18,\"readable\":true,\"writable\":true,\"confidence\":\"hardware-validated\","
+        "\"enums\":[]}]}]}";
+    assert(characterization != NULL && store != NULL);
+    assert(rss_ddc_profile_store_load_local_data(store, first, strlen(first)) == RSS_DDC_OK);
+    assert(rss_ddc_profile_store_load_local_data(store, second, strlen(second)) == RSS_DDC_OK);
+    assert(rss_ddc_characterization_assemble(characterization, &display, NULL, store) ==
+           RSS_DDC_ERROR_PROFILE_CONFLICT);
+    assert(rss_ddc_characterization_sufficiency(characterization, &result) == RSS_DDC_OK);
+    assert(result.status == RSS_DDC_CHARACTERIZATION_SUFFICIENCY_CONFLICT);
+    assert((result.reasons & RSS_DDC_CHARACTERIZATION_REASON_PROFILE_CONFLICT) != 0);
+    assert(!result.extended_recommended);
+    rss_ddc_profile_store_destroy(store);
+    rss_ddc_characterization_destroy(characterization);
+}
+
+static void test_sufficiency_variable_is_not_stable_current(void) {
+    RSSDDCDisplay display = slice2_display();
+    RSSDDCCharacterization *characterization = slice5_assembled(&display, slice5_actionable_pack_dcpdp13());
+    Slice4MockGet mock = {0};
+    RSSDDCProbe *probe = NULL;
+    RSSDDCCharacterizationSufficiencyResult result = {0};
+    RSSDDCCharacterizationValueState value_state = RSS_DDC_CHARACTERIZATION_VALUE_UNRESOLVED;
+    const RSSDDCKnowledgeRoute *current = NULL;
+    for (size_t index = 0; index < RSS_DDC_PROBE_QUICK_CONTROL_COUNT; ++index) {
+        slice4_set_stable(&mock, index, 100, 1);
+    }
+    slice4_set_reply(&mock, 0, 0, RSS_DDC_OK, 0x10, 100, 50);
+    slice4_set_reply(&mock, 0, 1, RSS_DDC_OK, 0x10, 100, 51);
+    probe = slice4_run_quick(&mock, &display);
+    assert(rss_ddc_characterization_collect_quick_probe(characterization, probe) == RSS_DDC_OK);
+    assert(rss_ddc_characterization_quick_diagnostics(characterization)->observations[0].category ==
+           RSS_DDC_PROBE_RESULT_VARIABLE);
+    assert(rss_ddc_characterization_sufficiency(characterization, &result) == RSS_DDC_OK);
+    assert(result.status == RSS_DDC_CHARACTERIZATION_SUFFICIENCY_SUFFICIENT);
+    assert((result.reasons & RSS_DDC_CHARACTERIZATION_REASON_VARIABLE_OBSERVATION) != 0);
+    assert(!result.extended_recommended);
+    assert(rss_ddc_characterization_current_value(characterization, "display.brightness", &value_state,
+                                                  &current) == RSS_DDC_OK);
+    assert(value_state == RSS_DDC_CHARACTERIZATION_VALUE_RESOLVED);
+    assert(current->value.unsigned_value == 50);
+    rss_ddc_probe_destroy(probe);
+    rss_ddc_characterization_destroy(characterization);
+}
+
+static void test_sufficiency_stable_quick_observation(void) {
+    RSSDDCDisplay display = slice2_display();
+    RSSDDCCharacterization *characterization = slice5_assembled(&display, slice5_actionable_pack_dcpdp13());
+    Slice4MockGet mock = {0};
+    RSSDDCProbe *probe = slice5_quick_all_stable(&mock, &display, 42);
+    RSSDDCCharacterizationSufficiencyResult result = {0};
+    RSSDDCCharacterizationValueState value_state = RSS_DDC_CHARACTERIZATION_VALUE_UNRESOLVED;
+    const RSSDDCKnowledgeRoute *current = NULL;
+    assert(rss_ddc_characterization_collect_quick_probe(characterization, probe) == RSS_DDC_OK);
+    assert(rss_ddc_characterization_quick_diagnostics(characterization)->observations[0].category ==
+           RSS_DDC_PROBE_RESULT_STABLE);
+    assert(rss_ddc_characterization_sufficiency(characterization, &result) == RSS_DDC_OK);
+    assert(result.status == RSS_DDC_CHARACTERIZATION_SUFFICIENCY_SUFFICIENT);
+    assert((result.reasons & RSS_DDC_CHARACTERIZATION_REASON_VARIABLE_OBSERVATION) == 0);
+    assert(!result.extended_recommended);
+    assert(rss_ddc_characterization_current_value(characterization, "display.brightness", &value_state,
+                                                  &current) == RSS_DDC_OK);
+    assert(value_state == RSS_DDC_CHARACTERIZATION_VALUE_RESOLVED);
+    assert(current->value.unsigned_value == 42);
+    rss_ddc_probe_destroy(probe);
+    rss_ddc_characterization_destroy(characterization);
+}
+
 int main(void) {
     test_semantic_normalization();
     test_composition_retains_competing_facts();
@@ -993,5 +1248,14 @@ int main(void) {
     test_quick_probe_requires_get_capability();
     test_quick_probe_failure_preserves_prior_knowledge();
     test_quick_probe_overflow_is_explicit();
+    test_sufficiency_quick_success_is_not_enough();
+    test_sufficiency_actionable_profile_without_live_values();
+    test_sufficiency_missing_picture_mode_and_declared_only();
+    test_sufficiency_validated_input_without_quick_0x60();
+    test_sufficiency_vendor_unknown_does_not_block();
+    test_sufficiency_no_get_with_and_without_profile();
+    test_sufficiency_profile_conflict();
+    test_sufficiency_variable_is_not_stable_current();
+    test_sufficiency_stable_quick_observation();
     puts("test_characterize: passed");
 }

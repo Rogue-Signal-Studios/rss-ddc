@@ -12,7 +12,7 @@
  * rss_ddc_characterization_collect_passive (MCCS retrieval), and
  * rss_ddc_characterization_collect_quick (Alien Probe Quick Auto Probe).
  * It does not restore monitor-knowledge/v0.1 JSON, run Extended Probe, or
- * call SET VCP.
+ * call SET VCP. Sufficiency is a pure decision over current evidence.
  */
 
 typedef struct RSSDDCCharacterization RSSDDCCharacterization;
@@ -209,5 +209,38 @@ RSSDDCError rss_ddc_characterization_quick_status(const RSSDDCCharacterization *
  */
 const RSSDDCProbeDiagnostics *rss_ddc_characterization_quick_diagnostics(
     const RSSDDCCharacterization *characterization);
+
+typedef enum {
+    RSS_DDC_CHARACTERIZATION_SUFFICIENCY_SUFFICIENT = 0,
+    RSS_DDC_CHARACTERIZATION_SUFFICIENCY_INSUFFICIENT,
+    RSS_DDC_CHARACTERIZATION_SUFFICIENCY_UNAVAILABLE,
+    RSS_DDC_CHARACTERIZATION_SUFFICIENCY_CONFLICT
+} RSSDDCCharacterizationSufficiency;
+
+enum {
+    RSS_DDC_CHARACTERIZATION_REASON_NONE = 0,
+    RSS_DDC_CHARACTERIZATION_REASON_MISSING_CONTROL = 1u << 0,
+    RSS_DDC_CHARACTERIZATION_REASON_UNRESOLVED_METHOD = 1u << 1,
+    RSS_DDC_CHARACTERIZATION_REASON_CONFLICTING_METHOD = 1u << 2,
+    RSS_DDC_CHARACTERIZATION_REASON_VARIABLE_OBSERVATION = 1u << 3,
+    RSS_DDC_CHARACTERIZATION_REASON_NO_GET_SUPPORT = 1u << 4,
+    RSS_DDC_CHARACTERIZATION_REASON_PROFILE_CONFLICT = 1u << 5,
+    RSS_DDC_CHARACTERIZATION_REASON_PROBE_HELPFUL = 1u << 6
+};
+
+typedef struct {
+    RSSDDCCharacterizationSufficiency status;
+    uint32_t reasons;
+    bool extended_recommended;
+} RSSDDCCharacterizationSufficiencyResult;
+
+/**
+ * Pure DEFAULT-mode sufficiency over current identity, profile, MCCS, Quick
+ * Auto Probe diagnostics, and merged knowledge. Does not run Extended Probe,
+ * GET, or SET. Quick success alone is not sufficiency.
+ */
+RSSDDCError rss_ddc_characterization_sufficiency(
+    const RSSDDCCharacterization *characterization,
+    RSSDDCCharacterizationSufficiencyResult *result);
 
 #endif
