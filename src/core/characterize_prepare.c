@@ -37,3 +37,22 @@ RSSDDCError rss_ddc_characterization_collect_passive(RSSDDCCharacterization *cha
     }
     return rss_ddc_characterization_collect_passive_mccs(characterization, &parsed);
 }
+
+RSSDDCError rss_ddc_characterization_collect_quick(RSSDDCCharacterization *characterization) {
+    const RSSDDCDisplay *display = rss_ddc_characterization_display(characterization);
+    if (characterization == NULL || display == NULL) {
+        return RSS_DDC_ERROR_ARGUMENT;
+    }
+    if (!rss_ddc_characterization_quick_supported(characterization)) {
+        return rss_ddc_characterization_collect_quick_probe_failed(
+            characterization, RSS_DDC_ERROR_UNSUPPORTED_CAPABILITY);
+    }
+    RSSDDCProbe *probe = NULL;
+    RSSDDCError error = rss_ddc_probe_quick_for_display(display->list_index, &probe);
+    if (error != RSS_DDC_OK) {
+        return rss_ddc_characterization_collect_quick_probe_failed(characterization, error);
+    }
+    error = rss_ddc_characterization_collect_quick_probe(characterization, probe);
+    rss_ddc_probe_destroy(probe);
+    return error;
+}

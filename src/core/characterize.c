@@ -18,6 +18,11 @@ struct RSSDDCCharacterization {
     bool mccs_attempted;
     RSSDDCError mccs_status;
     RSSDDCMCCSCapabilities *mccs;
+    bool quick_attempted;
+    bool has_quick_diagnostics;
+    RSSDDCError quick_status;
+    RSSDDCProbeDiagnostics quick_diagnostics;
+    RSSDDCProbeObservation quick_observations[RSS_DDC_PROBE_QUICK_CONTROL_COUNT];
 };
 
 typedef struct {
@@ -56,6 +61,7 @@ RSSDDCCharacterization *rss_ddc_characterization_create(void) {
         return NULL;
     }
     characterization->mccs_status = RSS_DDC_OK;
+    characterization->quick_status = RSS_DDC_OK;
     return characterization;
 }
 
@@ -490,4 +496,127 @@ RSSDDCError rss_ddc_characterization_mccs_status(const RSSDDCCharacterization *c
 const RSSDDCMCCSCapabilities *rss_ddc_characterization_mccs(
     const RSSDDCCharacterization *characterization) {
     return characterization == NULL ? NULL : characterization->mccs;
+}
+
+static bool get_vcp_supported(const RSSDDCCharacterization *characterization) {
+    return characterization != NULL &&
+           (characterization->provider_capabilities & RSS_DDC_CAP_GET_VCP) != 0;
+}
+
+static void copy_quick_diagnostics(RSSDDCCharacterization *characterization,
+                                   const RSSDDCProbeDiagnostics *diagnostics) {
+    characterization->quick_diagnostics = *diagnostics;
+    size_t count = diagnostics->observation_count;
+    if (count > RSS_DDC_PROBE_QUICK_CONTROL_COUNT) {
+        count = RSS_DDC_PROBE_QUICK_CONTROL_COUNT;
+    }
+    if (diagnostics->observations != NULL && count > 0) {
+        memcpy(characterization->quick_observations, diagnostics->observations,
+               count * sizeof(*diagnostics->observations));
+    } else {
+        memset(characterization->quick_observations, 0, sizeof(characterization->quick_observations));
+        count = 0;
+    }
+    characterization->quick_diagnostics.observations = characterization->quick_observations;
+    characterization->quick_diagnostics.observation_count = count;
+    characterization->has_quick_diagnostics = true;
+}
+
+static RSSDDCError merge_quick_observed_knowledge(RSSDDCCharacterization *characterization,
+                                                 const RSSDDCMonitorKnowledge *probe_knowledge) {
+    RSSDDCMonitorKnowledge *observed = rss_ddc_monitor_knowledge_create();
+    if (observed == NULL) {
+        return RSS_DDC_ERROR_SYSTEM;
+    }
+    for (size_t index = 0; index < rss_ddc_monitor_knowledge_route_count(probe_knowledge); ++index) {
+        const RSSDDCKnowledgeRoute *route = rss_ddc_monitor_knowledge_route_at(probe_knowledge, index);
+        if (route == NULL) {
+            rss_ddc_monitor_knowledge_destroy(observed);
+            return RSS_DDC_ERROR_ARGUMENT;
+        }
+        if (route->provenance.fact_kind != RSS_DDC_KNOWLEDGE_FACT_OBSERVED) {
+            continue;
+        }
+        RSSDDCError error = rss_ddc_monitor_knowledge_add_route(observed, route);
+        if (error != RSS_DDC_OK) {
+            rss_ddc_monitor_knowledge_destroy(observed);
+            return error;
+        }
+    }
+    RSSDDCError error = rss_ddc_characterization_add_knowledge(characterization, observed);
+    rss_ddc_monitor_knowledge_destroy(observed);
+    return error;
+}
+
+RSSDDCError rss_ddc_characterization_collect_quick_probe_failed(
+    RSSDDCCharacterization *characterization, RSSDDCError status) {
+    if (characterization == NULL) {
+        return RSS_DDC_ERROR_ARGUMENT;
+    }
+    if (!get_vcp_supported(characterization)) {
+        characterization->quick_attempted = false;
+        characterization->quick_status = RSS_DDC_ERROR_UNSUPPORTED_CAPABILITY;
+        return RSS_DDC_OK;
+    }
+    characterization->quick_attempted = true;
+    characterization->quick_status = status == RSS_DDC_OK ? RSS_DDC_ERROR_READ : status;
+    return RSS_DDC_OK;
+}
+
+RSSDDCError rss_ddc_characterization_collect_quick_probe(RSSDDCCharacterization *characterization,
+                                                         const RSSDDCProbe *probe) {
+    if (characterization == NULL || characterization->knowledge == NULL) {
+        return RSS_DDC_ERROR_ARGUMENT;
+    }
+    if (!get_vcp_supported(characterization)) {
+        return rss_ddc_characterization_collect_quick_probe_failed(
+            characterization, RSS_DDC_ERROR_UNSUPPORTED_CAPABILITY);
+    }
+    if (probe == NULL) {
+        return RSS_DDC_ERROR_ARGUMENT;
+    }
+
+    RSSDDCProbeDiagnostics diagnostics = {0};
+    RSSDDCError error = rss_ddc_probe_diagnostics(probe, &diagnostics);
+    if (error != RSS_DDC_OK) {
+        return error;
+    }
+    copy_quick_diagnostics(characterization, &diagnostics);
+
+    const RSSDDCMonitorKnowledge *probe_knowledge = NULL;
+    error = rss_ddc_probe_knowledge(probe, &probe_knowledge);
+    if (error == RSS_DDC_ERROR_NOT_FOUND) {
+        characterization->quick_attempted = true;
+        characterization->quick_status = RSS_DDC_OK;
+        return RSS_DDC_OK;
+    }
+    if (error != RSS_DDC_OK) {
+        characterization->quick_attempted = true;
+        characterization->quick_status = error;
+        return error;
+    }
+
+    error = merge_quick_observed_knowledge(characterization, probe_knowledge);
+    characterization->quick_attempted = true;
+    characterization->quick_status = error;
+    return error;
+}
+
+bool rss_ddc_characterization_quick_supported(const RSSDDCCharacterization *characterization) {
+    return get_vcp_supported(characterization);
+}
+
+bool rss_ddc_characterization_quick_attempted(const RSSDDCCharacterization *characterization) {
+    return characterization != NULL && characterization->quick_attempted;
+}
+
+RSSDDCError rss_ddc_characterization_quick_status(const RSSDDCCharacterization *characterization) {
+    return characterization == NULL ? RSS_DDC_ERROR_ARGUMENT : characterization->quick_status;
+}
+
+const RSSDDCProbeDiagnostics *rss_ddc_characterization_quick_diagnostics(
+    const RSSDDCCharacterization *characterization) {
+    return characterization != NULL && characterization->has_quick_diagnostics
+               ? &characterization->quick_diagnostics
+               : NULL;
 }

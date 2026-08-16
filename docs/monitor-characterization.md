@@ -58,7 +58,7 @@ native C representation  ↔  deterministic monitor-knowledge/v0.1 JSON
 
 | Layer | What it is | Status on this branch |
 | --- | --- | --- |
-| Characterization | Process / orchestrator (historical Alien Probe Quick+Extended subset) | Slice 3 passive MCCS DECLARED evidence implemented internally; Quick/Extended Probe deferred |
+| Characterization | Process / orchestrator combining identity, profile, passive MCCS, and Alien Probe™ Quick Auto Probe | Slice 4 Quick Auto Probe OBSERVED evidence implemented internally; Extended Probe, Guided Discovery, and Experimental Validation deferred |
 | `monitor-knowledge/v0.1` | Canonical durable document: identity, capabilities, methods, values, input routes, relationships, evidence | Implemented historically (`38cf0b1`); **not present** on current main; serializer deferred |
 | Current `RSSDDCMonitorKnowledge` | Reconstructed subset: copied `RSSDDCKnowledgeRoute` facts, max 128 | Implemented (`src/core/monitor_knowledge.c`) |
 | `RSSDDCDisplay` / `RSSDDCEDIDInfo` / `RSSDDCProfileIdentity` | Identity and connection evidence (historically also inside the v0.1 document) | Implemented beside knowledge |
@@ -1181,14 +1181,69 @@ failure → OK, status stored, identity/profile preserved, no fabricated facts.
 Empty feature list → OK, no DECLARED routes. Merge overflow →
 `RSS_DDC_ERROR_PROFILE_CONFLICT`, knowledge unchanged.
 
-**Slice 4 boundary.** Stop before Quick Probe / Get VCP observation.
+**Slice 4 boundary.** Stop before Alien Probe™ Quick Auto Probe / Get VCP
+observation. Slice 4 is a later explicit stage (`collect_quick`).
 
-### Slice 4 — Quick Probe → merge/resolution
+### Slice 4 — Alien Probe™ Quick Auto Probe → OBSERVED facts
 
-- **Change:** interpret RESEARCH-tagged probe facts as production `stable_get`
-  observations (G7) without changing probe enums yet
-- **Accept:** profile facts survive; current value from OBSERVED, not from
-  preferred PROFILE method (G3); no SET callbacks
+- **Files:** `characterize.c`, `characterize_prepare.c`, `tests/test_characterize.c`,
+  `Makefile`
+- **Reuse:** `rss_ddc_probe_create` / `rss_ddc_probe_quick` /
+  `rss_ddc_probe_quick_for_display`, `rss_ddc_probe_knowledge`,
+  `rss_ddc_probe_diagnostics`, Slice 1 `add_knowledge` / `current_value` /
+  existing resolver
+- **Hardware:** none in tests; tests drive the existing Quick Auto Probe with a
+  mock GET transport. `collect_quick` is the library-only platform wrapper
+- **Accept:** PROFILE facts survive; current value from OBSERVED, not from
+  preferred PROFILE method; no SET callbacks; no Extended Probe
+
+#### Slice 4 implementation (this branch)
+
+This stage ingests **existing** Alien Probe™ Quick Auto Probe results. It does
+not add a parallel Quick Probe engine, conversion schema, or GET framing.
+
+**Stage.** Tests call `rss_ddc_characterization_collect_quick_probe` after
+`rss_ddc_probe_quick`. The platform wrapper
+`rss_ddc_characterization_collect_quick` calls
+`rss_ddc_probe_quick_for_display` then ingest. Gate is
+`RSS_DDC_CAP_GET_VCP`. No SET, verify, or Extended Probe.
+
+**Quick Auto Probe VCPs (unchanged).** `0x10 display.brightness`,
+`0x12 display.contrast`, `0x14 display.color_preset`,
+`0x16`/`0x18`/`0x1a display.rgb.*`. Quick Auto Probe does **not** read
+`0x15 display.picture_mode` or `0x60 inputs.switching`; those remain
+DECLARED/PROFILE-only unless a later stage observes them.
+
+**OBSERVED merge.** Characterization copies probe diagnostics into owned
+storage (`observations` borrowed until the next Quick collect or destroy) and
+merges only `FACT_OBSERVED` routes from `rss_ddc_probe_knowledge` through
+`add_knowledge` (semantic IDs normalized). Probe DECLARED routes from the
+probe's own MCCS load are not re-imported here; Slice 3 remains the DECLARED
+owner. RESEARCH `source` tagging on probe facts is reconstruction baggage:
+within characterization they are production live GET evidence.
+
+**Method vs current value.** Resolver still prefers a validated PROFILE method
+when present. Slice 1 current-value selection uses OBSERVED UNSIGNED/STRING
+only. DECLARED UNKNOWN and PROFILE UNKNOWN never become current. A successful
+GET does not set `write_authorized`.
+
+**Variable / current > max.** Probe keeps the first protocol-valid GET as the
+single OBSERVED route and marks diagnostics VARIABLE when the repeat differs.
+`current > maximum` is stored unchanged (`current_exceeds_maximum`).
+Characterization does not average, pick the second read, or clamp.
+
+**Unknown VCPs.** `vendor.unknown.vcp.XX` remains the probe convention. Quick
+Auto Probe's six codes are all known; unknown-VCP OBSERVED facts are an
+Extended Probe concern, not invented here.
+
+**Degraded behavior.** No GET cap → OK, unsupported, no OBSERVED facts. Probe
+or transport failure → OK (or recorded status), PROFILE/DECLARED preserved.
+Protocol-reported / malformed / transport / semantic-mismatch reads stay in
+diagnostics only. Merge overflow → `RSS_DDC_ERROR_PROFILE_CONFLICT`, prior
+knowledge unchanged.
+
+**Slice 5 boundary.** Stop before sufficiency policy, Extended Probe, SET, JSON,
+and public `rss_ddc_characterize_display`.
 
 ### Slice 5 — Sufficiency decision
 

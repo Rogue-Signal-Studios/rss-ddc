@@ -8,9 +8,11 @@
 
 /*
  * Characterization orchestration. Internal, and hardware-free except
- * rss_ddc_characterization_prepare (display/EDID) and
- * rss_ddc_characterization_collect_passive (MCCS retrieval). It does not
- * restore monitor-knowledge/v0.1 JSON, probe, or call GET/SET VCP.
+ * rss_ddc_characterization_prepare (display/EDID),
+ * rss_ddc_characterization_collect_passive (MCCS retrieval), and
+ * rss_ddc_characterization_collect_quick (Alien Probe Quick Auto Probe).
+ * It does not restore monitor-knowledge/v0.1 JSON, run Extended Probe, or
+ * call SET VCP.
  */
 
 typedef struct RSSDDCCharacterization RSSDDCCharacterization;
@@ -168,6 +170,44 @@ RSSDDCError rss_ddc_characterization_mccs_status(const RSSDDCCharacterization *c
 
 /** Borrowed parsed MCCS model, or NULL when none was successfully applied. */
 const RSSDDCMCCSCapabilities *rss_ddc_characterization_mccs(
+    const RSSDDCCharacterization *characterization);
+
+/**
+ * Ingests an already-run Alien Probe Quick Auto Probe (`rss_ddc_probe_quick`).
+ * Copies diagnostics and merges probe knowledge through add_knowledge.
+ * RESEARCH-tagged OBSERVED facts are treated as production live GET evidence.
+ * If GET VCP is unsupported, returns OK with no OBSERVED facts.
+ */
+RSSDDCError rss_ddc_characterization_collect_quick_probe(RSSDDCCharacterization *characterization,
+                                                         const RSSDDCProbe *probe);
+
+/**
+ * Records a non-fatal Quick Auto Probe stage failure without adding OBSERVED
+ * facts or clearing identity/profile/DECLARED knowledge.
+ */
+RSSDDCError rss_ddc_characterization_collect_quick_probe_failed(
+    RSSDDCCharacterization *characterization, RSSDDCError status);
+
+/**
+ * Platform Slice 4 entry: if GET VCP is unsupported, records that and returns
+ * OK. Otherwise runs rss_ddc_probe_quick_for_display and
+ * collect_quick_probe. Probe failure is non-fatal for prior characterization
+ * state. Does not SET, verify, or run Extended Probe.
+ */
+RSSDDCError rss_ddc_characterization_collect_quick(RSSDDCCharacterization *characterization);
+
+/** True when assembled provider bits include RSS_DDC_CAP_GET_VCP. */
+bool rss_ddc_characterization_quick_supported(const RSSDDCCharacterization *characterization);
+
+bool rss_ddc_characterization_quick_attempted(const RSSDDCCharacterization *characterization);
+
+RSSDDCError rss_ddc_characterization_quick_status(const RSSDDCCharacterization *characterization);
+
+/**
+ * Borrowed Quick Auto Probe diagnostics; observation pointers are valid until
+ * the next Quick collect or destroy. NULL before a Quick stage runs.
+ */
+const RSSDDCProbeDiagnostics *rss_ddc_characterization_quick_diagnostics(
     const RSSDDCCharacterization *characterization);
 
 #endif

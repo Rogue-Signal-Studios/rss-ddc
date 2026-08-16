@@ -131,7 +131,7 @@ $(BUILD)/test_profile_store: tests/test_profile_store.c src/core/profile_store.c
 $(BUILD)/test_monitor_knowledge: tests/test_monitor_knowledge.c src/core/monitor_knowledge.c src/core/profile_store.c src/core/provider.c | $(BUILD)
 	$(CC) $(CFLAGS) -pthread $^ -o $@
 
-$(BUILD)/test_characterize: tests/test_characterize.c src/core/characterize.c src/core/monitor_knowledge.c src/core/profile_store.c src/core/provider.c src/core/mccs_capabilities.c | $(BUILD)
+$(BUILD)/test_characterize: tests/test_characterize.c src/core/characterize.c src/core/monitor_knowledge.c src/core/profile_store.c src/core/provider.c src/core/mccs_capabilities.c src/core/probe.c | $(BUILD)
 	$(CC) $(CFLAGS) -pthread $^ -o $@
 
 $(BUILD)/test_probe: tests/test_probe.c src/core/probe.c src/core/monitor_knowledge.c src/core/profile_store.c src/core/provider.c src/core/mccs_capabilities.c | $(BUILD)
