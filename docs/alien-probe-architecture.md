@@ -225,10 +225,11 @@ writes. A globally PARTIAL profile may still authorize one semantic control
 not authorized, the product may open onboarding. Inspect does not launch
 onboarding.
 
-**ONBOARDING** — step-driven automatic characterization.
+**ONBOARDING** — step-driven automatic characterization, optionally with a
+semantic goal.
 
 ```text
-rss_ddc_characterization_begin(...)
+rss_ddc_characterization_begin(...)  // optional semantic_goal, e.g. inputs.switching
     →
 rss_ddc_characterization_next_action(...)
     →
@@ -236,25 +237,47 @@ rss_ddc_characterization_run_next(...)
     →
 rss_ddc_characterization_next_interaction(...)
     →
-repeat until COMPLETE
+repeat until COMPLETE, or WAIT_FOR_INTERACTION then submit
 ```
 
 rss-ddc chooses PREPARE, RUN_PASSIVE, RUN_QUICK, RUN_EXTENDED, and
 AUGMENT_PRIOR. Callers do not choose Quick vs Extended.
 `rss_ddc_characterize_display` remains the blocking convenience wrapper
-(begin, then run_next until COMPLETE). COMPLETE structured matches still
-short-circuit PASSIVE/DEFAULT. DEEP still rediscovers.
-`rss_ddc_characterization_next_interaction` currently returns NONE after
-every implemented automatic path. WAIT_FOR_INTERACTION is reserved and is
-not produced yet.
+(begin, then run_next until COMPLETE or WAIT_FOR_INTERACTION). COMPLETE
+structured matches still short-circuit PASSIVE/DEFAULT. DEEP still rediscovers.
+A semantic goal does not change Quick/Extended evidence rules.
 
-**FUTURE** — Guided Discovery and experimental validation will use the same
-`RSSDDCCharacterization` object and the interaction query/submit surface.
-They are not implemented. Current `next_interaction` returning NONE does not
-mean Guided Discovery ran. Do not treat inspect or run_next as Guided
-Discovery or as candidate SET validation. Interaction generation, operator
-result consumption, safe validation, evidence promotion, and profile
-generation from unknown candidates remain unimplemented.
+**GUIDED DISCOVERY v1** — read-only operator correlation for
+`inputs.switching` only.
+
+After automatic stages, if the goal is `inputs.switching` and durable
+effective knowledge does not already write-authorize that semantic, and a
+read-only observed current value exists, rss-ddc queues:
+
+```text
+OPERATOR_SELECTION
+semantic_id = inputs.switching
+risk = OBSERVE
+may_set = false
+```
+
+Options come only from already-known profile enum ids, never from invented
+HDMI/DP names. Unknown monitors typically have zero options; the operator
+result `option_id` is a caller-supplied physical-input identity.
+
+Inspect never queues Guided Discovery. Known authorized `inputs.switching`
+skips Guided. Conflict is fail-closed. No SET. Operator evidence is INFERRED /
+CORRELATED or CANDIDATE, never HARDWARE_VALIDATED, never writable, never
+write_authorized. It is recorded on effective knowledge only, not discovery
+JSON.
+
+Before/after OSD fingerprint snapshots are not part of v1; the operator
+identifies the currently selected physical input against already-discovered
+GET evidence.
+
+**FUTURE** — additional Guided semantics, candidate SET, validation approval
+execution, evidence promotion to HARDWARE_VALIDATED, and profile generation
+from unknown candidates remain unimplemented.
 
 ## Invariants
 

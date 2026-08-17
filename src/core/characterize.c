@@ -43,6 +43,7 @@ struct RSSDDCCharacterization {
     RSSDDCCharacterizationOps ops;
     bool has_ops;
     RSSDDCCharacterizationInteraction pending_interaction;
+    char semantic_goal[RSS_DDC_TEXT_MAX];
 };
 
 typedef struct {
@@ -1457,6 +1458,230 @@ RSSDDCError rss_ddc_characterization_interaction(const RSSDDCCharacterization *c
     return RSS_DDC_OK;
 }
 
+static bool bounded_cstring(const char *text, size_t capacity) {
+    return text != NULL && text[0] != '\0' && memchr(text, '\0', capacity) != NULL;
+}
+
+static RSSDDCError store_semantic_goal(RSSDDCCharacterization *characterization, const char *semantic_id) {
+    if (characterization == NULL) {
+        return RSS_DDC_ERROR_ARGUMENT;
+    }
+    if (semantic_id == NULL || semantic_id[0] == '\0') {
+        characterization->semantic_goal[0] = '\0';
+        return RSS_DDC_OK;
+    }
+    return rss_ddc_characterization_normalize_semantic_id(semantic_id, characterization->semantic_goal,
+                                                          sizeof(characterization->semantic_goal));
+}
+
+const char *rss_ddc_characterization_semantic_goal(const RSSDDCCharacterization *characterization) {
+    if (characterization == NULL || characterization->semantic_goal[0] == '\0') {
+        return NULL;
+    }
+    return characterization->semantic_goal;
+}
+
+RSSDDCError rss_ddc_characterization_set_semantic_goal(RSSDDCCharacterization *characterization,
+                                                       const char *semantic_id) {
+    if (characterization == NULL ||
+        characterization->stage != RSS_DDC_CHARACTERIZATION_STAGE_NEW) {
+        return RSS_DDC_ERROR_ARGUMENT;
+    }
+    return store_semantic_goal(characterization, semantic_id);
+}
+
+static bool semantic_goal_is_inputs_switching(const RSSDDCCharacterization *characterization) {
+    return characterization != NULL &&
+           strcmp(characterization->semantic_goal, "inputs.switching") == 0;
+}
+
+static bool observed_input_current_exists(const RSSDDCCharacterization *characterization) {
+    const RSSDDCMonitorKnowledge *knowledge = rss_ddc_characterization_knowledge(characterization);
+    size_t index = 0;
+    if (knowledge == NULL) {
+        return false;
+    }
+    for (index = 0; index < rss_ddc_monitor_knowledge_route_count(knowledge); ++index) {
+        const RSSDDCKnowledgeRoute *route = rss_ddc_monitor_knowledge_route_at(knowledge, index);
+        if (route != NULL && strcmp(route->semantic_id, "inputs.switching") == 0 &&
+            observed_current(route)) {
+            return true;
+        }
+    }
+    return false;
+}
+
+static const RSSDDCKnowledgeRoute *preferred_observed_input_route(
+    const RSSDDCCharacterization *characterization) {
+    const RSSDDCMonitorKnowledge *knowledge = rss_ddc_characterization_knowledge(characterization);
+    const RSSDDCKnowledgeRoute *fallback = NULL;
+    size_t index = 0;
+    if (knowledge == NULL) {
+        return NULL;
+    }
+    for (index = 0; index < rss_ddc_monitor_knowledge_route_count(knowledge); ++index) {
+        const RSSDDCKnowledgeRoute *route = rss_ddc_monitor_knowledge_route_at(knowledge, index);
+        if (route == NULL || strcmp(route->semantic_id, "inputs.switching") != 0 ||
+            !observed_current(route)) {
+            continue;
+        }
+        if (strcmp(route->provenance.evidence_id, "stable-get") == 0) {
+            return route;
+        }
+        if (fallback == NULL) {
+            fallback = route;
+        }
+    }
+    return fallback;
+}
+
+static bool goal_write_authorized(const RSSDDCCharacterization *characterization) {
+    RSSDDCMonitorKnowledgeResolution *resolution = NULL;
+    RSSDDCError error = RSS_DDC_OK;
+    bool authorized = false;
+    if (!semantic_goal_is_inputs_switching(characterization)) {
+        return false;
+    }
+    error = rss_ddc_characterization_resolve(characterization, "inputs.switching", &resolution);
+    if (error != RSS_DDC_OK) {
+        return false;
+    }
+    authorized = !rss_ddc_monitor_knowledge_resolution_has_conflict(resolution) &&
+                 rss_ddc_monitor_knowledge_resolution_write_authorized(resolution);
+    rss_ddc_monitor_knowledge_resolution_destroy(resolution);
+    return authorized;
+}
+
+static void fill_guided_input_options(const RSSDDCCharacterization *characterization,
+                                      RSSDDCCharacterizationInteraction *interaction) {
+    const RSSDDCEffectiveProfile *effective =
+        rss_ddc_characterization_effective_profile(characterization);
+    size_t control_index = 0;
+    if (effective == NULL || interaction == NULL) {
+        return;
+    }
+    for (control_index = 0; control_index < rss_ddc_effective_profile_control_count(effective);
+         ++control_index) {
+        RSSDDCProfileControl control = {0};
+        size_t enum_index = 0;
+        if (rss_ddc_effective_profile_control(effective, control_index, &control) != RSS_DDC_OK ||
+            control.id != RSS_DDC_PROFILE_CONTROL_INPUT) {
+            continue;
+        }
+        for (enum_index = 0; enum_index < control.enum_value_count &&
+                             interaction->option_count < RSS_DDC_CHARACTERIZATION_INTERACTION_MAX_OPTIONS;
+             ++enum_index) {
+            RSSDDCProfileEnumValue value = {0};
+            if (rss_ddc_profile_control_enum_value(&control, enum_index, &value) != RSS_DDC_OK ||
+                value.id[0] == '\0') {
+                continue;
+            }
+            if (!copy_terminated(value.id, interaction->options[interaction->option_count].id,
+                                 sizeof(interaction->options[interaction->option_count].id))) {
+                continue;
+            }
+            interaction->options[interaction->option_count].raw_value = value.raw_value;
+            interaction->options[interaction->option_count].has_raw_value = true;
+            ++interaction->option_count;
+        }
+        return;
+    }
+}
+
+static bool should_queue_guided_input(const RSSDDCCharacterization *characterization) {
+    if (!semantic_goal_is_inputs_switching(characterization)) {
+        return false;
+    }
+    if (rss_ddc_characterization_structured_match(characterization) ==
+        RSS_DDC_CHARACTERIZATION_STRUCTURED_CONFLICT) {
+        return false;
+    }
+    if (goal_write_authorized(characterization)) {
+        return false;
+    }
+    return observed_input_current_exists(characterization);
+}
+
+static RSSDDCError queue_guided_input_selection(RSSDDCCharacterization *characterization) {
+    RSSDDCCharacterizationInteraction interaction = {0};
+    interaction.kind = RSS_DDC_CHARACTERIZATION_INTERACTION_OPERATOR_SELECTION;
+    if (!copy_terminated("inputs.switching", interaction.semantic_id, sizeof(interaction.semantic_id))) {
+        return RSS_DDC_ERROR_ARGUMENT;
+    }
+    interaction.risk = RSS_DDC_CHARACTERIZATION_INTERACTION_RISK_OBSERVE;
+    interaction.may_set = false;
+    fill_guided_input_options(characterization, &interaction);
+    characterization->pending_interaction = interaction;
+    characterization->stage = RSS_DDC_CHARACTERIZATION_STAGE_INTERACTION;
+    return RSS_DDC_OK;
+}
+
+static RSSDDCError maybe_queue_guided_discovery(RSSDDCCharacterization *characterization) {
+    if (!should_queue_guided_input(characterization)) {
+        characterization->stage = RSS_DDC_CHARACTERIZATION_STAGE_COMPLETE;
+        return RSS_DDC_OK;
+    }
+    return queue_guided_input_selection(characterization);
+}
+
+static RSSDDCError record_guided_input_evidence(RSSDDCCharacterization *characterization,
+                                                const char *option_id) {
+    RSSDDCKnowledgeRoute route = {0};
+    RSSDDCMonitorKnowledge *guided = NULL;
+    RSSDDCMonitorKnowledge *merged = NULL;
+    const RSSDDCKnowledgeRoute *observed = preferred_observed_input_route(characterization);
+    RSSDDCError error = RSS_DDC_OK;
+    const bool stable = observed != NULL && strcmp(observed->provenance.evidence_id, "stable-get") == 0;
+
+    if (!copy_terminated("inputs.switching", route.semantic_id, sizeof(route.semantic_id)) ||
+        !copy_terminated("guided-operator-current", route.route_id, sizeof(route.route_id)) ||
+        !copy_terminated("guided-discovery", route.provenance.source_id,
+                         sizeof(route.provenance.source_id)) ||
+        !copy_terminated("operator-current-input", route.provenance.evidence_id,
+                         sizeof(route.provenance.evidence_id)) ||
+        !copy_terminated(option_id, route.value.string_value, sizeof(route.value.string_value)) ||
+        !copy_terminated("operator-current-correlation", route.command_semantics,
+                         sizeof(route.command_semantics))) {
+        return RSS_DDC_ERROR_ARGUMENT;
+    }
+    route.kind = observed != NULL ? observed->kind : RSS_DDC_KNOWLEDGE_ROUTE_STANDARD_VCP;
+    route.address = observed != NULL ? observed->address : 0;
+    if (observed != NULL && observed->transport_family[0] != '\0') {
+        (void)copy_terminated(observed->transport_family, route.transport_family,
+                              sizeof(route.transport_family));
+    } else {
+        (void)copy_terminated("mccs-vcp", route.transport_family, sizeof(route.transport_family));
+    }
+    route.readable = true;
+    route.writable = false;
+    route.write_authorized = false;
+    route.value.state = RSS_DDC_KNOWLEDGE_VALUE_STRING;
+    route.provenance.source = RSS_DDC_PROFILE_SOURCE_RESEARCH;
+    route.provenance.confidence = stable ? RSS_DDC_PROFILE_CONFIDENCE_CORRELATED
+                                         : RSS_DDC_PROFILE_CONFIDENCE_CANDIDATE;
+    route.provenance.fact_kind = RSS_DDC_KNOWLEDGE_FACT_INFERRED;
+
+    guided = rss_ddc_monitor_knowledge_create();
+    if (guided == NULL) {
+        return RSS_DDC_ERROR_SYSTEM;
+    }
+    error = rss_ddc_monitor_knowledge_add_route(guided, &route);
+    if (error != RSS_DDC_OK) {
+        rss_ddc_monitor_knowledge_destroy(guided);
+        return error;
+    }
+    error = rss_ddc_monitor_knowledge_merge(characterization->knowledge, guided, &merged);
+    rss_ddc_monitor_knowledge_destroy(guided);
+    if (error != RSS_DDC_OK) {
+        return error;
+    }
+    if (characterization->knowledge != characterization->discovered) {
+        rss_ddc_monitor_knowledge_destroy(characterization->knowledge);
+    }
+    characterization->knowledge = merged;
+    return RSS_DDC_OK;
+}
+
 RSSDDCError rss_ddc_characterization_submit_interaction(
     RSSDDCCharacterization *characterization, const RSSDDCCharacterizationInteractionResult *result) {
     if (characterization == NULL || result == NULL ||
@@ -1469,7 +1694,37 @@ RSSDDCError rss_ddc_characterization_submit_interaction(
     if (result->kind != characterization->pending_interaction.kind) {
         return RSS_DDC_ERROR_ARGUMENT;
     }
-    return RSS_DDC_ERROR_NOT_FOUND;
+    if (!bounded_cstring(result->option_id, sizeof(result->option_id))) {
+        return RSS_DDC_ERROR_ARGUMENT;
+    }
+    if (characterization->pending_interaction.semantic_id[0] != '\0' &&
+        characterization->semantic_goal[0] != '\0' &&
+        strcmp(characterization->pending_interaction.semantic_id, characterization->semantic_goal) !=
+            0) {
+        return RSS_DDC_ERROR_ARGUMENT;
+    }
+    if (characterization->pending_interaction.option_count > 0) {
+        bool matched = false;
+        for (size_t index = 0; index < characterization->pending_interaction.option_count; ++index) {
+            if (strcmp(characterization->pending_interaction.options[index].id, result->option_id) ==
+                0) {
+                matched = true;
+                break;
+            }
+        }
+        if (!matched) {
+            return RSS_DDC_ERROR_ARGUMENT;
+        }
+    }
+    {
+        RSSDDCError error = record_guided_input_evidence(characterization, result->option_id);
+        if (error != RSS_DDC_OK) {
+            return error;
+        }
+    }
+    characterization->pending_interaction = (RSSDDCCharacterizationInteraction){0};
+    characterization->stage = RSS_DDC_CHARACTERIZATION_STAGE_COMPLETE;
+    return RSS_DDC_OK;
 }
 
 RSSDDCError rss_ddc_characterization_begin_with_ops(uint32_t list_index,
@@ -1501,6 +1756,13 @@ RSSDDCError rss_ddc_characterization_begin_with_ops(uint32_t list_index,
     characterization->ops = *ops;
     characterization->has_ops = true;
     characterization->stage = RSS_DDC_CHARACTERIZATION_STAGE_NEW;
+    {
+        RSSDDCError goal_error = store_semantic_goal(characterization, resolved.semantic_goal);
+        if (goal_error != RSS_DDC_OK) {
+            rss_ddc_characterization_destroy(characterization);
+            return goal_error;
+        }
+    }
     *out = characterization;
     return RSS_DDC_OK;
 }
@@ -1559,8 +1821,7 @@ RSSDDCError rss_ddc_characterization_run_next(RSSDDCCharacterization *characteri
         characterization->stage = RSS_DDC_CHARACTERIZATION_STAGE_BLOCKED;
         return error;
     }
-    characterization->stage = RSS_DDC_CHARACTERIZATION_STAGE_COMPLETE;
-    return RSS_DDC_OK;
+    return maybe_queue_guided_discovery(characterization);
 }
 
 RSSDDCError rss_ddc_characterization_inspect_with_ops(uint32_t list_index,

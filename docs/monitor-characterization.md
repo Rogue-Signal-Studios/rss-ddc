@@ -1640,19 +1640,20 @@ already authorized. They must not call DEFAULT characterize merely to check
 readiness.
 
 **ONBOARDING.** `rss_ddc_characterization_begin` creates STAGE_NEW state.
-`rss_ddc_characterization_next_action` returns PREPARE, RUN_PASSIVE,
-RUN_QUICK, RUN_EXTENDED, AUGMENT_PRIOR, or COMPLETE. WAIT_FOR_INTERACTION
-exists on the action enum but is not returned by current automatic paths.
-The caller only invokes `rss_ddc_characterization_run_next`. rss-ddc still
-decides COMPLETE short-circuit, PARTIAL discovery, DEEP rediscovery, and
-Extended recommendation. `rss_ddc_characterization_next_interaction`
-returns NONE.
+Optional `semantic_goal` (for example `inputs.switching`) is stored on the
+same object. `rss_ddc_characterization_next_action` returns PREPARE,
+RUN_PASSIVE, RUN_QUICK, RUN_EXTENDED, AUGMENT_PRIOR, COMPLETE, or
+WAIT_FOR_INTERACTION. A semantic goal does not change Quick/Extended truth.
+Inspect stores the goal but never queues Guided Discovery.
 
-**FUTURE.** Guided Discovery and experimental validation remain unimplemented.
-They must attach to this same `RSSDDCCharacterization` object later via the
-interaction surface (`next_interaction`, interaction copy, submit shell).
-This slice does not generate operator prompts, consume operator results, or
-perform candidate SET.
+**GUIDED v1.** After automatic stages, goal `inputs.switching` queues
+OPERATOR_SELECTION (risk OBSERVE, may_set false) only when durable knowledge
+does not already write-authorize that semantic and a read-only observed
+current value exists. Submit records INFERRED operator evidence on effective
+knowledge only. No SET, no HARDWARE_VALIDATED, no write_authorized.
+
+**FUTURE.** Candidate SET, validation approval execution, and promotion to
+HARDWARE_VALIDATED remain unimplemented.
 
 ### Slice 13 — Headless interaction surface
 
@@ -1668,21 +1669,36 @@ perform candidate SET.
   no profile/evidence authority change; no monitor-specific interaction
   generation
 
-**CURRENTLY IMPLEMENTED.** Automatic characterization, readiness inspection,
-and a machine-readable interaction query surface.
+### Slice 14 — Guided input discovery foundation
 
-**NOT YET IMPLEMENTED.** Guided Discovery interaction generation, operator
-result workflow beyond the fail-closed submit shell, safe validation,
-evidence promotion, and profile generation from unknown candidates.
+- **Files:** `include/rss_ddc.h`, `src/core/characterize.c`,
+  `src/core/characterize.h`, `tests/test_characterize.c`, this document,
+  [Canonical Alien Probe™ architecture](alien-probe-architecture.md)
+- **Reuse:** semantic goal on existing options/characterization; interaction
+  ABI; resolve/write_authorized; observed GET routes
+- **Hardware:** read-only inspect/goal smoke only
+- **Accept:** no-goal behavior unchanged; known authorized inputs.switching
+  skips Guided; unknown with observed current queues OPERATOR_SELECTION;
+  submit records non-writable inferred evidence; no SET; no monitor-specific
+  branches; inspect never Guided
+
+**CURRENTLY IMPLEMENTED.** Automatic characterization, readiness inspection,
+interaction query/submit, semantic goal, Guided v1 read-only correlation for
+`inputs.switching`.
+
+**NOT YET IMPLEMENTED.** Candidate SET, validation execution, HARDWARE_VALIDATED
+promotion, profile generation from unknown candidates, before/after OSD
+fingerprints, Guided for other semantics.
 
 ## 20. Non-goals
 
 - No competing characterization schema and no `CharacterizationResult` JSON
   type
-- Guided Discovery and Experimental Validation remain deferred
+- Guided Discovery beyond read-only `inputs.switching` operator correlation
+- Experimental Validation / candidate SET remain deferred
 - No automatic unsafe writes; characterization is read-only toward the monitor
 - No mandatory Extended Probe
-- No Guided Discovery or Experimental Validation in production characterization
+- No Guided Discovery SET or Experimental Validation in production characterization
 - No research-lab behavior in production characterization
 - No consumer-specific capability interpretation
 - No automatic promotion of arbitrary observations into validated profiles

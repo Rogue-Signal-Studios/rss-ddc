@@ -797,8 +797,9 @@ typedef enum {
 } RSSDDCCharacterizationAction;
 
 /**
- * Generic interaction categories. Specific Guided Discovery prompts are not
- * generated yet; current automatic/inspect flows report NONE.
+ * Generic interaction categories. Guided Discovery v1 may queue
+ * OPERATOR_SELECTION for semantic goal inputs.switching after automatic
+ * stages. VALIDATION_APPROVAL is reserved and is not generated.
  */
 typedef enum {
     RSS_DDC_CHARACTERIZATION_INTERACTION_NONE = 0,
@@ -849,12 +850,17 @@ typedef enum {
 } RSSDDCCharacterizeKnowledgePolicy;
 
 /**
- * v1 options. NULL options to rss_ddc_characterize_display means DEFAULT + NORMAL.
- * IGNORE_KNOWN disables profile/structured prior knowledge for a true alien path.
+ * v1 options. NULL options to rss_ddc_characterize_display means DEFAULT + NORMAL
+ * and no semantic goal. IGNORE_KNOWN disables profile/structured prior knowledge
+ * for a true alien path. Empty semantic_goal preserves full automatic
+ * characterization with no Guided Discovery. A canonical semantic such as
+ * inputs.switching selects Guided focus after automatic stages without changing
+ * Quick/Extended evidence rules.
  */
 typedef struct {
     RSSDDCCharacterizeMode mode;
     RSSDDCCharacterizeKnowledgePolicy knowledge_policy;
+    char semantic_goal[RSS_DDC_TEXT_MAX];
 } RSSDDCCharacterizeOptions;
 
 typedef enum {
@@ -936,7 +942,10 @@ RSSDDCCharacterizeOptions rss_ddc_default_characterize_options(void);
  * write, picture-mode SET, profile persistence, Guided Discovery, or
  * Experimental Validation. It is the blocking convenience wrapper: begin,
  * then run_next until next_action is COMPLETE or WAIT_FOR_INTERACTION.
- * Current automatic paths complete without queuing an interaction.
+ * With no semantic goal, automatic paths complete without queuing an
+ * interaction. With semantic_goal inputs.switching, Guided Discovery v1 may
+ * stop at WAIT_FOR_INTERACTION for read-only operator correlation. It still
+ * does not SET or create write authority.
  */
 RSSDDCError rss_ddc_characterize_display(uint32_t list_index, const RSSDDCProfileStore *profiles,
                                          const RSSDDCCharacterizeOptions *options,
@@ -957,7 +966,8 @@ RSSDDCError rss_ddc_characterization_begin(uint32_t list_index, const RSSDDCProf
  * Normal-use readiness path: identity, optional EDID, structured lookup, and
  * prior augmentation only. Never runs passive MCCS, Quick, or Extended, and
  * never SET/writes. On success `*out` is COMPLETE with discovery_performed
- * false. Globally PARTIAL known knowledge may still resolve a single semantic
+ * false. A semantic_goal is stored but inspect never queues Guided Discovery
+ * and never probes. Globally PARTIAL known knowledge may still resolve a single semantic
  * control such as inputs.switching. NULL `options` selects DEFAULT + NORMAL;
  * mode does not enable probing on this path. IGNORE_KNOWN still disables
  * profile data.
@@ -988,8 +998,10 @@ const char *rss_ddc_characterization_action_name(RSSDDCCharacterizationAction ac
 RSSDDCError rss_ddc_characterization_run_next(RSSDDCCharacterization *characterization);
 
 /**
- * Pending interaction kind. Current automatic characterization, inspect, and
- * COMPLETE prior short-circuit always return NONE. Does not mutate state.
+ * Pending interaction kind. No-goal automatic characterization and inspect
+ * return NONE. Guided v1 may return OPERATOR_SELECTION after automatic stages
+ * when semantic_goal is inputs.switching and durable knowledge is insufficient.
+ * Does not mutate state.
  */
 RSSDDCCharacterizationInteractionKind rss_ddc_characterization_next_interaction(
     const RSSDDCCharacterization *characterization);
@@ -1007,11 +1019,28 @@ RSSDDCError rss_ddc_characterization_interaction(const RSSDDCCharacterization *c
 /**
  * Submits an operator result for a pending interaction. With no pending
  * interaction this returns RSS_DDC_ERROR_NOT_FOUND and does not change state.
- * NULL arguments or kind NONE are RSS_DDC_ERROR_ARGUMENT. Does not SET, promote
- * evidence, or mutate profiles. Guided Discovery consumption is not implemented.
+ * NULL arguments, kind NONE, kind/option mismatch, or empty option_id are
+ * RSS_DDC_ERROR_ARGUMENT. A valid Guided v1 inputs.switching result records
+ * non-authoritative operator evidence (not HARDWARE_VALIDATED, not writable,
+ * not write_authorized) and completes automatic work. Does not SET or mutate
+ * profiles.
  */
 RSSDDCError rss_ddc_characterization_submit_interaction(
     RSSDDCCharacterization *characterization, const RSSDDCCharacterizationInteractionResult *result);
+
+/**
+ * Canonical semantic goal, or NULL when none is set. Empty options leave this
+ * NULL and preserve no-goal automatic characterization.
+ */
+const char *rss_ddc_characterization_semantic_goal(const RSSDDCCharacterization *characterization);
+
+/**
+ * Sets or clears the semantic goal. NULL/empty clears it. Only valid at
+ * STAGE_NEW, before PREPARE/inspect progression. Later calls fail closed with
+ * RSS_DDC_ERROR_ARGUMENT and leave the stored goal unchanged.
+ */
+RSSDDCError rss_ddc_characterization_set_semantic_goal(RSSDDCCharacterization *characterization,
+                                                       const char *semantic_id);
 
 /**
  * Copies `semantic_id` into `out`, replacing a known profile/schema alias with

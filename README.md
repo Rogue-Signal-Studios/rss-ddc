@@ -295,8 +295,11 @@ writes a monitor or mutates a profile store. Normal product use should call
 only, with no MCCS, Quick, or Extended. Onboarding may then step
 `rss_ddc_characterization_begin` / `rss_ddc_characterization_run_next`, or
 use blocking `rss_ddc_characterize_display` as the convenience wrapper.
-`rss_ddc_characterization_next_interaction` currently returns NONE; Guided
-Discovery is not implemented.
+Onboarding may set `semantic_goal` to `inputs.switching`. After automatic
+stages, rss-ddc may return WAIT_FOR_INTERACTION for read-only operator
+correlation. That does not create write authority and never SET writes.
+Inspect never queues Guided Discovery. Known authorized `inputs.switching`
+skips Guided.
 
 ```c
 RSSDDCCharacterization *inspected = NULL;

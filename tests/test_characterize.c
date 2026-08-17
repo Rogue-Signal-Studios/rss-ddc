@@ -3232,6 +3232,218 @@ static void test_interaction_lifetime_and_submit_shell(void) {
     rss_ddc_characterization_destroy(result);
 }
 
+static RSSDDCCharacterizeOptions input_goal_options(void) {
+    RSSDDCCharacterizeOptions options = rss_ddc_default_characterize_options();
+    (void)snprintf(options.semantic_goal, sizeof(options.semantic_goal), "%s", "inputs.switching");
+    return options;
+}
+
+static const RSSDDCKnowledgeRoute *guided_discovery_route(const RSSDDCMonitorKnowledge *knowledge) {
+    size_t index = 0;
+    for (index = 0; index < rss_ddc_monitor_knowledge_route_count(knowledge); ++index) {
+        const RSSDDCKnowledgeRoute *route = rss_ddc_monitor_knowledge_route_at(knowledge, index);
+        if (route != NULL && strcmp(route->semantic_id, "inputs.switching") == 0 &&
+            strcmp(route->provenance.source_id, "guided-discovery") == 0) {
+            return route;
+        }
+    }
+    return NULL;
+}
+
+static void test_goal_absent_preserves_automatic_complete(void) {
+    Slice7Harness harness = slice7_harness(slice2_display());
+    RSSDDCCharacterization *result = NULL;
+    RSSDDCCharacterizeOptions options = rss_ddc_default_characterize_options();
+    slice7_stable_quick(&harness, 42);
+    harness.mccs_raw = "vcp(10 12 15 60)";
+    slice6_set_stable(&harness.extended, 0x60, 18, 0x11);
+    assert(options.semantic_goal[0] == '\0');
+    assert(driver_run(&harness, NULL, &options, &result) == RSS_DDC_OK);
+    assert(rss_ddc_characterization_semantic_goal(result) == NULL);
+    assert(rss_ddc_characterization_next_action(result) == RSS_DDC_CHARACTERIZATION_ACTION_COMPLETE);
+    assert(rss_ddc_characterization_next_interaction(result) == RSS_DDC_CHARACTERIZATION_INTERACTION_NONE);
+    assert(harness.set_calls == 0);
+    rss_ddc_characterization_destroy(result);
+}
+
+static void test_goal_is_stored_and_observable(void) {
+    Slice7Harness harness = slice7_harness(slice2_display());
+    RSSDDCCharacterization *result = NULL;
+    RSSDDCCharacterizationOps ops = slice7_ops(&harness);
+    RSSDDCCharacterizeOptions options = input_goal_options();
+    (void)snprintf(options.semantic_goal, sizeof(options.semantic_goal), "%s", "input");
+    assert(rss_ddc_characterization_begin_with_ops(3, NULL, &options, &ops, &result) == RSS_DDC_OK);
+    assert(rss_ddc_characterization_semantic_goal(result) != NULL);
+    assert(strcmp(rss_ddc_characterization_semantic_goal(result), "inputs.switching") == 0);
+    rss_ddc_characterization_destroy(result);
+}
+
+static void test_goal_cannot_change_after_prepare(void) {
+    Slice7Harness harness = slice7_harness(slice2_display());
+    RSSDDCCharacterization *result = NULL;
+    RSSDDCCharacterizationOps ops = slice7_ops(&harness);
+    RSSDDCCharacterizeOptions options = input_goal_options();
+    assert(rss_ddc_characterization_begin_with_ops(3, NULL, &options, &ops, &result) == RSS_DDC_OK);
+    assert(rss_ddc_characterization_set_semantic_goal(result, "display.brightness") == RSS_DDC_OK);
+    assert(strcmp(rss_ddc_characterization_semantic_goal(result), "display.brightness") == 0);
+    assert(rss_ddc_characterization_run_next(result) == RSS_DDC_OK);
+    assert(rss_ddc_characterization_stage(result) == RSS_DDC_CHARACTERIZATION_STAGE_IDENTITY);
+    assert(rss_ddc_characterization_set_semantic_goal(result, "inputs.switching") ==
+           RSS_DDC_ERROR_ARGUMENT);
+    assert(strcmp(rss_ddc_characterization_semantic_goal(result), "display.brightness") == 0);
+    rss_ddc_characterization_destroy(result);
+}
+
+static void test_known_authorized_input_skips_guided(void) {
+    Slice7Harness harness = slice7_harness(lg_hdr_qhd_display());
+    RSSDDCProfileStore *store = rss_ddc_profile_store_create();
+    RSSDDCCharacterization *result = NULL;
+    RSSDDCCharacterizeOptions options = input_goal_options();
+    RSSDDCMonitorKnowledgeResolution *resolution = NULL;
+    assert(store != NULL);
+    assert(rss_ddc_profile_store_load_builtin(store) == RSS_DDC_OK);
+    slice7_stable_quick(&harness, 42);
+    assert(driver_run(&harness, store, &options, &result) == RSS_DDC_OK);
+    assert(rss_ddc_characterization_next_action(result) == RSS_DDC_CHARACTERIZATION_ACTION_COMPLETE);
+    assert(rss_ddc_characterization_next_interaction(result) == RSS_DDC_CHARACTERIZATION_INTERACTION_NONE);
+    assert(rss_ddc_characterization_resolve(result, "inputs.switching", &resolution) == RSS_DDC_OK);
+    assert(rss_ddc_monitor_knowledge_resolution_write_authorized(resolution));
+    assert(guided_discovery_route(rss_ddc_characterization_knowledge(result)) == NULL);
+    assert(harness.set_calls == 0);
+    rss_ddc_monitor_knowledge_resolution_destroy(resolution);
+    rss_ddc_characterization_destroy(result);
+    rss_ddc_profile_store_destroy(store);
+}
+
+static void test_complete_authorized_profile_skips_guided(void) {
+    Slice7Harness harness = slice7_harness(slice2_display());
+    RSSDDCProfileStore *store = store_from_pack(slice5_actionable_pack_dcpdp13());
+    RSSDDCCharacterization *result = NULL;
+    RSSDDCCharacterizeOptions options = input_goal_options();
+    assert(driver_run(&harness, store, &options, &result) == RSS_DDC_OK);
+    assert(!rss_ddc_characterization_discovery_performed(result));
+    assert(rss_ddc_characterization_next_interaction(result) == RSS_DDC_CHARACTERIZATION_INTERACTION_NONE);
+    assert(rss_ddc_characterization_next_action(result) == RSS_DDC_CHARACTERIZATION_ACTION_COMPLETE);
+    rss_ddc_characterization_destroy(result);
+    rss_ddc_profile_store_destroy(store);
+}
+
+static void test_inspect_with_goal_does_not_queue_guided(void) {
+    Slice7Harness harness = slice7_harness(odyssey_g75f_display());
+    RSSDDCCharacterization *result = NULL;
+    RSSDDCCharacterizationOps ops = slice7_ops(&harness);
+    RSSDDCCharacterizeOptions options = input_goal_options();
+    assert(rss_ddc_characterization_inspect_with_ops(1, NULL, &options, &ops, &result) == RSS_DDC_OK);
+    assert(strcmp(rss_ddc_characterization_semantic_goal(result), "inputs.switching") == 0);
+    assert(rss_ddc_characterization_next_interaction(result) == RSS_DDC_CHARACTERIZATION_INTERACTION_NONE);
+    assert(rss_ddc_characterization_next_action(result) == RSS_DDC_CHARACTERIZATION_ACTION_COMPLETE);
+    assert(harness.quick_calls == 0);
+    assert(harness.extended_calls == 0);
+    rss_ddc_characterization_destroy(result);
+}
+
+static void test_unknown_without_input_observation_does_not_invent_guided(void) {
+    Slice7Harness harness = slice7_harness(odyssey_g75f_display());
+    RSSDDCCharacterization *result = NULL;
+    RSSDDCCharacterizeOptions options = input_goal_options();
+    slice7_stable_quick(&harness, 42);
+    assert(driver_run(&harness, NULL, &options, &result) == RSS_DDC_OK);
+    assert(rss_ddc_characterization_next_action(result) == RSS_DDC_CHARACTERIZATION_ACTION_COMPLETE);
+    assert(rss_ddc_characterization_next_interaction(result) == RSS_DDC_CHARACTERIZATION_INTERACTION_NONE);
+    assert(guided_discovery_route(rss_ddc_characterization_knowledge(result)) == NULL);
+    rss_ddc_characterization_destroy(result);
+}
+
+static RSSDDCCharacterization *run_unknown_input_goal(Slice7Harness *harness) {
+    RSSDDCCharacterization *result = NULL;
+    RSSDDCCharacterizeOptions options = input_goal_options();
+    harness->mccs_raw = "vcp(10 12 15 60)";
+    slice7_stable_quick(harness, 42);
+    slice6_set_stable(&harness->extended, 0x60, 18, 0x11);
+    assert(driver_run(harness, NULL, &options, &result) == RSS_DDC_OK);
+    return result;
+}
+
+static void test_unknown_with_observed_input_queues_guided(void) {
+    Slice7Harness harness = slice7_harness(slice2_display());
+    RSSDDCCharacterization *result = run_unknown_input_goal(&harness);
+    RSSDDCCharacterizationInteraction interaction = {0};
+    assert(rss_ddc_characterization_next_action(result) ==
+           RSS_DDC_CHARACTERIZATION_ACTION_WAIT_FOR_INTERACTION);
+    assert(rss_ddc_characterization_stage(result) == RSS_DDC_CHARACTERIZATION_STAGE_INTERACTION);
+    assert(rss_ddc_characterization_next_interaction(result) ==
+           RSS_DDC_CHARACTERIZATION_INTERACTION_OPERATOR_SELECTION);
+    assert(rss_ddc_characterization_interaction(result, &interaction) == RSS_DDC_OK);
+    assert(strcmp(interaction.semantic_id, "inputs.switching") == 0);
+    assert(interaction.risk == RSS_DDC_CHARACTERIZATION_INTERACTION_RISK_OBSERVE);
+    assert(!interaction.may_set);
+    assert(!interaction.restore_required);
+    assert(interaction.option_count == 0);
+    assert(harness.set_calls == 0);
+    rss_ddc_characterization_destroy(result);
+}
+
+static void test_guided_submit_records_non_authoritative_evidence(void) {
+    Slice7Harness harness = slice7_harness(slice2_display());
+    RSSDDCCharacterization *result = run_unknown_input_goal(&harness);
+    RSSDDCCharacterizationInteractionResult submission = {
+        .kind = RSS_DDC_CHARACTERIZATION_INTERACTION_OPERATOR_SELECTION,
+    };
+    RSSDDCCharacterizationInteractionResult malformed = {
+        .kind = RSS_DDC_CHARACTERIZATION_INTERACTION_OPERATOR_CONFIRMATION,
+    };
+    RSSDDCCharacterizationInteractionResult empty = {
+        .kind = RSS_DDC_CHARACTERIZATION_INTERACTION_OPERATOR_SELECTION,
+    };
+    const RSSDDCKnowledgeRoute *guided = NULL;
+    RSSDDCMonitorKnowledgeResolution *resolution = NULL;
+    size_t discovered_before = 0;
+    (void)snprintf(submission.option_id, sizeof(submission.option_id), "%s", "osd-input-a");
+    (void)snprintf(malformed.option_id, sizeof(malformed.option_id), "%s", "osd-input-a");
+    discovered_before =
+        rss_ddc_monitor_knowledge_route_count(rss_ddc_characterization_discovered_knowledge(result));
+    assert(rss_ddc_characterization_submit_interaction(result, &malformed) == RSS_DDC_ERROR_ARGUMENT);
+    assert(rss_ddc_characterization_next_action(result) ==
+           RSS_DDC_CHARACTERIZATION_ACTION_WAIT_FOR_INTERACTION);
+    assert(rss_ddc_characterization_submit_interaction(result, &empty) == RSS_DDC_ERROR_ARGUMENT);
+    assert(rss_ddc_characterization_submit_interaction(result, &submission) == RSS_DDC_OK);
+    assert(rss_ddc_characterization_next_action(result) == RSS_DDC_CHARACTERIZATION_ACTION_COMPLETE);
+    assert(rss_ddc_characterization_next_interaction(result) == RSS_DDC_CHARACTERIZATION_INTERACTION_NONE);
+    assert(rss_ddc_characterization_stage(result) == RSS_DDC_CHARACTERIZATION_STAGE_COMPLETE);
+    guided = guided_discovery_route(rss_ddc_characterization_knowledge(result));
+    assert(guided != NULL);
+    assert(guided->provenance.fact_kind == RSS_DDC_KNOWLEDGE_FACT_INFERRED);
+    assert(guided->provenance.confidence == RSS_DDC_PROFILE_CONFIDENCE_CORRELATED);
+    assert(guided->provenance.source == RSS_DDC_PROFILE_SOURCE_RESEARCH);
+    assert(strcmp(guided->value.string_value, "osd-input-a") == 0);
+    assert(!guided->writable);
+    assert(!guided->write_authorized);
+    assert(guided_discovery_route(rss_ddc_characterization_discovered_knowledge(result)) == NULL);
+    assert(rss_ddc_monitor_knowledge_route_count(rss_ddc_characterization_discovered_knowledge(result)) ==
+           discovered_before);
+    assert(rss_ddc_characterization_resolve(result, "inputs.switching", &resolution) == RSS_DDC_OK);
+    assert(!rss_ddc_monitor_knowledge_resolution_write_authorized(resolution));
+    assert(rss_ddc_characterization_submit_interaction(result, &submission) == RSS_DDC_ERROR_NOT_FOUND);
+    assert(harness.set_calls == 0);
+    rss_ddc_monitor_knowledge_resolution_destroy(resolution);
+    rss_ddc_characterization_destroy(result);
+}
+
+static void test_conflict_goal_does_not_queue_guided(void) {
+    Slice7Harness harness = slice7_harness(slice2_display());
+    RSSDDCProfileStore *store = conflict_store();
+    RSSDDCCharacterization *result = NULL;
+    RSSDDCCharacterizeOptions options = input_goal_options();
+    slice7_stable_quick(&harness, 42);
+    slice6_set_stable(&harness.extended, 0x60, 18, 0x11);
+    assert(driver_run(&harness, store, &options, &result) == RSS_DDC_OK);
+    assert(rss_ddc_characterization_structured_match(result) ==
+           RSS_DDC_CHARACTERIZATION_STRUCTURED_CONFLICT);
+    assert(rss_ddc_characterization_next_interaction(result) == RSS_DDC_CHARACTERIZATION_INTERACTION_NONE);
+    rss_ddc_characterization_destroy(result);
+    rss_ddc_profile_store_destroy(store);
+}
+
 int main(void) {
     test_semantic_normalization();
     test_composition_retains_competing_facts();
@@ -3325,5 +3537,15 @@ int main(void) {
     test_interaction_default_extended_has_none();
     test_interaction_deep_has_none();
     test_interaction_lifetime_and_submit_shell();
+    test_goal_absent_preserves_automatic_complete();
+    test_goal_is_stored_and_observable();
+    test_goal_cannot_change_after_prepare();
+    test_known_authorized_input_skips_guided();
+    test_complete_authorized_profile_skips_guided();
+    test_inspect_with_goal_does_not_queue_guided();
+    test_unknown_without_input_observation_does_not_invent_guided();
+    test_unknown_with_observed_input_queues_guided();
+    test_guided_submit_records_non_authoritative_evidence();
+    test_conflict_goal_does_not_queue_guided();
     puts("test_characterize: passed");
 }

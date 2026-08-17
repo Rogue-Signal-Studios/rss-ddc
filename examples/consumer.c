@@ -20,15 +20,16 @@ int main(int argc, char *argv[]) {
         rss_ddc_characterization_next_interaction(NULL));
     const char *wait_name =
         rss_ddc_characterization_action_name(RSS_DDC_CHARACTERIZATION_ACTION_WAIT_FOR_INTERACTION);
+    const char *goal_name = rss_ddc_characterization_semantic_goal(NULL);
 
     if (argc == 2 && strcmp(argv[1], "--list") == 0) {
         return list_displays_for_an_application() == RSS_DDC_OK ? 0 : 1;
     }
 
     if (argc == 1 || (argc == 2 && strcmp(argv[1], "--version") == 0)) {
-        printf("rss-ddc API %d.%d.%d (%s, %s, %s, %s)\n", RSS_DDC_VERSION_MAJOR,
+        printf("rss-ddc API %d.%d.%d (%s, %s, %s, %s, %s)\n", RSS_DDC_VERSION_MAJOR,
                RSS_DDC_VERSION_MINOR, RSS_DDC_VERSION_PATCH, error_name,
-               provider_name, interaction_name, wait_name);
+               provider_name, interaction_name, wait_name, goal_name == NULL ? "none" : goal_name);
         return 0;
     }
 
