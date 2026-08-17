@@ -1617,6 +1617,39 @@ and LG_ALT input from the local overlay when those facts exist.
 keeps already-authoritative, representable knowledge; not every monitor gains
 write support.
 
+### Slice 12 — Resumable driver and inspect/readiness
+
+- **Files:** `include/rss_ddc.h`, `src/core/characterize.c`,
+  `src/core/characterize.h`, `src/core/characterize_prepare.c`,
+  `tests/test_characterize.c`, this document,
+  [Canonical Alien Probe™ architecture](alien-probe-architecture.md)
+- **Reuse:** existing assemble / collect_passive / Quick / Extended / augment
+  stages and structured_match / resolve
+- **Hardware:** none for implementation tests; targeted read-only inspect
+  smoke after commit
+- **Accept:** begin does not probe; run_next executes one policy-chosen
+  automatic step; inspect never runs MCCS/Quick/Extended/SET; globally
+  PARTIAL known knowledge may still resolve an authorized semantic control;
+  one-shot `rss_ddc_characterize_display` is begin + run_next until COMPLETE
+
+**NORMAL USE.** `rss_ddc_characterization_inspect` identifies the display,
+loads structured prior knowledge, augments effective knowledge, and returns.
+`discovery_performed` remains false. Products call `resolve` / effective
+profile to see whether a requested semantic (such as `inputs.switching`) is
+already authorized. They must not call DEFAULT characterize merely to check
+readiness.
+
+**ONBOARDING.** `rss_ddc_characterization_begin` creates STAGE_NEW state.
+`rss_ddc_characterization_next_action` returns PREPARE, RUN_PASSIVE,
+RUN_QUICK, RUN_EXTENDED, AUGMENT_PRIOR, or COMPLETE. The caller only invokes
+`rss_ddc_characterization_run_next`. rss-ddc still decides COMPLETE
+short-circuit, PARTIAL discovery, DEEP rediscovery, and Extended
+recommendation.
+
+**FUTURE.** Guided Discovery and experimental validation remain unimplemented.
+They must attach to this same `RSSDDCCharacterization` object later. This
+slice does not add operator-prompt or candidate-SET APIs.
+
 ## 20. Non-goals
 
 - No competing characterization schema and no `CharacterizationResult` JSON

@@ -754,6 +754,36 @@ typedef enum {
     RSS_DDC_CHARACTERIZE_MODE_DEEP
 } RSSDDCCharacterizeMode;
 
+/**
+ * Automatic-stage driver progress. COMPLETE means this invocation has no
+ * further automatic work. BLOCKED is a fatal driver error on a begun object;
+ * one-shot rss_ddc_characterize_display still returns no object in that case.
+ */
+typedef enum {
+    RSS_DDC_CHARACTERIZATION_STAGE_NEW = 0,
+    RSS_DDC_CHARACTERIZATION_STAGE_IDENTITY,
+    RSS_DDC_CHARACTERIZATION_STAGE_PASSIVE,
+    RSS_DDC_CHARACTERIZATION_STAGE_QUICK,
+    RSS_DDC_CHARACTERIZATION_STAGE_EXTENDED,
+    RSS_DDC_CHARACTERIZATION_STAGE_COMPLETE,
+    RSS_DDC_CHARACTERIZATION_STAGE_BLOCKED
+} RSSDDCCharacterizationStage;
+
+/**
+ * Next automatic action chosen by rss-ddc policy. Callers must not select
+ * Quick vs Extended; they execute rss_ddc_characterization_run_next until
+ * this returns COMPLETE. Inspect/readiness finishes at COMPLETE without
+ * probing.
+ */
+typedef enum {
+    RSS_DDC_CHARACTERIZATION_ACTION_PREPARE = 0,
+    RSS_DDC_CHARACTERIZATION_ACTION_RUN_PASSIVE,
+    RSS_DDC_CHARACTERIZATION_ACTION_RUN_QUICK,
+    RSS_DDC_CHARACTERIZATION_ACTION_RUN_EXTENDED,
+    RSS_DDC_CHARACTERIZATION_ACTION_AUGMENT_PRIOR,
+    RSS_DDC_CHARACTERIZATION_ACTION_COMPLETE
+} RSSDDCCharacterizationAction;
+
 /** Whether characterization may load monitor-specific structured prior knowledge. */
 typedef enum {
     RSS_DDC_CHARACTERIZE_KNOWLEDGE_NORMAL = 0,
@@ -846,12 +876,54 @@ RSSDDCCharacterizeOptions rss_ddc_default_characterize_options(void);
  *
  * This entry point does not call SET VCP, set-and-verify, alternate-input
  * write, picture-mode SET, profile persistence, Guided Discovery, or
- * Experimental Validation.
+ * Experimental Validation. It is the blocking convenience wrapper: begin,
+ * then run_next until next_action is COMPLETE.
  */
 RSSDDCError rss_ddc_characterize_display(uint32_t list_index, const RSSDDCProfileStore *profiles,
                                          const RSSDDCCharacterizeOptions *options,
                                          RSSDDCCharacterization **out);
 void rss_ddc_characterization_destroy(RSSDDCCharacterization *characterization);
+
+/**
+ * Creates an owned characterization at STAGE_NEW without contacting hardware.
+ * `profiles` is borrowed and may be NULL. NULL `options` selects DEFAULT +
+ * NORMAL. First rss_ddc_characterization_run_next performs identity/lookup.
+ * Does not run MCCS, Quick, or Extended.
+ */
+RSSDDCError rss_ddc_characterization_begin(uint32_t list_index, const RSSDDCProfileStore *profiles,
+                                           const RSSDDCCharacterizeOptions *options,
+                                           RSSDDCCharacterization **out);
+
+/**
+ * Normal-use readiness path: identity, optional EDID, structured lookup, and
+ * prior augmentation only. Never runs passive MCCS, Quick, or Extended, and
+ * never SET/writes. On success `*out` is COMPLETE with discovery_performed
+ * false. Globally PARTIAL known knowledge may still resolve a single semantic
+ * control such as inputs.switching. NULL `options` selects DEFAULT + NORMAL;
+ * mode does not enable probing on this path. IGNORE_KNOWN still disables
+ * profile data.
+ */
+RSSDDCError rss_ddc_characterization_inspect(uint32_t list_index, const RSSDDCProfileStore *profiles,
+                                             const RSSDDCCharacterizeOptions *options,
+                                             RSSDDCCharacterization **out);
+
+RSSDDCCharacterizationStage rss_ddc_characterization_stage(const RSSDDCCharacterization *characterization);
+const char *rss_ddc_characterization_stage_name(RSSDDCCharacterizationStage stage);
+
+/**
+ * Policy result for the next automatic step. COMPLETE means the driver has
+ * nothing further to do. This does not expose collect_passive/quick/extended.
+ */
+RSSDDCCharacterizationAction rss_ddc_characterization_next_action(
+    const RSSDDCCharacterization *characterization);
+const char *rss_ddc_characterization_action_name(RSSDDCCharacterizationAction action);
+
+/**
+ * Executes exactly one automatic action chosen by
+ * rss_ddc_characterization_next_action. COMPLETE is a no-op. The caller does
+ * not choose Quick vs Extended. Does not SET/write a monitor.
+ */
+RSSDDCError rss_ddc_characterization_run_next(RSSDDCCharacterization *characterization);
 
 /**
  * Copies `semantic_id` into `out`, replacing a known profile/schema alias with

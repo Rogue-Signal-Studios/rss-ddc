@@ -84,6 +84,19 @@ static void test_dpcd_decode_strings(void) {
     assert_plain_library_string("dpcd-link-rate", capabilities.max_link_rate_name);
 }
 
+static void test_characterization_driver_strings(void) {
+    for (int stage = RSS_DDC_CHARACTERIZATION_STAGE_NEW; stage <= RSS_DDC_CHARACTERIZATION_STAGE_BLOCKED;
+         ++stage) {
+        assert_plain_library_string("characterization-stage",
+                                    rss_ddc_characterization_stage_name((RSSDDCCharacterizationStage)stage));
+    }
+    for (int action = RSS_DDC_CHARACTERIZATION_ACTION_PREPARE;
+         action <= RSS_DDC_CHARACTERIZATION_ACTION_COMPLETE; ++action) {
+        assert_plain_library_string("characterization-action",
+                                    rss_ddc_characterization_action_name((RSSDDCCharacterizationAction)action));
+    }
+}
+
 int main(void) {
     test_error_strings();
     test_provider_and_backend_strings();
@@ -91,6 +104,7 @@ int main(void) {
     test_probe_strings();
     test_edid_and_picture_mode_strings();
     test_dpcd_decode_strings();
+    test_characterization_driver_strings();
     puts("test_library_strings: passed");
     return 0;
 }

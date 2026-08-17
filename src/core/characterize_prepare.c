@@ -117,9 +117,7 @@ static RSSDDCError live_probe_extended_for_display(void *context, uint32_t list_
     return rss_ddc_probe_extended_for_display(list_index, probe);
 }
 
-RSSDDCError rss_ddc_characterize_display(uint32_t list_index, const RSSDDCProfileStore *profiles,
-                                         const RSSDDCCharacterizeOptions *options,
-                                         RSSDDCCharacterization **out) {
+static const RSSDDCCharacterizationOps *live_characterization_ops(void) {
     static const RSSDDCCharacterizationOps live_ops = {
         .get_display = live_get_display,
         .read_edid = live_read_edid,
@@ -128,5 +126,26 @@ RSSDDCError rss_ddc_characterize_display(uint32_t list_index, const RSSDDCProfil
         .probe_quick_for_display = live_probe_quick_for_display,
         .probe_extended_for_display = live_probe_extended_for_display,
     };
-    return rss_ddc_characterization_execute(list_index, profiles, options, &live_ops, out);
+    return &live_ops;
+}
+
+RSSDDCError rss_ddc_characterization_begin(uint32_t list_index, const RSSDDCProfileStore *profiles,
+                                           const RSSDDCCharacterizeOptions *options,
+                                           RSSDDCCharacterization **out) {
+    return rss_ddc_characterization_begin_with_ops(list_index, profiles, options,
+                                                   live_characterization_ops(), out);
+}
+
+RSSDDCError rss_ddc_characterization_inspect(uint32_t list_index, const RSSDDCProfileStore *profiles,
+                                             const RSSDDCCharacterizeOptions *options,
+                                             RSSDDCCharacterization **out) {
+    return rss_ddc_characterization_inspect_with_ops(list_index, profiles, options,
+                                                     live_characterization_ops(), out);
+}
+
+RSSDDCError rss_ddc_characterize_display(uint32_t list_index, const RSSDDCProfileStore *profiles,
+                                         const RSSDDCCharacterizeOptions *options,
+                                         RSSDDCCharacterization **out) {
+    return rss_ddc_characterization_execute(list_index, profiles, options, live_characterization_ops(),
+                                            out);
 }

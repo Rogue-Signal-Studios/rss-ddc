@@ -290,12 +290,29 @@ snapshot pattern. It returns the observed count but does not open an IOAV
 client. GET, SET, EDID, and DPCD requests are explicit separate API calls.
 
 Automatic characterization is a separate read-only entry point. It never SET
-writes a monitor or mutates a profile store:
+writes a monitor or mutates a profile store. Normal product use should call
+`rss_ddc_characterization_inspect` first: identity and durable profile lookup
+only, with no MCCS, Quick, or Extended. Onboarding may then step
+`rss_ddc_characterization_begin` / `rss_ddc_characterization_run_next`, or
+use blocking `rss_ddc_characterize_display` as the convenience wrapper.
 
 ```c
+RSSDDCCharacterization *inspected = NULL;
+RSSDDCError error = rss_ddc_characterization_inspect(1, store, NULL, &inspected);
+if (error == RSS_DDC_OK) {
+    RSSDDCMonitorKnowledgeResolution *resolution = NULL;
+    if (rss_ddc_characterization_resolve(inspected, "inputs.switching",
+                                         &resolution) == RSS_DDC_OK &&
+        rss_ddc_monitor_knowledge_resolution_write_authorized(resolution)) {
+        /* durable authorized input knowledge; do not probe */
+    }
+    rss_ddc_monitor_knowledge_resolution_destroy(resolution);
+    rss_ddc_characterization_destroy(inspected);
+}
+
 RSSDDCCharacterizeOptions options = rss_ddc_default_characterize_options();
 RSSDDCCharacterization *result = NULL;
-RSSDDCError error = rss_ddc_characterize_display(1, NULL, &options, &result);
+error = rss_ddc_characterize_display(1, NULL, &options, &result);
 if (error == RSS_DDC_OK) {
     const RSSDDCMonitorKnowledge *knowledge = rss_ddc_characterization_knowledge(result);
     (void)knowledge;

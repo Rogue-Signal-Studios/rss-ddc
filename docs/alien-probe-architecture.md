@@ -202,6 +202,51 @@ Prior knowledge does not determine DEEP depth because Extended is forced.
 profile/structured prior knowledge disabled. Diagnostic/discovery option.
 Read-only. Proves a true alien encounter.
 
+## Normal use vs onboarding vs future interactive stages
+
+rss-ddc owns characterization policy. Products own UI.
+
+**NORMAL USE** — inspect durable readiness only. No Alien Probe.
+
+```text
+list displays
+    →
+rss_ddc_characterization_inspect(...)
+    →
+structured_match (NONE / PARTIAL / COMPLETE / CONFLICT)
+    +
+rss_ddc_characterization_resolve(semantic_id)
+```
+
+Inspect performs identity, optional EDID, structured profile lookup, and prior
+augmentation. It never runs passive MCCS, Quick, or Extended, and never SET
+writes. A globally PARTIAL profile may still authorize one semantic control
+(for example `inputs.switching`) from durable knowledge. If that control is
+not authorized, the product may open onboarding. Inspect does not launch
+onboarding.
+
+**ONBOARDING** — step-driven automatic characterization.
+
+```text
+rss_ddc_characterization_begin(...)
+    →
+rss_ddc_characterization_next_action(...)
+    →
+rss_ddc_characterization_run_next(...)
+    →
+repeat until COMPLETE
+```
+
+rss-ddc chooses PREPARE, RUN_PASSIVE, RUN_QUICK, RUN_EXTENDED, and
+AUGMENT_PRIOR. Callers do not choose Quick vs Extended.
+`rss_ddc_characterize_display` remains the blocking convenience wrapper
+(begin, then run_next until COMPLETE). COMPLETE structured matches still
+short-circuit PASSIVE/DEFAULT. DEEP still rediscovers.
+
+**FUTURE** — Guided Discovery and experimental validation will use the same
+`RSSDDCCharacterization` object. They are not implemented. Do not treat
+inspect or run_next as Guided Discovery or as candidate SET validation.
+
 ## Invariants
 
 1. Alien Probe™ must work on a connected monitor for which rss-ddc contains

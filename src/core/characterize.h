@@ -12,7 +12,9 @@
  * rss_ddc_characterization_collect_passive (MCCS retrieval),
  * rss_ddc_characterization_collect_quick (Alien Probe Quick Auto Probe),
  * rss_ddc_characterization_collect_extended (Alien Probe Extended Auto Probe),
- * and the live ops used by rss_ddc_characterize_display.
+ * the live ops used by rss_ddc_characterize_display, and the public
+ * begin / inspect / run_next driver. Known production methods are not
+ * injected from product-name gates.
  * Known production methods are not injected from product-name gates.
  * Monitor-specific write methods come from structured profile data. Optional
  * profile update is a separate explicit API and
@@ -285,16 +287,37 @@ typedef struct {
 } RSSDDCCharacterizationOps;
 
 /**
- * Private end-to-end executor used by rss_ddc_characterize_display. After
- * assemble, evaluates structured completeness, then passive MCCS / Quick /
- * discovery-only sufficiency / optional Extended unless PASSIVE/DEFAULT
- * short-circuit on a COMPLETE match. PARTIAL prior knowledge is applied only
- * after those stages. IGNORE_KNOWN passes a NULL store. Does not SET VCP or
- * mutate `profiles`. On fatal failure `*out` is NULL.
+ * Private end-to-end executor used by rss_ddc_characterize_display. Begins a
+ * driver object, then run_next until COMPLETE. After identity lookup, a
+ * COMPLETE structured match short-circuits PASSIVE/DEFAULT discovery; DEEP
+ * always rediscovers when GET is available. PARTIAL prior knowledge is applied
+ * only after those stages unless the caller used inspect. IGNORE_KNOWN passes
+ * a NULL store. Does not SET VCP or mutate `profiles`. On fatal failure `*out`
+ * is NULL.
  */
 RSSDDCError rss_ddc_characterization_execute(uint32_t list_index, const RSSDDCProfileStore *profiles,
                                              const RSSDDCCharacterizeOptions *options,
                                              const RSSDDCCharacterizationOps *ops,
                                              RSSDDCCharacterization **out);
+
+/**
+ * Testable begin: same as rss_ddc_characterization_begin with injected ops.
+ * Stage is NEW. Does not GET, SET, or probe.
+ */
+RSSDDCError rss_ddc_characterization_begin_with_ops(uint32_t list_index,
+                                                    const RSSDDCProfileStore *profiles,
+                                                    const RSSDDCCharacterizeOptions *options,
+                                                    const RSSDDCCharacterizationOps *ops,
+                                                    RSSDDCCharacterization **out);
+
+/**
+ * Testable inspect/readiness: identity/lookup plus prior augmentation, then
+ * COMPLETE. Never runs MCCS, Quick, or Extended.
+ */
+RSSDDCError rss_ddc_characterization_inspect_with_ops(uint32_t list_index,
+                                                      const RSSDDCProfileStore *profiles,
+                                                      const RSSDDCCharacterizeOptions *options,
+                                                      const RSSDDCCharacterizationOps *ops,
+                                                      RSSDDCCharacterization **out);
 
 #endif
