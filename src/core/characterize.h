@@ -288,7 +288,8 @@ typedef struct {
 
 /**
  * Private end-to-end executor used by rss_ddc_characterize_display. Begins a
- * driver object, then run_next until COMPLETE. After identity lookup, a
+ * driver object, then run_next until COMPLETE or WAIT_FOR_INTERACTION. Current
+ * automatic paths complete without queuing an interaction. After identity lookup, a
  * COMPLETE structured match short-circuits PASSIVE/DEFAULT discovery; DEEP
  * always rediscovers when GET is available. PARTIAL prior knowledge is applied
  * only after those stages unless the caller used inspect. IGNORE_KNOWN passes

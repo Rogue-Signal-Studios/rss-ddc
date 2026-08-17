@@ -295,6 +295,8 @@ writes a monitor or mutates a profile store. Normal product use should call
 only, with no MCCS, Quick, or Extended. Onboarding may then step
 `rss_ddc_characterization_begin` / `rss_ddc_characterization_run_next`, or
 use blocking `rss_ddc_characterize_display` as the convenience wrapper.
+`rss_ddc_characterization_next_interaction` currently returns NONE; Guided
+Discovery is not implemented.
 
 ```c
 RSSDDCCharacterization *inspected = NULL;

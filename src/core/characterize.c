@@ -42,6 +42,7 @@ struct RSSDDCCharacterization {
     const RSSDDCProfileStore *profiles;
     RSSDDCCharacterizationOps ops;
     bool has_ops;
+    RSSDDCCharacterizationInteraction pending_interaction;
 };
 
 typedef struct {
@@ -1339,15 +1340,29 @@ const char *rss_ddc_characterization_stage_name(RSSDDCCharacterizationStage stag
     if (stage == RSS_DDC_CHARACTERIZATION_STAGE_BLOCKED) {
         return "blocked";
     }
+    if (stage == RSS_DDC_CHARACTERIZATION_STAGE_INTERACTION) {
+        return "interaction";
+    }
     return "new";
+}
+
+static bool characterization_has_pending_interaction(const RSSDDCCharacterization *characterization) {
+    return characterization != NULL &&
+           (characterization->pending_interaction.kind != RSS_DDC_CHARACTERIZATION_INTERACTION_NONE ||
+            characterization->stage == RSS_DDC_CHARACTERIZATION_STAGE_INTERACTION);
 }
 
 RSSDDCCharacterizationAction rss_ddc_characterization_next_action(
     const RSSDDCCharacterization *characterization) {
     RSSDDCCharacterizationSufficiencyResult sufficiency = {0};
 
-    if (characterization == NULL || characterization->stage == RSS_DDC_CHARACTERIZATION_STAGE_BLOCKED ||
-        characterization->stage == RSS_DDC_CHARACTERIZATION_STAGE_COMPLETE) {
+    if (characterization == NULL || characterization->stage == RSS_DDC_CHARACTERIZATION_STAGE_BLOCKED) {
+        return RSS_DDC_CHARACTERIZATION_ACTION_COMPLETE;
+    }
+    if (characterization_has_pending_interaction(characterization)) {
+        return RSS_DDC_CHARACTERIZATION_ACTION_WAIT_FOR_INTERACTION;
+    }
+    if (characterization->stage == RSS_DDC_CHARACTERIZATION_STAGE_COMPLETE) {
         return RSS_DDC_CHARACTERIZATION_ACTION_COMPLETE;
     }
     if (characterization->stage == RSS_DDC_CHARACTERIZATION_STAGE_NEW) {
@@ -1396,7 +1411,65 @@ const char *rss_ddc_characterization_action_name(RSSDDCCharacterizationAction ac
     if (action == RSS_DDC_CHARACTERIZATION_ACTION_COMPLETE) {
         return "complete";
     }
+    if (action == RSS_DDC_CHARACTERIZATION_ACTION_WAIT_FOR_INTERACTION) {
+        return "wait-for-interaction";
+    }
     return "prepare";
+}
+
+RSSDDCCharacterizationInteractionKind rss_ddc_characterization_next_interaction(
+    const RSSDDCCharacterization *characterization) {
+    if (characterization == NULL) {
+        return RSS_DDC_CHARACTERIZATION_INTERACTION_NONE;
+    }
+    return characterization->pending_interaction.kind;
+}
+
+const char *rss_ddc_characterization_interaction_kind_name(RSSDDCCharacterizationInteractionKind kind) {
+    if (kind == RSS_DDC_CHARACTERIZATION_INTERACTION_OPERATOR_CONFIRMATION) {
+        return "operator-confirmation";
+    }
+    if (kind == RSS_DDC_CHARACTERIZATION_INTERACTION_OPERATOR_SELECTION) {
+        return "operator-selection";
+    }
+    if (kind == RSS_DDC_CHARACTERIZATION_INTERACTION_VALIDATION_APPROVAL) {
+        return "validation-approval";
+    }
+    return "none";
+}
+
+const char *rss_ddc_characterization_interaction_risk_name(RSSDDCCharacterizationInteractionRisk risk) {
+    if (risk == RSS_DDC_CHARACTERIZATION_INTERACTION_RISK_OBSERVE) {
+        return "observe";
+    }
+    if (risk == RSS_DDC_CHARACTERIZATION_INTERACTION_RISK_WRITE) {
+        return "write";
+    }
+    return "none";
+}
+
+RSSDDCError rss_ddc_characterization_interaction(const RSSDDCCharacterization *characterization,
+                                                 RSSDDCCharacterizationInteraction *out) {
+    if (characterization == NULL || out == NULL) {
+        return RSS_DDC_ERROR_ARGUMENT;
+    }
+    *out = characterization->pending_interaction;
+    return RSS_DDC_OK;
+}
+
+RSSDDCError rss_ddc_characterization_submit_interaction(
+    RSSDDCCharacterization *characterization, const RSSDDCCharacterizationInteractionResult *result) {
+    if (characterization == NULL || result == NULL ||
+        result->kind == RSS_DDC_CHARACTERIZATION_INTERACTION_NONE) {
+        return RSS_DDC_ERROR_ARGUMENT;
+    }
+    if (characterization->pending_interaction.kind == RSS_DDC_CHARACTERIZATION_INTERACTION_NONE) {
+        return RSS_DDC_ERROR_NOT_FOUND;
+    }
+    if (result->kind != characterization->pending_interaction.kind) {
+        return RSS_DDC_ERROR_ARGUMENT;
+    }
+    return RSS_DDC_ERROR_NOT_FOUND;
 }
 
 RSSDDCError rss_ddc_characterization_begin_with_ops(uint32_t list_index,
@@ -1447,6 +1520,9 @@ RSSDDCError rss_ddc_characterization_run_next(RSSDDCCharacterization *characteri
         if (characterization->stage != RSS_DDC_CHARACTERIZATION_STAGE_BLOCKED) {
             characterization->stage = RSS_DDC_CHARACTERIZATION_STAGE_COMPLETE;
         }
+        return RSS_DDC_OK;
+    }
+    if (action == RSS_DDC_CHARACTERIZATION_ACTION_WAIT_FOR_INTERACTION) {
         return RSS_DDC_OK;
     }
 
@@ -1788,7 +1864,9 @@ RSSDDCError rss_ddc_characterization_execute(uint32_t list_index, const RSSDDCPr
 
     RSSDDCCharacterization *characterization = *out;
     while (rss_ddc_characterization_next_action(characterization) !=
-           RSS_DDC_CHARACTERIZATION_ACTION_COMPLETE) {
+               RSS_DDC_CHARACTERIZATION_ACTION_COMPLETE &&
+           rss_ddc_characterization_next_action(characterization) !=
+               RSS_DDC_CHARACTERIZATION_ACTION_WAIT_FOR_INTERACTION) {
         RSSDDCCharacterizationAction action = rss_ddc_characterization_next_action(characterization);
         error = rss_ddc_characterization_run_next(characterization);
         if (action == RSS_DDC_CHARACTERIZATION_ACTION_PREPARE) {

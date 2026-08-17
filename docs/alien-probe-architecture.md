@@ -234,6 +234,8 @@ rss_ddc_characterization_next_action(...)
     →
 rss_ddc_characterization_run_next(...)
     →
+rss_ddc_characterization_next_interaction(...)
+    →
 repeat until COMPLETE
 ```
 
@@ -242,10 +244,17 @@ AUGMENT_PRIOR. Callers do not choose Quick vs Extended.
 `rss_ddc_characterize_display` remains the blocking convenience wrapper
 (begin, then run_next until COMPLETE). COMPLETE structured matches still
 short-circuit PASSIVE/DEFAULT. DEEP still rediscovers.
+`rss_ddc_characterization_next_interaction` currently returns NONE after
+every implemented automatic path. WAIT_FOR_INTERACTION is reserved and is
+not produced yet.
 
 **FUTURE** — Guided Discovery and experimental validation will use the same
-`RSSDDCCharacterization` object. They are not implemented. Do not treat
-inspect or run_next as Guided Discovery or as candidate SET validation.
+`RSSDDCCharacterization` object and the interaction query/submit surface.
+They are not implemented. Current `next_interaction` returning NONE does not
+mean Guided Discovery ran. Do not treat inspect or run_next as Guided
+Discovery or as candidate SET validation. Interaction generation, operator
+result consumption, safe validation, evidence promotion, and profile
+generation from unknown candidates remain unimplemented.
 
 ## Invariants
 

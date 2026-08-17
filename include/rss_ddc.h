@@ -135,6 +135,8 @@ enum {
     RSS_DDC_MONITOR_KNOWLEDGE_JSON_MAX_VALUES = 32,
     /** Evidence records retained per object when parsing v0.1 JSON. */
     RSS_DDC_MONITOR_KNOWLEDGE_JSON_MAX_EVIDENCE = 8,
+    /** Bounded option list on one characterization interaction. */
+    RSS_DDC_CHARACTERIZATION_INTERACTION_MAX_OPTIONS = 16,
 };
 
 /**
@@ -766,14 +768,19 @@ typedef enum {
     RSS_DDC_CHARACTERIZATION_STAGE_QUICK,
     RSS_DDC_CHARACTERIZATION_STAGE_EXTENDED,
     RSS_DDC_CHARACTERIZATION_STAGE_COMPLETE,
-    RSS_DDC_CHARACTERIZATION_STAGE_BLOCKED
+    RSS_DDC_CHARACTERIZATION_STAGE_BLOCKED,
+    /**
+     * Future Guided Discovery wait. Current automatic and inspect paths never
+     * enter this stage.
+     */
+    RSS_DDC_CHARACTERIZATION_STAGE_INTERACTION
 } RSSDDCCharacterizationStage;
 
 /**
- * Next automatic action chosen by rss-ddc policy. Callers must not select
- * Quick vs Extended; they execute rss_ddc_characterization_run_next until
- * this returns COMPLETE. Inspect/readiness finishes at COMPLETE without
- * probing.
+ * Next automatic action chosen by rss-ddc policy. COMPLETE means this invocation has no
+ * further automatic work. WAIT_FOR_INTERACTION means automatic work is done
+ * and an operator interaction is pending; current paths never return it.
+ * Inspect/readiness finishes at COMPLETE without probing.
  */
 typedef enum {
     RSS_DDC_CHARACTERIZATION_ACTION_PREPARE = 0,
@@ -781,8 +788,59 @@ typedef enum {
     RSS_DDC_CHARACTERIZATION_ACTION_RUN_QUICK,
     RSS_DDC_CHARACTERIZATION_ACTION_RUN_EXTENDED,
     RSS_DDC_CHARACTERIZATION_ACTION_AUGMENT_PRIOR,
-    RSS_DDC_CHARACTERIZATION_ACTION_COMPLETE
+    RSS_DDC_CHARACTERIZATION_ACTION_COMPLETE,
+    /**
+     * Automatic work is finished and an operator interaction is pending.
+     * Current automatic and inspect paths never return this.
+     */
+    RSS_DDC_CHARACTERIZATION_ACTION_WAIT_FOR_INTERACTION
 } RSSDDCCharacterizationAction;
+
+/**
+ * Generic interaction categories. Specific Guided Discovery prompts are not
+ * generated yet; current automatic/inspect flows report NONE.
+ */
+typedef enum {
+    RSS_DDC_CHARACTERIZATION_INTERACTION_NONE = 0,
+    RSS_DDC_CHARACTERIZATION_INTERACTION_OPERATOR_CONFIRMATION,
+    RSS_DDC_CHARACTERIZATION_INTERACTION_OPERATOR_SELECTION,
+    RSS_DDC_CHARACTERIZATION_INTERACTION_VALIDATION_APPROVAL
+} RSSDDCCharacterizationInteractionKind;
+
+typedef enum {
+    RSS_DDC_CHARACTERIZATION_INTERACTION_RISK_NONE = 0,
+    RSS_DDC_CHARACTERIZATION_INTERACTION_RISK_OBSERVE,
+    RSS_DDC_CHARACTERIZATION_INTERACTION_RISK_WRITE
+} RSSDDCCharacterizationInteractionRisk;
+
+/** One machine-readable choice. Products supply UX wording from `id`. */
+typedef struct {
+    char id[RSS_DDC_PROFILE_ID_MAX];
+    uint16_t raw_value;
+    bool has_raw_value;
+} RSSDDCCharacterizationInteractionOption;
+
+/**
+ * Borrowed-copy interaction context owned by RSSDDCCharacterization.
+ * No product UX strings. Empty/NONE when no interaction is pending.
+ */
+typedef struct {
+    RSSDDCCharacterizationInteractionKind kind;
+    char semantic_id[RSS_DDC_TEXT_MAX];
+    RSSDDCCharacterizationInteractionRisk risk;
+    bool may_set;
+    bool restore_required;
+    bool restore_available;
+    size_t option_count;
+    RSSDDCCharacterizationInteractionOption options[RSS_DDC_CHARACTERIZATION_INTERACTION_MAX_OPTIONS];
+} RSSDDCCharacterizationInteraction;
+
+/** Operator answer for rss_ddc_characterization_submit_interaction. */
+typedef struct {
+    RSSDDCCharacterizationInteractionKind kind;
+    char option_id[RSS_DDC_PROFILE_ID_MAX];
+    bool confirmed;
+} RSSDDCCharacterizationInteractionResult;
 
 /** Whether characterization may load monitor-specific structured prior knowledge. */
 typedef enum {
@@ -877,7 +935,8 @@ RSSDDCCharacterizeOptions rss_ddc_default_characterize_options(void);
  * This entry point does not call SET VCP, set-and-verify, alternate-input
  * write, picture-mode SET, profile persistence, Guided Discovery, or
  * Experimental Validation. It is the blocking convenience wrapper: begin,
- * then run_next until next_action is COMPLETE.
+ * then run_next until next_action is COMPLETE or WAIT_FOR_INTERACTION.
+ * Current automatic paths complete without queuing an interaction.
  */
 RSSDDCError rss_ddc_characterize_display(uint32_t list_index, const RSSDDCProfileStore *profiles,
                                          const RSSDDCCharacterizeOptions *options,
@@ -911,8 +970,10 @@ RSSDDCCharacterizationStage rss_ddc_characterization_stage(const RSSDDCCharacter
 const char *rss_ddc_characterization_stage_name(RSSDDCCharacterizationStage stage);
 
 /**
- * Policy result for the next automatic step. COMPLETE means the driver has
- * nothing further to do. This does not expose collect_passive/quick/extended.
+ * Next automatic action chosen by rss-ddc policy. COMPLETE means the driver has
+ * no further automatic work. WAIT_FOR_INTERACTION is reserved for a pending
+ * operator interaction after automatic work; current automatic and inspect
+ * paths never return it. This does not expose collect_passive/quick/extended.
  */
 RSSDDCCharacterizationAction rss_ddc_characterization_next_action(
     const RSSDDCCharacterization *characterization);
@@ -920,10 +981,37 @@ const char *rss_ddc_characterization_action_name(RSSDDCCharacterizationAction ac
 
 /**
  * Executes exactly one automatic action chosen by
- * rss_ddc_characterization_next_action. COMPLETE is a no-op. The caller does
- * not choose Quick vs Extended. Does not SET/write a monitor.
+ * rss_ddc_characterization_next_action. COMPLETE is a no-op. WAIT_FOR_INTERACTION
+ * is a no-op until Guided Discovery queues a pending interaction. The caller
+ * does not choose Quick vs Extended. Does not SET/write a monitor.
  */
 RSSDDCError rss_ddc_characterization_run_next(RSSDDCCharacterization *characterization);
+
+/**
+ * Pending interaction kind. Current automatic characterization, inspect, and
+ * COMPLETE prior short-circuit always return NONE. Does not mutate state.
+ */
+RSSDDCCharacterizationInteractionKind rss_ddc_characterization_next_interaction(
+    const RSSDDCCharacterization *characterization);
+const char *rss_ddc_characterization_interaction_kind_name(RSSDDCCharacterizationInteractionKind kind);
+const char *rss_ddc_characterization_interaction_risk_name(RSSDDCCharacterizationInteractionRisk risk);
+
+/**
+ * Copies the current interaction into `out`. When no interaction is pending,
+ * `out->kind` is NONE and remaining fields are empty. Does not mutate
+ * characterization. `out` is caller-owned.
+ */
+RSSDDCError rss_ddc_characterization_interaction(const RSSDDCCharacterization *characterization,
+                                                 RSSDDCCharacterizationInteraction *out);
+
+/**
+ * Submits an operator result for a pending interaction. With no pending
+ * interaction this returns RSS_DDC_ERROR_NOT_FOUND and does not change state.
+ * NULL arguments or kind NONE are RSS_DDC_ERROR_ARGUMENT. Does not SET, promote
+ * evidence, or mutate profiles. Guided Discovery consumption is not implemented.
+ */
+RSSDDCError rss_ddc_characterization_submit_interaction(
+    RSSDDCCharacterization *characterization, const RSSDDCCharacterizationInteractionResult *result);
 
 /**
  * Copies `semantic_id` into `out`, replacing a known profile/schema alias with

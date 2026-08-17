@@ -1641,14 +1641,39 @@ readiness.
 
 **ONBOARDING.** `rss_ddc_characterization_begin` creates STAGE_NEW state.
 `rss_ddc_characterization_next_action` returns PREPARE, RUN_PASSIVE,
-RUN_QUICK, RUN_EXTENDED, AUGMENT_PRIOR, or COMPLETE. The caller only invokes
-`rss_ddc_characterization_run_next`. rss-ddc still decides COMPLETE
-short-circuit, PARTIAL discovery, DEEP rediscovery, and Extended
-recommendation.
+RUN_QUICK, RUN_EXTENDED, AUGMENT_PRIOR, or COMPLETE. WAIT_FOR_INTERACTION
+exists on the action enum but is not returned by current automatic paths.
+The caller only invokes `rss_ddc_characterization_run_next`. rss-ddc still
+decides COMPLETE short-circuit, PARTIAL discovery, DEEP rediscovery, and
+Extended recommendation. `rss_ddc_characterization_next_interaction`
+returns NONE.
 
 **FUTURE.** Guided Discovery and experimental validation remain unimplemented.
-They must attach to this same `RSSDDCCharacterization` object later. This
-slice does not add operator-prompt or candidate-SET APIs.
+They must attach to this same `RSSDDCCharacterization` object later via the
+interaction surface (`next_interaction`, interaction copy, submit shell).
+This slice does not generate operator prompts, consume operator results, or
+perform candidate SET.
+
+### Slice 13 — Headless interaction surface
+
+- **Files:** `include/rss_ddc.h`, `src/core/characterize.c`,
+  `src/core/characterize.h`, `tests/test_characterize.c`,
+  `tests/test_library_strings.c`, this document,
+  [Canonical Alien Probe™ architecture](alien-probe-architecture.md)
+- **Reuse:** existing `RSSDDCCharacterization` driver; no second session type
+- **Hardware:** none
+- **Accept:** automatic/inspect/COMPLETE/PASSIVE/DEFAULT/DEEP paths report
+  interaction NONE; next_action remains COMPLETE for current automatic
+  completion; submit without a pending interaction fails closed; no SET;
+  no profile/evidence authority change; no monitor-specific interaction
+  generation
+
+**CURRENTLY IMPLEMENTED.** Automatic characterization, readiness inspection,
+and a machine-readable interaction query surface.
+
+**NOT YET IMPLEMENTED.** Guided Discovery interaction generation, operator
+result workflow beyond the fail-closed submit shell, safe validation,
+evidence promotion, and profile generation from unknown candidates.
 
 ## 20. Non-goals
 

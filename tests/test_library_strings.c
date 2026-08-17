@@ -85,15 +85,27 @@ static void test_dpcd_decode_strings(void) {
 }
 
 static void test_characterization_driver_strings(void) {
-    for (int stage = RSS_DDC_CHARACTERIZATION_STAGE_NEW; stage <= RSS_DDC_CHARACTERIZATION_STAGE_BLOCKED;
+    for (int stage = RSS_DDC_CHARACTERIZATION_STAGE_NEW; stage <= RSS_DDC_CHARACTERIZATION_STAGE_INTERACTION;
          ++stage) {
         assert_plain_library_string("characterization-stage",
                                     rss_ddc_characterization_stage_name((RSSDDCCharacterizationStage)stage));
     }
     for (int action = RSS_DDC_CHARACTERIZATION_ACTION_PREPARE;
-         action <= RSS_DDC_CHARACTERIZATION_ACTION_COMPLETE; ++action) {
+         action <= RSS_DDC_CHARACTERIZATION_ACTION_WAIT_FOR_INTERACTION; ++action) {
         assert_plain_library_string("characterization-action",
                                     rss_ddc_characterization_action_name((RSSDDCCharacterizationAction)action));
+    }
+    for (int kind = RSS_DDC_CHARACTERIZATION_INTERACTION_NONE;
+         kind <= RSS_DDC_CHARACTERIZATION_INTERACTION_VALIDATION_APPROVAL; ++kind) {
+        assert_plain_library_string("characterization-interaction-kind",
+                                    rss_ddc_characterization_interaction_kind_name(
+                                        (RSSDDCCharacterizationInteractionKind)kind));
+    }
+    for (int risk = RSS_DDC_CHARACTERIZATION_INTERACTION_RISK_NONE;
+         risk <= RSS_DDC_CHARACTERIZATION_INTERACTION_RISK_WRITE; ++risk) {
+        assert_plain_library_string("characterization-interaction-risk",
+                                    rss_ddc_characterization_interaction_risk_name(
+                                        (RSSDDCCharacterizationInteractionRisk)risk));
     }
 }
 
